@@ -42,8 +42,16 @@ id_rsa.*
 pgdata/
 miniodata/
 
-# Editor and OS
-.vscode/
+# Editor and OS.
+#
+# `.vscode/` is ignored EXCEPT the two shared files. Workspace settings and the extension
+# list are a property of the repository, not of a person: the explorer grouping, the
+# artefact excludes and `files.encoding: utf8` are the same for everybody, and the last of
+# those is load-bearing on Windows. Everything else under .vscode/ — launch profiles,
+# per-machine paths, extension state — stays personal.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 .idea/
 *.swp
 .DS_Store

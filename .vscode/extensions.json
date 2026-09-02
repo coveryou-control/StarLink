@@ -1,0 +1,20 @@
+{
+  // The four that correspond to gates this repository actually runs. Recommending an
+  // extension for a check that is not in CI teaches people to trust a squiggle that no
+  // merge depends on, so the list stops here.
+  "recommendations": [
+    // `pnpm lint` — flat config, see eslint.config.mjs.
+    "dbaeumer.vscode-eslint",
+    // `.editorconfig` — encoding and line endings, both load-bearing on Windows.
+    "editorconfig.editorconfig",
+    // `pnpm test:verify` — runs the same vitest workspace, one file at a time.
+    "vitest.explorer",
+    // `pnpm test:e2e:verify` — the browser gate in e2e/.
+    "ms-playwright.playwright"
+  ],
+  "unwantedRecommendations": [
+    // Formats on save with its own opinion, which is not the one .editorconfig and
+    // ESLint hold. Two formatters in one repository is a diff nobody asked for.
+    "esbenp.prettier-vscode"
+  ]
+}
