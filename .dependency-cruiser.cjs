@@ -158,6 +158,15 @@ module.exports = {
           '(^|/)tsconfig\\.json$',
           // Framework config read by the toolchain, never imported by source.
           '(^|/)(next|vitest|postcss|tailwind)\\.config\\.(js|cjs|mjs|ts)$',
+          /*
+             `public/` is served as static files, not imported.
+
+             The service worker there is an ORPHAN by definition — the browser fetches it by
+             URL and runs it in its own global scope, and a `public/` asset that something
+             imported would be the actual mistake. It is still linted; see the
+             public-assets block in eslint.config.mjs.
+          */
+          '(^|/)public/',
         ],
       },
       to: {},

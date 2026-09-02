@@ -15,6 +15,25 @@
 
 export const EMPLOYEE_API_BASE = '/v1/employee';
 
+/**
+ * The shortest term the message search will accept (FR-SRCH-5).
+ *
+ * Here rather than in `@starlink/search` because it is part of the HTTP CONTRACT — it
+ * describes what the endpoint accepts, so both the side that enforces it and the side
+ * that must not violate it read the same number.
+ *
+ * They did not. The server refused at 3 and the employee web app sent at 2, so typing two
+ * characters produced a uniform §27.3 refusal, which the client can only render as
+ * "Search is unavailable. This is not the same as no results." — an outage message for a
+ * working service, shown to somebody who had simply not finished typing. The refusal is
+ * deliberately indistinguishable from any other (§27.3), so the client cannot recover by
+ * reading the reason; the only fix is that the two numbers cannot differ.
+ *
+ * `packages/shared-contracts/src/http/contract-drift.test.ts` fails the build if either
+ * side stops reading this.
+ */
+export const SEARCH_MINIMUM_TERM_LENGTH = 3;
+
 export const employeeRoutes = {
   auth: {
     signIn: `${EMPLOYEE_API_BASE}/auth/sign-in`,

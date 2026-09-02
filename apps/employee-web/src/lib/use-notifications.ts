@@ -1,15 +1,19 @@
 'use client';
 
 /**
- * The notification badge and the notification list, from one source.
+ * Being told that something arrived — a sound, and a system notification.
  *
- * ## Why a hook rather than a component
+ * ## There is no panel any more
  *
- * The count is shown on the navigation rail and the list is shown in a panel, and those
- * are two different places on the screen. Held inside a component they would be two
- * independent pollers with two independent ideas of the unread count, and the badge would
- * disagree with the list it opens — which is the specific way a notification indicator
- * loses people's trust.
+ * This drove a badge and a list in a Notifications destination. Both are gone: the list was
+ * a record of things that had already happened somewhere you could go and look, and the
+ * badge duplicated the unread counts already on the conversation rows. What is left is the
+ * part that tells you at the moment it happens.
+ *
+ * Which means the LIST poll below is now load-bearing rather than incidental. It used to
+ * run only when somebody opened the panel; with no panel to open, arrival detection would
+ * simply never have run, and the sound this hook exists for would never have played. It is
+ * on the same timer as the count.
  *
  * ## Live, with a poll underneath
  *
@@ -24,6 +28,7 @@ import { principalChannel } from '@starlink/shared-contracts/realtime';
 import { api, ApiError, type NotificationView } from './api-client';
 import { useRoom } from './use-room';
 import {
+  ensureNotificationWorker,
   playNotificationTone,
   raiseDeviceNotification,
   readDeviceNotifications,
@@ -75,13 +80,36 @@ export function useNotifications(
     }
   }, [onUnauthenticated]);
 
+  /*
+     Registered once, on the first mount of a signed-in shell.
+
+     Here rather than in the root layout because it exists for exactly one purpose: raising
+     a notification on a phone, where `new Notification(...)` is not allowed. A signed-out
+     visitor has nothing to be notified about.
+  */
   useEffect(() => {
-    void refreshCount();
-    const timer = setInterval(() => void refreshCount(), POLL_MS);
+    void ensureNotificationWorker();
+  }, []);
+
+  useEffect(() => {
+    const tick = (): void => {
+      void refreshCount();
+      void loadRef.current?.();
+    };
+    tick();
+    const timer = setInterval(tick, POLL_MS);
     return () => clearInterval(timer);
   }, [refreshCount]);
 
-  useRoom(principalChannel(principalId as never), () => void refreshCount());
+  /*
+     §20.7's Notification-created event, which is what makes the sound arrive with the
+     message rather than up to POLL_MS later. The poll underneath it is the documented
+     fallback for a dropped socket, not the primary path.
+  */
+  useRoom(principalChannel(principalId as never), () => {
+    void refreshCount();
+    void loadRef.current?.();
+  });
 
   /**
    * The device layer: a desktop notification and a tone, when this browser has been asked
@@ -97,6 +125,13 @@ export function useNotifications(
    * `device-notifications.ts` for why.
    */
   const seen = useRef<Set<string> | undefined>(undefined);
+
+  /*
+     `load` is declared below this point and the poll above needs it. A ref rather than
+     reordering the file: `load` closes over setState only, so a stale one is harmless, and
+     putting it in the effect's dependency array would restart the interval on every render.
+  */
+  const loadRef = useRef<(() => Promise<void>) | undefined>(undefined);
 
   useEffect(() => {
     const known = seen.current;
@@ -115,13 +150,34 @@ export function useNotifications(
     );
     if (wanted.length === 0) return;
 
-    /* Not while the person is looking at the application. A desktop notification for a
-       message already on screen is the interruption people mean when they say they turned
-       notifications off. */
-    if (typeof document !== 'undefined' && document.visibilityState === 'visible') return;
+    const hidden = typeof document === 'undefined' || document.visibilityState !== 'visible';
 
+    /*
+       The sound plays whether or not the window is in front.
+
+       It used to be suppressed along with the notification whenever the page was visible,
+       on the reasoning that you can already see the message. You cannot: "visible" means
+       the tab is on screen, not that you are reading the thread the message landed in, and
+       on a laptop with the workspace open in the background that rule made StarLink the one
+       messenger that stayed silent. The one exception is the thread you are actually
+       looking at — a tone for a message whose bubble is animating in front of you is noise.
+    */
+    const openConversation =
+      typeof window === 'undefined'
+        ? undefined
+        : /\/conversations\/([0-9a-f-]{36})/.exec(window.location.pathname)?.[1];
+    const elsewhere = wanted.filter(
+      (item) => hidden || item.targetRef === undefined || item.targetRef !== openConversation,
+    );
+    if (elsewhere.length > 0) playNotificationTone();
+
+    /*
+       The system notification is for when the application is NOT what you are looking at —
+       which on a phone means the app is in the background, and the notification then lands
+       on the lock screen the way every other app's does.
+    */
+    if (!hidden) return;
     for (const item of wanted) raiseDeviceNotification(item.subject, item.targetRef);
-    if (settings.sound) playNotificationTone();
   }, [items]);
 
   const load = useCallback(async () => {
@@ -148,6 +204,9 @@ export function useNotifications(
       setLoading(false);
     }
   }, [onUnauthenticated]);
+
+  /* Handed to the poll above, which runs before this declaration in source order. */
+  loadRef.current = load;
 
   const markRead = useCallback(
     async (notificationId: string) => {

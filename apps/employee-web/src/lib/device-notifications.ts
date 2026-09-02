@@ -38,16 +38,24 @@ export interface DeviceNotifications {
 }
 
 /**
- * Off is the default for everything that interrupts.
+ * On, for the three that say a message arrived.
  *
- * A product that starts making noises before anybody asked it to is a product people turn
- * off entirely. The unread count works from the first second either way, because that is the
- * mechanism §29.6 guarantees and this file cannot reach it.
+ * They were all off, on the reasoning that a product which starts making noises before
+ * anybody asked is a product people turn off entirely. That reasoning is right for a
+ * marketing app and wrong for a messenger: being told is the job. StarLink had removed
+ * per-conversation mute for exactly this reason — "getting notifications is important for
+ * everyone" — and then shipped with every notification switch off by default, which is the
+ * same silence arrived at by a different route.
+ *
+ * Nothing here can interrupt anybody on its own. The system notification additionally
+ * requires the BROWSER's permission, which is asked for on the settings screen at the
+ * moment somebody turns a switch on, never on arrival. Quiet hours stay off because a
+ * window during which the product goes silent is a business decision, not a default.
  */
 export const DEVICE_NOTIFICATION_DEFAULTS: DeviceNotifications = {
-  direct: false,
-  groups: false,
-  sound: false,
+  direct: true,
+  groups: true,
+  sound: true,
   quietHours: false,
   quietFrom: '20:00',
   quietTo: '09:00',
@@ -65,11 +73,22 @@ export function readDeviceNotifications(): DeviceNotifications {
        Field by field, and a bad value falls back rather than throwing. This is a string a
        person could have edited, and one malformed key must not cost the other five.
     */
+    /*
+       Absent means DEFAULT, not false.
+
+       `parsed.x === true` collapsed both "the person turned it off" and "this key was
+       written before the field existed" to off — so every browser holding a settings blob
+       from an earlier version would have stayed silent through the change of defaults
+       above, which is precisely the population that would never think to look.
+    */
+    const flag = (value: unknown, fallback: boolean): boolean =>
+      typeof value === 'boolean' ? value : fallback;
+
     return {
-      direct: parsed.direct === true,
-      groups: parsed.groups === true,
-      sound: parsed.sound === true,
-      quietHours: parsed.quietHours === true,
+      direct: flag(parsed.direct, DEVICE_NOTIFICATION_DEFAULTS.direct),
+      groups: flag(parsed.groups, DEVICE_NOTIFICATION_DEFAULTS.groups),
+      sound: flag(parsed.sound, DEVICE_NOTIFICATION_DEFAULTS.sound),
+      quietHours: flag(parsed.quietHours, DEVICE_NOTIFICATION_DEFAULTS.quietHours),
       quietFrom: isTime(parsed.quietFrom) ? parsed.quietFrom : DEVICE_NOTIFICATION_DEFAULTS.quietFrom,
       quietTo: isTime(parsed.quietTo) ? parsed.quietTo : DEVICE_NOTIFICATION_DEFAULTS.quietTo,
     };
@@ -124,31 +143,76 @@ export function shouldNotify(
 }
 
 /**
- * Raises a desktop notification, if the browser has been given permission.
+ * Registers the notification service worker.
+ *
+ * Idempotent and safe to call on every mount — `register` on an already-registered scope
+ * resolves to the existing registration. Failure is silent by design: a browser with
+ * service workers disabled still gets the tone and the in-app unread counts, and an error
+ * banner about a worker is not something the person can act on.
+ */
+export async function ensureNotificationWorker(): Promise<ServiceWorkerRegistration | undefined> {
+  try {
+    if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) return undefined;
+    return await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Raises a system notification, if the browser has been given permission.
  *
  * Never ASKS for permission here. A permission prompt that appears because a message
  * arrived is the prompt everybody denies; it is requested from the settings page, at the
  * moment somebody turns the switch on, which is the one time the request makes sense.
  *
  * Body-free, like the notification it mirrors (§29.2): it says something arrived and where,
- * never what was said. A desktop notification is rendered on a locked screen in an open-plan
+ * never what was said. A system notification is rendered on a locked screen in an open-plan
  * office, which is the last place a message body should appear.
+ *
+ * ## Through the service worker where there is one
+ *
+ * `new Notification(...)` THROWS on Android Chrome — "Illegal constructor" — and the only
+ * supported path there is `ServiceWorkerRegistration.showNotification`. So the phone, which
+ * is the device where this matters most, was the one device it could never work on. The
+ * worker path is tried first and the constructor is the desktop fallback.
  */
 export function raiseDeviceNotification(title: string, target?: string): void {
-  try {
-    if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
-    const notification = new Notification(title, {
-      icon: '/icon-192.png',
-      // One per conversation: five messages in a thread is one thing to look at.
-      ...(target !== undefined ? { tag: `starlink:${target}` } : {}),
-    });
-    notification.onclick = () => {
-      window.focus();
-      notification.close();
-    };
-  } catch {
-    // A browser that refuses to construct one is a browser that will not show one.
-  }
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+
+  const options: NotificationOptions = {
+    icon: '/icon-192.png',
+    badge: '/icon-192.png',
+    // One per conversation: five messages in a thread is one thing to look at.
+    ...(target !== undefined ? { tag: `starlink:${target}` } : {}),
+    ...(target !== undefined ? { data: { url: `/conversations/${target}` } } : {}),
+  };
+
+  void (async () => {
+    try {
+      const registration =
+        typeof navigator !== 'undefined' && 'serviceWorker' in navigator
+          ? await navigator.serviceWorker.getRegistration('/')
+          : undefined;
+      if (registration !== undefined) {
+        await registration.showNotification(title, options);
+        return;
+      }
+    } catch {
+      // Fall through to the constructor below.
+    }
+
+    try {
+      const notification = new Notification(title, options);
+      notification.onclick = () => {
+        window.focus();
+        if (target !== undefined) window.location.assign(`/conversations/${target}`);
+        notification.close();
+      };
+    } catch {
+      // A browser that refuses to construct one is a browser that will not show one.
+    }
+  })();
 }
 
 /**

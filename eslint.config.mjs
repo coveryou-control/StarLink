@@ -119,6 +119,21 @@ export default tseslint.config(
 
   {
     /**
+     * Service workers run in a ServiceWorkerGlobalScope, where `self` is the global and
+     * there is no `window` or `document`.
+     *
+     * Linted rather than excluded: this file decides what happens when somebody taps a
+     * notification, and `public/` being outside the module graph is a reason for the
+     * BOUNDARY tool to skip it, not a reason to stop checking it.
+     */
+    files: ['apps/*/public/*.js'],
+    languageOptions: {
+      globals: { self: 'readonly', clients: 'readonly', caches: 'readonly' },
+    },
+  },
+
+  {
+    /**
      * Test files may reach for shapes production code may not.
      *
      * A test that proves a refusal has to be able to construct the invalid input the

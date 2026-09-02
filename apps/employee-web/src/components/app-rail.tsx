@@ -18,7 +18,17 @@ import { initialsFor } from './conversation-naming';
  * A rail fixes the hierarchy rather than the spacing: one destination is open at a time,
  * the rest are one click away, and the list gets the whole panel.
  */
-export type RailSection = 'chats' | 'people' | 'announcements' | 'notifications' | 'settings';
+/**
+ * Notifications is NOT a destination.
+ *
+ * It was a fifth tile with an unread badge, and the panel behind it was a list of things
+ * that had already happened somewhere you could go and look. A message arriving now makes
+ * a sound and, when the application is not the thing you are looking at, raises a system
+ * notification — which is where a person expects to be told, and it does not cost a
+ * permanent tab to say it. The unread counts on the conversation rows are unchanged; §29.6
+ * calls those "the unread mechanism" and nothing here touches them.
+ */
+export type RailSection = 'chats' | 'people' | 'announcements' | 'settings';
 
 const SECTIONS: readonly {
   readonly id: RailSection;
@@ -86,20 +96,6 @@ const SECTIONS: readonly {
     ),
   },
   {
-    id: 'notifications',
-    label: 'Notifications',
-    icon: (
-      <path
-        d="M12 3.8a5 5 0 0 1 5 5v3.4l1.6 2.9H5.4L7 12.2V8.8a5 5 0 0 1 5-5ZM10.1 18.4a2 2 0 0 0 3.8 0"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    ),
-  },
-  {
     id: 'settings',
     label: 'Settings',
     /*
@@ -156,7 +152,6 @@ export const RAIL_SECTIONS: readonly RailSection[] = [
   'chats',
   'people',
   'announcements',
-  'notifications',
   'settings',
 ];
 
@@ -179,14 +174,22 @@ const PHONE_ICONS: Readonly<Partial<Record<RailSection, ReactNode>>> = {};
 export function AppRail({
   active,
   onSelect,
-  unreadNotifications,
+  unreadChats,
   displayName,
   onSignOut,
   layout = 'rail',
 }: {
   readonly active: RailSection;
   readonly onSelect: (section: RailSection) => void;
-  readonly unreadNotifications: number;
+  /**
+   * Conversations with something unread, badged on Chats.
+   *
+   * Screen 02 draws the count on the chat tile, which is also the only place it can go now
+   * that Notifications is not a destination. It counts CONVERSATIONS rather than messages:
+   * "7" means seven threads want you, and forty messages in one thread is one thing to
+   * open.
+   */
+  readonly unreadChats: number;
   readonly displayName: string;
   readonly onSignOut: () => void;
   /**
@@ -204,7 +207,6 @@ export function AppRail({
   const shown = bottom
     ? PHONE_SECTIONS.flatMap((id) => SECTIONS.filter((section) => section.id === id))
     : SECTIONS.filter((section) => section.id !== 'settings');
-  const settings = SECTIONS.find((section) => section.id === 'settings');
 
   return (
     <nav className="rail" aria-label="StarLink sections">
@@ -229,8 +231,8 @@ export function AppRail({
                 rather than hearing a bare number after the word "Notifications".
               */
               aria-label={
-                section.id === 'notifications' && unreadNotifications > 0
-                  ? `Notifications, ${unreadNotifications} unread`
+                section.id === 'chats' && unreadChats > 0
+                  ? `Chats, ${unreadChats} unread`
                   : bottom
                     ? (PHONE_LABELS[section.id] ?? section.label)
                     : section.label
@@ -246,9 +248,9 @@ export function AppRail({
               <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
                 {bottom ? (PHONE_ICONS[section.id] ?? section.icon) : section.icon}
               </svg>
-              {section.id === 'notifications' && unreadNotifications > 0 ? (
+              {section.id === 'chats' && unreadChats > 0 ? (
                 <span className="rail-badge" aria-hidden="true">
-                  {unreadNotifications > 99 ? '99+' : unreadNotifications}
+                  {unreadChats > 99 ? '99+' : unreadChats}
                 </span>
               ) : null}
               {/* Visible on the rail at wide widths, and the only label on a phone's bar. */}
@@ -261,33 +263,23 @@ export function AppRail({
       </ul>
 
       {/*
-        Settings and the avatar, at the far end — on the rail only.
+        The avatar, at the far end — on the rail only.
+
+        There WAS a cog beside it, and the menu behind the avatar offers Settings as well,
+        so the rail had one destination twice: a cog you could click, and a cog-shaped item
+        inside a menu one row above it. The menu wins — it is where the account already
+        lives, and "Settings" reads as a word rather than as a glyph you have to hover to
+        identify.
 
         On a phone Settings IS the fourth tab ("You") and the account menu lives inside it,
-        so a second copy here would be one destination twice on one bar.
+        so neither is rendered here.
       */}
-      {bottom || settings === undefined ? null : (
-        <>
-          <button
-            type="button"
-            className="rail-item rail-item-end"
-            onClick={() => onSelect('settings')}
-            title={settings.label}
-            aria-current={active === 'settings' ? 'page' : undefined}
-            aria-label={settings.label}
-          >
-            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
-              {settings.icon}
-            </svg>
-            <span className="rail-label">{settings.label}</span>
-          </button>
-
-          <ProfileMenu
-            displayName={displayName}
-            onSignOut={onSignOut}
-            onSettings={() => onSelect('settings')}
-          />
-        </>
+      {bottom ? null : (
+        <ProfileMenu
+          displayName={displayName}
+          onSignOut={onSignOut}
+          onSettings={() => onSelect('settings')}
+        />
       )}
     </nav>
   );

@@ -9,7 +9,6 @@ import { useMediaQuery } from '../../lib/use-media-query';
 import { AnnouncementsPanel } from '../../components/announcements-panel';
 import { ConversationList } from '../../components/conversation-list';
 import { ConversationSearch } from '../../components/conversation-search';
-import { NotificationsPanel } from '../../components/notifications-panel';
 import { SettingsPanel } from '../../components/settings-panel';
 import { StartConversation } from '../../components/start-conversation';
 import { TeamQueue } from '../../components/team-queue';
@@ -71,10 +70,15 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
 
   const signedInId = state.status === 'SIGNED_IN' ? state.me.principalId : '';
   /**
-   * Held in the shell so the rail badge and the notifications panel cannot disagree — two
-   * pollers with two ideas of the unread count is how a badge stops being believed.
+   * Called for its effects, and the result is deliberately not bound.
+   *
+   * There is no notifications panel and no bell badge any more, so nothing on screen reads
+   * its state. What it still does is the reason it is here: it polls, it notices what
+   * arrived, and it plays a tone and raises a system notification. Mounted once, in the
+   * shell, so a person is told about a message regardless of which section they are looking
+   * at — and only once, rather than once per panel that happened to want it.
    */
-  const notifications = useNotifications(signedInId);
+  useNotifications(signedInId);
 
   /**
    * Presence for everybody currently on screen, asked once for the whole surface.
@@ -238,7 +242,12 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
         layout={onPhone ? 'bottom' : 'rail'}
         active={section}
         onSelect={setSection}
-        unreadNotifications={notifications.unread}
+        /*
+           Threads with something unread, not the notification outbox's count. Screen 02
+           badges the chat tile, and since Notifications stopped being a destination this is
+           the only place the number can live — see `app-rail.tsx`.
+        */
+        unreadChats={conversations.filter((c) => c.unreadCount > 0).length}
         displayName={state.me.displayName}
         onSignOut={() => void signOut()}
       />
@@ -491,16 +500,14 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
             />
           ) : null}
 
-          {section === 'notifications' ? (
-            <NotificationsPanel
-              state={notifications}
-              conversations={conversations}
-              onOpenConversation={(id) => {
-                setSection('chats');
-                router.push(`/conversations/${id}`);
-              }}
-            />
-          ) : null}
+          {/*
+            There is no Notifications panel.
+
+            It was a fifth destination holding a list of things that had already happened.
+            Arrival is now told where a person expects to be told — a sound, and a system
+            notification when the application is not what they are looking at. The hook
+            below still runs; it is what raises both.
+          */}
 
 
 

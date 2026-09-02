@@ -15,10 +15,19 @@
  *     render identically).
  *   * **FR-SRCH-5** — very short terms are refused rather than returning everything.
  */
+import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
 import type { AuthorizedScope, Page, SearchHit, SearchProvider, UUID } from '@starlink/shared-contracts';
 
-/** Below this, a term matches so much that the result is a corpus dump (FR-SRCH-5). */
-export const MINIMUM_TERM_LENGTH = 3;
+/**
+ * Below this, a term matches so much that the result is a corpus dump (FR-SRCH-5).
+ *
+ * Re-exported from the HTTP contract rather than declared here. It was a literal `3` in
+ * this file and a literal `2` in the employee web app's search box, and the gap was
+ * invisible from either side: the server's refusal is the uniform §27.3 one, so the client
+ * rendered "Search is unavailable" — an outage message — for somebody who had typed two
+ * characters. One number, read by both.
+ */
+export const MINIMUM_TERM_LENGTH = SEARCH_MINIMUM_TERM_LENGTH;
 
 export interface SearchCommand {
   readonly principalId: UUID;

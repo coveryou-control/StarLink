@@ -877,24 +877,14 @@ export function Composer({
       </div>
 
       {/*
-        The shortcut, under the field and always there — screen 02's own caption.
+        No keyboard caption.
 
-        It used to appear only once something had been typed, floated over the field's top
-        edge, on the reasoning that a permanent line of instructions reads as clutter after
-        the first day. The design disagrees and it is the source of truth; it also has the
-        better of the argument, because the line is where somebody looks when Enter did
-        something they did not expect, and that is exactly the moment it used to be visible
-        only if they had already typed.
-
-        Not in a thread pane, where the column is 320px and the caption would wrap.
+        There was a line under the field reading "Enter to send · Shift + Enter for a new
+        line". It is true, and it is the kind of true that only needs saying once: everybody
+        who uses a chat product already presses Enter, the people who do not are not reading
+        a 12px caption to find out, and it cost a permanent row under a control that is on
+        screen all day. The behaviour is unchanged — see `onKeyDown` above.
       */}
-      {threadParentId === undefined ? (
-        <p className="composer-caption" aria-hidden="true">
-          {canReplyToCustomer || !enterToSend
-            ? 'Ctrl + Enter to send'
-            : 'Enter to send · Shift + Enter for a new line'}
-        </p>
-      ) : null}
 
       {error !== undefined ? (
         <p role="alert" className="composer-error">

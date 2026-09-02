@@ -679,10 +679,6 @@ input[type='search']::-webkit-search-cancel-button {
    one lost the shorthand and the foot group floated in the middle of the rail. The
    horizontal auto is restated so centring survives.
 */
-.rail-item-end {
-  margin: auto auto 0;
-}
-
 .rail-item:hover {
   background: var(--rail-item-active);
   color: var(--rail-fg-active);
@@ -726,24 +722,23 @@ input[type='search']::-webkit-search-cancel-button {
   box-shadow: 0 0 0 2px var(--rail-bg);
 }
 
+/*
+   The account, at the FOOT of the rail.
+
+   `margin-top: auto` is here because the element that used to absorb the free space —
+   `.rail-item-end`, the Settings tile — no longer exists: the account menu already offered
+   Settings, so the rail had one destination twice. Without this the avatar sits directly
+   under the last destination, three-quarters of the way up an empty column.
+
+   One element claims the space, deliberately. It was three at one point (`.rail-items`,
+   its last child, and this) and the bell ended up alone at the bottom of the rail when
+   Announcements changed which item was last.
+*/
 .rail-account {
   position: relative;
+  margin-top: auto;
   padding-top: var(--space-3);
 }
-
-/*
-   The gap between the destinations and the foot belongs to ONE element.
-
-   It used to be `.rail-items li:last-child { margin-top: auto }` plus `.rail-items { flex: 1 }`
-   plus `margin-top: auto` on the account — three claims on the same free space, which was
-   fine while the last list item WAS Settings. It is not any more: Announcements made
-   Notifications the last item, and the bell shot to the bottom of the rail on its own,
-   separated from the three destinations it belongs with.
-
-   Now `.rail-item-end` (the Settings tile, outside the list) is the only element that
-   absorbs it, which is also what the reference draws: four destinations together at the
-   top, Settings and the avatar together at the foot.
-*/
 
 .rail-avatar {
   width: 36px;
@@ -1490,6 +1485,15 @@ input[type='search']::-webkit-search-cancel-button {
    and no floating control, screen 08 puts a floating one and no header +. One element,
    two treatments, because it is one action.
 */
+/*
+   Compose, in the masthead — and in the accent, at every width.
+
+   It was a white tile with a hairline, which is what the reference draws and which made the
+   one thing you come to this column to DO look like the quietest control on it. The
+   floating version on a phone was already solid CY Orange; this is the same button, so it
+   is the same colour. Rule 1 holds: orange is the signal, and "start a conversation" is
+   the signal this column exists for.
+*/
 .fab-new {
   position: static;
   width: 34px;
@@ -1497,9 +1501,9 @@ input[type='search']::-webkit-search-cancel-button {
   padding: 0;
   border: 0;
   border-radius: 10px;
-  background: var(--surface);
-  box-shadow: var(--hairline);
-  color: var(--text);
+  background: var(--accent);
+  box-shadow: none;
+  color: #fff;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1509,7 +1513,7 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .fab-new:hover:not(:disabled) {
-  background: var(--surface-3);
+  background: var(--accent-hover);
 }
 
 .fab-new:active:not(:disabled) {
@@ -3215,16 +3219,25 @@ input[type='search']::-webkit-search-cancel-button {
    these tracks.
    ===================================================================================== */
 
+/*
+   The composer block.
+
+   It used to be 16/24/20 of padding around a 56px field with a caption under it — about
+   122px of the screen, permanently, for one line of text. Taller than a conversation row
+   and half again the height of the bubbles it sits below, which made it read as a second
+   panel rather than as the place you type. 12/24/16 around a 48px field is 76px and holds
+   exactly the same controls.
+*/
 .composer {
   position: relative;
   flex: none;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 16px 24px 20px;
+  gap: 8px;
+  padding: 12px 24px 16px;
   /* Home-indicator inset. Zero on everything that is not a notched phone, so it is
      unconditional. */
-  padding-bottom: max(20px, env(safe-area-inset-bottom));
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
   background: var(--surface);
   border-top: 1px solid var(--border);
 }
@@ -3256,8 +3269,16 @@ input[type='search']::-webkit-search-cancel-button {
      The phone reverses the first two: there, attach is a circle before the pill. */
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  gap: 12px;
-  min-height: 56px;
+  gap: 8px;
+  /*
+     48, not 56.
+
+     The reference draws 56 and at 56 the composer is the heaviest object on the screen —
+     taller than a conversation row, half again the height of the bubbles above it. The
+     field is one line of text and three 36px controls; 48 fits all of it with the same
+     padding and stops the composer reading as a second panel.
+  */
+  min-height: 48px;
   padding: 0 12px 0 16px;
   border-radius: var(--radius-lg);
   background: var(--input-bg);
@@ -3359,7 +3380,7 @@ input[type='search']::-webkit-search-cancel-button {
   align-items: center;
   gap: 8px;
   min-width: 0;
-  min-height: 56px;
+  min-height: 48px;
   padding: 0;
   border: 0;
   background: transparent;
@@ -3440,29 +3461,134 @@ input[type='search']::-webkit-search-cancel-button {
   bottom: calc(100% + var(--space-2));
   right: 0;
   z-index: 30;
-  display: grid;
-  grid-template-columns: repeat(6, 36px);
-  gap: 2px;
-  padding: var(--space-2);
+  width: 336px;
+  max-width: calc(100vw - 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
   border: 1px solid var(--border);
-  border-radius: var(--radius);
+  border-radius: 16px;
   background: var(--surface);
   box-shadow: var(--shadow-md);
 }
 
-.emoji-panel button {
-  width: 36px;
-  height: 36px;
-  padding: 0;
+.emoji-search input {
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
   border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  font-size: 19px;
-  line-height: 1;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken);
+  font-size: 13px;
+  color: var(--text);
 }
 
-.emoji-panel button:hover {
+.emoji-search input:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--input-border-focus);
+}
+
+/* The category row. A hairline under it separates the chooser from what it chose. */
+.emoji-tabs {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+  padding-bottom: 8px;
+  box-shadow: inset 0 -1px 0 var(--border);
+}
+
+.emoji-tab {
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  /* The unselected tabs are dimmed rather than greyed: an emoji cannot take a text colour,
+     so opacity is the only honest way to say "not this one". */
+  opacity: 0.45;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+
+.emoji-tab:hover {
+  opacity: 0.8;
   background: var(--surface-2);
+}
+
+.emoji-tab.active {
+  opacity: 1;
+  background: var(--accent-soft);
+}
+
+/*
+   Fixed height, so the panel does not resize as you type.
+
+   A panel that grows and shrinks with the result count moves the control that opened it,
+   and on the last row of a composer that means the picker jumps off the bottom of the
+   screen mid-search.
+*/
+.emoji-scroll {
+  height: 232px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.emoji-heading {
+  margin: 4px 0 4px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+
+.emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.emoji-grid button {
+  aspect-ratio: 1;
+  width: 100%;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  display: grid;
+  place-items: center;
+}
+
+.emoji-grid button:hover {
+  background: var(--surface-2);
+}
+
+/*
+   The glyph, in a font stack that is ONLY colour-emoji fonts.
+
+   Inherited, the body face is matched first for anything it happens to contain, and several
+   of these — ⚠ ✅ ❗ ▶ among them — exist as flat monochrome outlines in a text font. Half
+   the grid rendered as line art beside the other half's colour artwork, which is what
+   "graphically they don't look right" was describing.
+
+   `font-variant-emoji: emoji` asks for the colour presentation of the characters that have
+   both; browsers that do not know the property ignore it and the VS16 in the data carries
+   the same request.
+*/
+.emoji-glyph {
+  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Twemoji Mozilla',
+    'Segoe UI Symbol', 'EmojiOne Color', 'Android Emoji', sans-serif;
+  font-size: 22px;
+  line-height: 1;
+  font-variant-emoji: emoji;
+}
+
+.emoji-empty {
+  margin: 12px 4px;
+  font-size: 13px;
+  color: var(--text-muted);
 }
 
 /*
@@ -5063,13 +5189,6 @@ input[type='search']::-webkit-search-cancel-button {
    giving it one is how the gap and the margin end up disagreeing the next time either
    changes.
 */
-.composer-caption {
-  margin: 0;
-  padding-left: 4px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
 .composer-also {
   display: flex;
   align-items: center;
@@ -7089,18 +7208,6 @@ input[type='search']::-webkit-search-cancel-button {
 
   .thread {
     padding-top: var(--space-3);
-  }
-
-  /*
-     No keyboard caption on a phone.
-
-     Screen 08's composer is three controls and nothing else. The line describes a hardware
-     keyboard that is not attached, and it costs a whole row above a keyboard that already
-     takes half the screen. It is `aria-hidden` decoration on the desktop too, so nothing
-     but the drawing changes here.
-  */
-  .composer-caption {
-    display: none;
   }
 
   /*

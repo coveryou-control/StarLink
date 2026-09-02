@@ -35,6 +35,8 @@
  */
 import { useEffect, useRef, useState } from 'react';
 
+import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
+
 import {
   api,
   ApiError,
@@ -54,7 +56,16 @@ import { requestBrowseDirectory } from '../lib/shell-actions';
 type Facet = 'all' | 'messages' | 'files' | 'people';
 
 const DEBOUNCE_MS = 300;
-const MIN_LENGTH = 2;
+/**
+ * The server's own minimum, not a second opinion about it.
+ *
+ * This was a literal `2` while `searchMessages` refused below `3`, so typing two
+ * characters sent a request the server was always going to refuse — and its refusal is the
+ * uniform §27.3 one, which this component can only render as "Search is unavailable. This
+ * is not the same as no results." An outage message, for a working service, shown to
+ * somebody who had typed "hi".
+ */
+const MIN_LENGTH = SEARCH_MINIMUM_TERM_LENGTH;
 
 /**
  * `ts_headline` marks the matched words with `<<` and `>>` (see `search-provider.ts`,
@@ -287,6 +298,20 @@ export function ConversationSearch({
       </form>
 
       <div aria-live="polite">
+        {/*
+          Typing, but not far enough yet.
+
+          Silence here is what made the old behaviour so confusing: two characters produced
+          either nothing or an outage message, and neither said "keep going". FR-SRCH-5's
+          floor is a rule the person has to know about, so it is stated at the moment it
+          applies rather than after a request they should never have sent.
+        */}
+        {query.length > 0 && !active ? (
+          <p className="muted result-note">
+            Keep typing — search needs at least {MIN_LENGTH} characters.
+          </p>
+        ) : null}
+
         {busy ? <p className="muted result-note">Searching…</p> : null}
 
         {message !== undefined && !busy ? (
