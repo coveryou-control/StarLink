@@ -104,20 +104,50 @@ describe('scope is decided here, never taken from the caller', () => {
   });
 });
 
-describe('short terms are refused, not answered (FR-SRCH-5)', () => {
-  it('refuses a term below the minimum without touching the provider', async () => {
+describe('an empty term is refused, not answered (FR-SRCH-5)', () => {
+  /**
+   * The floor is ONE character now, not three.
+   *
+   * FR-SRCH-5's rule — "very short terms are refused rather than returning everything" — is
+   * unchanged; what changed is the instrument. A length floor never bounded the result set:
+   * the scope JOIN does (§30.2, and the test above proves an absent scope returns nothing),
+   * the page cap does, and the rate limiter does. All three hold for a one-character term.
+   * The floor only stopped somebody searching for a colleague by their initials, or for the
+   * two-letter word another person had actually sent.
+   *
+   * So this asserts the part that is still true, and asserts it harder: whitespace-only is
+   * refused as well as empty, and neither reaches the index. A term of one character now
+   * SEARCHES, and that is asserted below rather than left implied — a test that only
+   * checked refusals would still pass if the floor silently went back up.
+   */
+  it('refuses empty and whitespace-only terms without touching the provider', async () => {
     const provider = createProvider();
     const audit = collector();
-    for (const term of ['', ' ', 'a', 'ab']) {
+    for (const term of ['', ' ', '   ', '	']) {
       const result = await searchMessages(command({ term }), {
         provider,
         recordSearch: audit.recordSearch,
       });
-      expect(result.ok, term).toBe(false);
+      expect(result.ok, JSON.stringify(term)).toBe(false);
       if (!result.ok) expect(result.reason).toBe('TERM_TOO_SHORT');
     }
     // A refused search must not reach the index at all.
     expect(provider.calls).toBe(0);
+  });
+
+  it('answers a one-character term', async () => {
+    const provider = createProvider();
+    const audit = collector();
+    const result = await searchMessages(command({ term: 'a' }), {
+      provider,
+      recordSearch: audit.recordSearch,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(provider.calls).toBe(1);
+    // Still scoped, still audited — the two properties the floor was never providing.
+    expect(provider.lastScope?.principalId).toBe(PRINCIPAL);
+    expect(audit.entries.at(-1)?.term).toBe('a');
   });
 });
 
@@ -138,11 +168,17 @@ describe('every search is audited WITH THE TERM (FR-SRCH-3)', () => {
     });
   });
 
-  it('records a REFUSED short term too — a stream of probes is itself a signal', async () => {
+  it('records a REFUSED empty term too — a stream of probes is itself a signal', async () => {
+    /*
+       'ab' until the floor dropped to one character, at which point it became a SUCCESS and
+       this stopped testing what it says. The refusal that is left is the empty term, and it
+       is audited for the same reason: a caller repeatedly hitting a refusal is worth seeing
+       in the ledger, whatever the refusal is for.
+    */
     const provider = createProvider();
     const audit = collector();
-    await searchMessages(command({ term: 'ab' }), { provider, recordSearch: audit.recordSearch });
-    expect(audit.entries[0]).toMatchObject({ outcome: 'REFUSED', term: 'ab' });
+    await searchMessages(command({ term: '  ' }), { provider, recordSearch: audit.recordSearch });
+    expect(audit.entries[0]).toMatchObject({ outcome: 'REFUSED', term: '' });
   });
 
   it('records a FAILED search', async () => {

@@ -26,6 +26,7 @@
  * refusal is explained before it is spent.
  */
 import { useState } from 'react';
+import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
 
 import { api, ApiError, type DirectoryEntry } from '../lib/api-client';
 
@@ -44,8 +45,11 @@ export function ColleaguePicker({
 
   const search = async (): Promise<void> => {
     const query = term.trim();
-    if (query.length < 2) {
-      setMessage('Type at least two characters.');
+    /* The server's floor. It said two, and said so in a message the person then had to act
+       on; the endpoint accepts one now, so the only term this can refuse is an empty one —
+       and an empty box needs no sentence explaining itself. */
+    if (query.length < SEARCH_MINIMUM_TERM_LENGTH) {
+      setMessage(undefined);
       return;
     }
     setBusy(true);
@@ -108,7 +112,7 @@ export function ColleaguePicker({
           placeholder="Search by name"
           autoComplete="off"
         />
-        <button type="button" onClick={() => void search()} disabled={busy || term.trim().length < 2}>
+        <button type="button" onClick={() => void search()} disabled={busy || term.trim().length < SEARCH_MINIMUM_TERM_LENGTH}>
           {busy ? 'Searching…' : 'Search'}
         </button>
       </div>

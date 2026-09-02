@@ -8,6 +8,7 @@
 import { Controller, Get, Inject, Query, Req } from '@nestjs/common';
 import { z } from 'zod';
 import { searchMessages, type RateLimiter, type SearchAuditEntry } from '@starlink/search';
+import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
 import type { SearchProvider } from '@starlink/shared-contracts';
 import type { Logger } from '@starlink/observability';
 import type pg from 'pg';
@@ -16,11 +17,11 @@ import type { AuditWriter } from '../audit/audit-writer.js';
 import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
 
 const fileQuerySchema = z.object({
-  q: z.string().min(1).max(200),
+  q: z.string().min(SEARCH_MINIMUM_TERM_LENGTH).max(200),
 });
 
 const querySchema = z.object({
-  q: z.string().min(1).max(200),
+  q: z.string().min(SEARCH_MINIMUM_TERM_LENGTH).max(200),
   conversationId: z.string().uuid().optional(),
   cursor: z.string().min(1).max(500).optional(),
 });
@@ -66,9 +67,10 @@ export class EmployeeSearchController {
 
     const session = request.session!;
     const term = parsed.data.q.trim();
-    /* The same floor the directory uses (FR-SRCH-5): a one-character search is a request
-       for every file in the company wearing a search's clothes. */
-    if (term.length < 2) return { files: [] };
+    /* Empty is not a search. One character is — the JOIN on participation and the LIMIT 25
+       below are what bound this, not the length of the term. See
+       `SEARCH_MINIMUM_TERM_LENGTH`. */
+    if (term.length < SEARCH_MINIMUM_TERM_LENGTH) return { files: [] };
 
     const result = await this.pool.query(
       `SELECT a.attachment_id, a.original_filename, a.declared_bytes, a.created_at,

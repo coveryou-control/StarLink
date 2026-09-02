@@ -37,6 +37,34 @@ import { err, ok } from '@starlink/shared-contracts';
 const MAX_RESULTS = 50;
 const FTS_CONFIG = 'english';
 
+/**
+ * The query, with the LAST lexeme treated as a prefix.
+ *
+ * `plainto_tsquery` alone matches whole stemmed words, which is right for a search you
+ * submit and wrong for one that runs as you type: "rahu" found nothing until the "l"
+ * arrived, and "hi" found nothing at all because the box refused to send it. Appending
+ * `:*` is Postgres's own search-as-you-type form — "wha" matches "what", "ra" matches
+ * "Rahul", and the earlier words in a multi-word term stay exact so "sla numb" narrows
+ * rather than widens.
+ *
+ * Built by casting the parsed query BACK to text and re-parsing, rather than by
+ * interpolating the caller's string: `plainto_tsquery` has already stripped the operators
+ * (`&`, `|`, `!`, `<->`, parentheses) that make `to_tsquery` a parser, so nothing the
+ * caller typed reaches it as syntax. Interpolating `$2` into `to_tsquery` directly would
+ * turn a search box into a tsquery-injection surface — the whole reason `plainto_` exists.
+ *
+ * The CASE is not defensive dressing. A term that is entirely stopwords ("the", "of")
+ * parses to the empty tsquery, whose text is `''`; appending `:*` to that yields `:*`,
+ * which is a syntax error, and the search would fail rather than return nothing. Empty
+ * stays empty, and an empty tsquery matches no rows — which is the honest answer.
+ */
+const PREFIX_QUERY = `(
+  CASE WHEN plainto_tsquery('${FTS_CONFIG}', $2)::text = ''
+       THEN plainto_tsquery('${FTS_CONFIG}', $2)
+       ELSE (plainto_tsquery('${FTS_CONFIG}', $2)::text || ':*')::tsquery
+  END
+)`;
+
 interface CursorPosition {
   readonly createdAt: string;
   readonly id: UUID;
@@ -77,7 +105,7 @@ export class PgSearchProvider implements SearchProvider {
     if (term === '') return ok({ items: [] });
 
     const params: unknown[] = [scope.principalId, term];
-    const conditions: string[] = [`m.search_vector @@ plainto_tsquery('${FTS_CONFIG}', $2)`];
+    const conditions: string[] = [`m.search_vector @@ ${PREFIX_QUERY}`];
 
     if (!scope.includeInternal) {
       // Customer paths never even query internal rows (ADR-021). Excluded here rather
@@ -141,9 +169,9 @@ export class PgSearchProvider implements SearchProvider {
                    system-authored message has no sender and must still be findable.
                 */
                 sender.display_name AS sender_display_name,
-                ts_headline('${FTS_CONFIG}', m.body, plainto_tsquery('${FTS_CONFIG}', $2),
+                ts_headline('${FTS_CONFIG}', m.body, ${PREFIX_QUERY},
                             'MaxFragments=1, MaxWords=18, MinWords=5, StartSel=<<, StopSel=>>') AS snippet,
-                ts_rank(m.search_vector, plainto_tsquery('${FTS_CONFIG}', $2)) AS rank
+                ts_rank(m.search_vector, ${PREFIX_QUERY}) AS rank
            FROM conversation.messages m
            JOIN readable r ON r.conversation_id = m.conversation_id
            LEFT JOIN identity.principals sender ON sender.principal_id = m.sender_principal_id

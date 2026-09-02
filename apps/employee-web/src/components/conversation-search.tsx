@@ -29,9 +29,10 @@
  * debounced, with Escape to clear — the interaction every messaging application has, and
  * the one people try before they look for a button.
  *
- * The debounce is 300ms and the minimum is two characters, both for the same reason: §30
- * rate-limits this endpoint, and a request per keystroke would spend that budget in a
- * second and then show a rate-limit message to somebody who searched once.
+ * The debounce is 300ms, and it is now the ONLY thing standing between a fast typist and
+ * the rate limiter: §30 limits this endpoint, and a request per keystroke would spend that
+ * budget in a second and then show a rate-limit message to somebody who searched once.
+ * There is no minimum length to lean on any more — see `SEARCH_MINIMUM_TERM_LENGTH`.
  */
 import { useEffect, useRef, useState } from 'react';
 
@@ -59,11 +60,14 @@ const DEBOUNCE_MS = 300;
 /**
  * The server's own minimum, not a second opinion about it.
  *
- * This was a literal `2` while `searchMessages` refused below `3`, so typing two
- * characters sent a request the server was always going to refuse — and its refusal is the
- * uniform §27.3 one, which this component can only render as "Search is unavailable. This
- * is not the same as no results." An outage message, for a working service, shown to
- * somebody who had typed "hi".
+ * This was a literal `2` while `searchMessages` refused below `3`, so typing two characters
+ * sent a request the server was always going to refuse — and its refusal is the uniform
+ * §27.3 one, which this component can only render as "Search is unavailable. This is not
+ * the same as no results." An outage message, for a working service, shown to somebody who
+ * had typed "hi".
+ *
+ * It is 1 now, so the box searches from the first character and there is no "keep typing"
+ * state left to render. The debounce below is what stops that being a request per keystroke.
  */
 const MIN_LENGTH = SEARCH_MINIMUM_TERM_LENGTH;
 
@@ -298,20 +302,6 @@ export function ConversationSearch({
       </form>
 
       <div aria-live="polite">
-        {/*
-          Typing, but not far enough yet.
-
-          Silence here is what made the old behaviour so confusing: two characters produced
-          either nothing or an outage message, and neither said "keep going". FR-SRCH-5's
-          floor is a rule the person has to know about, so it is stated at the moment it
-          applies rather than after a request they should never have sent.
-        */}
-        {query.length > 0 && !active ? (
-          <p className="muted result-note">
-            Keep typing — search needs at least {MIN_LENGTH} characters.
-          </p>
-        ) : null}
-
         {busy ? <p className="muted result-note">Searching…</p> : null}
 
         {message !== undefined && !busy ? (

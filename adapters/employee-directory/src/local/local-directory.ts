@@ -22,7 +22,7 @@ import type {
   Result,
   UUID,
 } from '@starlink/shared-contracts';
-import { err, ok } from '@starlink/shared-contracts';
+import { err, ok, SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
 
 const notFound = (): Result<never> =>
   err({
@@ -106,10 +106,20 @@ export class LocalEmployeeDirectory implements EmployeeDirectoryProvider {
     cursor?: string,
   ): Promise<Result<Page<EmployeeDisplay>>> {
     const term = query.trim();
-    if (term.length < 2) {
+    /*
+       Empty is refused; one character is not.
+
+       This was a floor of two, on the reasoning that a one-character search is a request
+       for the entire staff list wearing a search's clothes. What actually bounds that is
+       below and unchanged: the scope predicate, the ACTIVE-employee condition, and the page
+       limit. A single letter returns one page of people this caller is already entitled to
+       look up — the same thing two letters returns, only sooner. See
+       `SEARCH_MINIMUM_TERM_LENGTH`.
+    */
+    if (term.length < SEARCH_MINIMUM_TERM_LENGTH) {
       return err({
         code: 'QUERY_TOO_SHORT',
-        message: 'search term must be at least 2 characters',
+        message: 'search term must not be empty',
         retryable: false,
         failureClass: 'FAIL_CLOSED',
         correlationId: 'local-directory',

@@ -26,12 +26,14 @@ import type { EmployeeDirectoryProvider, IdentityAuthorizationClient, Timestamp 
 import type { Logger } from '@starlink/observability';
 import { holdsAction, toActorContext } from '@starlink/conversation-domain';
 import { EMPLOYEE_DIRECTORY, IDENTITY_CLIENT, LOGGER } from '../tokens.js';
+import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
+
 import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
 
 const searchSchema = z.object({
   // Two characters is the floor the adapter enforces; stating it here as well means a
   // short term is a clean 404 rather than an adapter-level refusal shaped differently.
-  q: z.string().min(2).max(100),
+  q: z.string().min(SEARCH_MINIMUM_TERM_LENGTH).max(100),
   visibility: z.enum(['COMPANY', 'DEPARTMENT', 'TEAM']).default('COMPANY'),
   cursor: z.string().min(1).optional(),
 });

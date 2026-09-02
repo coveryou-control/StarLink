@@ -116,12 +116,49 @@ describe('the directory never discloses customers (§11.7)', () => {
 });
 
 describe('search behaviour', () => {
-  withDb('refuses a very short term rather than returning everyone (FR-SRCH-5)', async () => {
-    // An unbounded directory dump is the cheapest reconnaissance available, and also
-    // the query that would quietly become a full scan.
-    const result = await directory.searchDirectory('Z', { requestedBy: SALES, visibility: 'COMPANY' });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe('QUERY_TOO_SHORT');
+  withDb('refuses an empty term rather than returning everyone (FR-SRCH-5)', async () => {
+    /**
+     * The floor is one character now, not two.
+     *
+     * An unbounded directory dump is still the cheapest reconnaissance available — that has
+     * not changed and neither has what prevents it. It is the scope predicate, the
+     * `status = 'ACTIVE'` condition and the page limit, all asserted elsewhere in this file,
+     * that bound the answer. A length floor never did: two characters return a page, one
+     * character returns a page, and the only person the floor turned away was somebody
+     * looking up a colleague by their initial.
+     *
+     * What is still refused is the EMPTY term, because that is not a search — it is a
+     * request for the list, and the list is not a thing this endpoint hands out.
+     */
+    for (const term of ['', '   ']) {
+      const result = await directory.searchDirectory(term, {
+        requestedBy: SALES,
+        visibility: 'COMPANY',
+      });
+      expect(result.ok, JSON.stringify(term)).toBe(false);
+      if (!result.ok) expect(result.error.code).toBe('QUERY_TOO_SHORT');
+    }
+  });
+
+  withDb('answers a one-character term, still scoped and still capped', async () => {
+    /*
+       The other half of the change, asserted rather than implied: a test that only checked
+       refusals would still pass if the floor silently went back up to two.
+    */
+    const result = await directory.searchDirectory('Z', {
+      requestedBy: SALES,
+      visibility: 'COMPANY',
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    // It found people, and every one of them is an ACTIVE employee matching the letter —
+    // the conditions that actually bound this, doing so at one character.
+    expect(result.value.items.length).toBeGreaterThan(0);
+    for (const item of result.value.items) {
+      expect(item.displayName.toLowerCase()).toContain('z');
+    }
+    expect(result.value.items.map((i) => i.principalId)).not.toContain(EXITED);
   });
 
   withDb('excludes inactive employees', async () => {

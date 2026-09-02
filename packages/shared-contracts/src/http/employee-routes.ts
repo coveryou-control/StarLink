@@ -16,23 +16,50 @@
 export const EMPLOYEE_API_BASE = '/v1/employee';
 
 /**
- * The shortest term the message search will accept (FR-SRCH-5).
+ * The shortest term any search will accept — messages, files and the directory alike.
  *
- * Here rather than in `@starlink/search` because it is part of the HTTP CONTRACT — it
- * describes what the endpoint accepts, so both the side that enforces it and the side
- * that must not violate it read the same number.
+ * ## One, and why it is not three
+ *
+ * FR-SRCH-5 says "very short terms are refused rather than returning everything", and this
+ * was 3 on that reading — with the directory refusing below 2 and the file search below 2,
+ * three different floors for one search box. The effect was that typing a colleague's
+ * initials, or the word somebody actually sent, produced nothing at all, and the product
+ * looked broken rather than strict.
+ *
+ * The rule it was protecting is real; the floor was the wrong instrument for it. What stops
+ * a search being a corpus dump here is not the length of the term:
+ *
+ *   - **Scope is a JOIN, not a filter** (§30.2). Every one of the three queries is
+ *     constrained to conversations the caller participates in, or to the ACTIVE employee
+ *     directory they are already entitled to read. A one-character term returns a page of
+ *     what they can already see, not the corpus.
+ *   - **Every result set is capped and paged** — 50 messages, 25 files, one directory page.
+ *   - **The endpoint is rate-limited per principal** (§27.5), so a script cannot walk the
+ *     alphabet cheaply.
+ *   - **Every search is audited with its term** (FR-SRCH-3), so a stream of one-character
+ *     probes is visible as exactly that.
+ *
+ * Those four are what make bulk extraction hard, and none of them weakens by allowing a
+ * shorter term. A floor only ever stopped the honest use.
+ *
+ * Zero is still refused: an empty term is not a search, it is a request for the page.
+ *
+ * ## Why it lives here
+ *
+ * It is part of the HTTP CONTRACT — it describes what the endpoints accept, so both the
+ * side that enforces it and the side that must not violate it read the same number.
  *
  * They did not. The server refused at 3 and the employee web app sent at 2, so typing two
  * characters produced a uniform §27.3 refusal, which the client can only render as
  * "Search is unavailable. This is not the same as no results." — an outage message for a
  * working service, shown to somebody who had simply not finished typing. The refusal is
  * deliberately indistinguishable from any other (§27.3), so the client cannot recover by
- * reading the reason; the only fix is that the two numbers cannot differ.
+ * reading the reason; the only fix is that the numbers cannot differ.
  *
- * `packages/shared-contracts/src/http/contract-drift.test.ts` fails the build if either
- * side stops reading this.
+ * `packages/shared-contracts/src/http/contract-drift.test.ts` fails the build if any
+ * consumer stops reading this.
  */
-export const SEARCH_MINIMUM_TERM_LENGTH = 3;
+export const SEARCH_MINIMUM_TERM_LENGTH = 1;
 
 export const employeeRoutes = {
   auth: {

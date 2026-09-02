@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
 import type { ReactNode } from 'react';
 
 import { initialsFor } from './conversation-naming';
@@ -99,7 +100,11 @@ export function Directory({
 
   useEffect(() => {
     const trimmed = query.trim();
-    if (trimmed.length < 2) {
+    /* The server's floor, not a second opinion about it — see `SEARCH_MINIMUM_TERM_LENGTH`.
+       This was a literal 2 while the directory endpoint also refused below 2, so the two
+       agreed by luck; the endpoint accepts one character now and this would have kept
+       swallowing it. */
+    if (trimmed.length < SEARCH_MINIMUM_TERM_LENGTH) {
       setResults([]);
       setFailed(false);
       return;
