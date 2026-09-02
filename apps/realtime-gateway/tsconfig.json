@@ -1,0 +1,22 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "../../packages/shared-contracts" },
+    { "path": "../../packages/conversation-domain" },
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/security" },
+    { "path": "../../infrastructure/database" },
+    { "path": "../../adapters/realtime-backplane" },
+    { "path": "../../adapters/iam" },
+    { "path": "../../adapters/event-bus" },
+    { "path": "../../infrastructure/outbox-relay" }
+  ]
+}

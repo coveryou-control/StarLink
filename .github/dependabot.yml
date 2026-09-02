@@ -1,0 +1,56 @@
+# =====================================================================================
+# Dependency updates.
+#
+# Weekly rather than daily, and grouped rather than one pull request per package: this is
+# a pnpm workspace with a dozen packages, and ungrouped updates produce a volume of noise
+# that gets ignored — which is the failure mode this file exists to avoid, not to cause.
+#
+# Security advisories are exempt from the grouping and the schedule; Dependabot raises
+# those immediately and they are merged ahead of feature work (see SECURITY.md).
+# =====================================================================================
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:00'
+      timezone: Asia/Kolkata
+    open-pull-requests-limit: 5
+    versioning-strategy: increase
+    groups:
+      # Anything that only affects the build or the tests can move together: a failure is
+      # visible immediately in the same pull request that caused it.
+      dev-tooling:
+        dependency-type: development
+        update-types: [minor, patch]
+      # Runtime patches, likewise. A runtime MAJOR gets its own pull request, deliberately.
+      runtime-patches:
+        dependency-type: production
+        update-types: [patch]
+    ignore:
+      # Pinned in `packageManager` and in the CI workflow's pnpm/action-setup. Bumping it
+      # here without those two produces a lockfile CI cannot install from.
+      - dependency-name: pnpm
+      # `engines.node` and `.nvmrc` and the CI matrix are one decision in three files.
+      - dependency-name: '@types/node'
+        update-types: [version-update:semver-major]
+    commit-message:
+      prefix: 'deps'
+      prefix-development: 'deps(dev)'
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '04:00'
+      timezone: Asia/Kolkata
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: 'ci'

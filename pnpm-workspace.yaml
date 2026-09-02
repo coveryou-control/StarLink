@@ -1,0 +1,9 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+  - 'adapters/*'
+  - 'infrastructure/database'
+  - 'infrastructure/guards'
+  - 'infrastructure/load'
+  - 'infrastructure/outbox-relay'
+  - 'infrastructure/sweeps'

@@ -1,0 +1,19 @@
+/* Depth — elevation, hairlines and background blur, from the Depth page.
+   The source pairs every elevated surface with a 1px inset hairline; the two
+   shadow values below are transcribed verbatim from the specimen row. */
+:root {
+  --hairline-dark: inset 0 0 0 1px rgba(0,0,0,0.1); /* @kind shadow */
+  --hairline-light: inset 0 0 0 1px rgba(255,255,255,0.1); /* @kind shadow */
+
+  --elevation-1: inset 0 0 0 1px rgba(0,0,0,0.1), 0px 4px 4px 0px rgba(0,0,0,0.03);
+  --elevation-2: inset 0 0 0 1px rgba(0,0,0,0.1), 0px 25px 30px 0px rgba(0,0,0,0.08);
+
+  /* Shadow-only variants, for surfaces that carry their own border */
+  --shadow-1: 0px 4px 4px 0px rgba(0,0,0,0.03);
+  --shadow-2: 0px 25px 30px 0px rgba(0,0,0,0.08);
+
+  /* Background blur — the "Blur BG" treatment: a 60% black scrim over media */
+  --scrim: rgba(0,0,0,0.6);
+  --blur-light: blur(30px); /* @kind other */
+  --blur-heavy: blur(60px); /* @kind other */
+}

@@ -1,0 +1,177 @@
+# =====================================================================================
+# StarLink local development stack.
+#
+# Doc §15.11: a clean checkout that starts in one command is what makes the
+# independence claim credible rather than asserted. `pnpm dev:up` brings this up.
+#
+# This is a DEVELOPMENT CONVENIENCE and carries no production meaning (doc §37.6).
+# Production topology is T-17 and remains an open infrastructure decision.
+#
+# Two instances of api and realtime-gateway are defined from the start so that
+# multi-instance correctness is the normal case we develop against, not a late
+# discovery (ADR-005, Part IV §52).
+# =====================================================================================
+name: starlink
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: starlink
+      POSTGRES_PASSWORD: starlink_dev_only
+      POSTGRES_DB: starlink
+    ports: ['5432:5432']
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../database/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U starlink -d starlink']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    # PROVISIONED AHEAD OF ITS TRIGGER — nothing connects to this today (2026-08-28).
+    #
+    # It is here so the stack matches the ADR-006 target and so the first branch that
+    # needs it has somewhere to point. The comment used to describe the target as though
+    # it were the present, which is how someone reads "presence leases" here and assumes
+    # the API can answer §29.6's "away" question. It cannot: the only PresenceStore is
+    # InProcessPresence, inside apps/realtime-gateway.
+    #
+    # WHEN IT IS WIRED it becomes the Socket.IO adapter channel, presence leases,
+    # distributed rate-limit counters and the BullMQ job fabric (Part IV §52). The
+    # trigger is in ADR-006 — first of: a second API/realtime instance, V1-B production
+    # or the 500+ envelope, or the Phase 12 resilience gate.
+    #
+    # Never canonical conversation truth: losing Redis must degrade experience, never
+    # correctness (brief §14).
+    image: redis:7-alpine
+    command: ['redis-server', '--appendonly', 'no']
+    ports: ['6379:6379']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    # S3-compatible object storage for the quarantine -> scan -> promote pipeline.
+    image: minio/minio:latest
+    command: ['server', '/data', '--console-address', ':9001']
+    environment:
+      MINIO_ROOT_USER: starlink
+      MINIO_ROOT_PASSWORD: starlink_dev_only
+    ports: ['9000:9000', '9001:9001']
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ['CMD', 'mc', 'ready', 'local']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mailhog:
+    # Captures notification email locally. Never a real provider in dev — production
+    # data is never copied here and dev never sends outward (NFR-DAT-6).
+    image: mailhog/mailhog:latest
+    ports: ['1025:1025', '8025:8025']
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports: ['9090:9090']
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: 'true'
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Admin
+      GF_SECURITY_ADMIN_PASSWORD: starlink_dev_only
+    ports: ['3001:3000']
+    # Provisioned, not clicked. Grafana ran here from Phase 1 with no datasource and no
+    # dashboards, so it opened on an empty screen and every metric the application
+    # published was invisible -- which is most of why Part IV 68 gate 7 ("dashboards ...
+    # exist") was unmet while alerts.yml looked like coverage.
+    volumes:
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on: [prometheus]
+
+  # ===================================================================================
+  # Application services.
+  #
+  # Absent until 2026-08-31: this file defined postgres, redis, minio, mailhog,
+  # prometheus and grafana, and ZERO application services — so `pnpm dev:up` brought up
+  # everything StarLink depends on and nothing that is StarLink. Its own header claimed
+  # "two instances of api and realtime-gateway are defined from the start", which was not
+  # true of the file it was written in.
+  #
+  # One image, four commands. See the Dockerfile for why they are not four images.
+  #
+  # Deliberately ONE api instance: multi-instance needs the shared backplane (N-20), and
+  # scaling this to two without Redis would silently break realtime rather than loudly.
+  # ===================================================================================
+
+  api:
+    build: { context: ../.., dockerfile: Dockerfile }
+    command: node apps/api/dist/main.js
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio: { condition: service_started }
+    environment:
+      SL_ENV: ${SL_ENV:-dev}
+      SL_API_PORT: 3000
+      SL_DATABASE_URL: postgres://starlink:starlink_dev_only@postgres:5432/starlink
+      SL_SESSION_SECRET: ${SL_SESSION_SECRET:?set a session secret}
+      SL_CURSOR_SECRET: ${SL_CURSOR_SECRET:?set a cursor secret}
+      SL_WEB_EMPLOYEE_ORIGIN: http://localhost:3010
+      SL_WEB_CUSTOMER_ORIGIN: http://localhost:3020
+      # MinIO stands in for S3 here, which is the point of an S3-COMPATIBLE driver:
+      # the same code path runs in the dev stack and in a deployment.
+      SL_ADAPTER_OBJECT_STORAGE: ${SL_ADAPTER_OBJECT_STORAGE:-local}
+      SL_STORAGE_BUCKET: ${SL_STORAGE_BUCKET:-starlink}
+      SL_STORAGE_REGION: ${SL_STORAGE_REGION:-ap-south-1}
+      SL_STORAGE_ENDPOINT: ${SL_STORAGE_ENDPOINT:-http://minio:9000}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-starlinkminio}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-starlinkminio}
+    ports: ['3000:3000']
+
+  realtime-gateway:
+    build: { context: ../.., dockerfile: Dockerfile }
+    command: node apps/realtime-gateway/dist/main.js
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      SL_ENV: ${SL_ENV:-dev}
+      SL_REALTIME_PORT: 3100
+      SL_DATABASE_URL: postgres://starlink:starlink_dev_only@postgres:5432/starlink
+      SL_SESSION_SECRET: ${SL_SESSION_SECRET:?set a session secret}
+      SL_CURSOR_SECRET: ${SL_CURSOR_SECRET:?set a cursor secret}
+      SL_WEB_EMPLOYEE_ORIGIN: http://localhost:3010
+      SL_WEB_CUSTOMER_ORIGIN: http://localhost:3020
+    ports: ['3100:3100']
+
+  employee-web:
+    build: { context: ../.., dockerfile: Dockerfile }
+    command: pnpm --filter @starlink/employee-web start
+    depends_on: [api]
+    environment:
+      SL_API_ORIGIN: http://localhost:3000
+      SL_REALTIME_ORIGIN: http://localhost:3100
+      # Stage 1 is employee-to-employee. See `runtime-origins.ts`.
+      SL_CUSTOMER_WORKSPACE_ENABLED: ${SL_CUSTOMER_WORKSPACE_ENABLED:-false}
+    ports: ['3010:3010']
+
+  customer-web:
+    build: { context: ../.., dockerfile: Dockerfile }
+    command: pnpm --filter @starlink/customer-web start
+    depends_on: [api]
+    environment:
+      SL_API_ORIGIN: http://localhost:3000
+    ports: ['3020:3020']
+
+volumes:
+  pgdata:
+  miniodata:

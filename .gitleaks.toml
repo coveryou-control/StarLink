@@ -1,0 +1,46 @@
+# =====================================================================================
+# gitleaks configuration.
+#
+# Extends the upstream ruleset rather than replacing it — a hand-written list of patterns
+# goes stale the week a provider changes its key format, and the whole point of the scan
+# is to catch the thing nobody thought of.
+#
+# Everything below is an ALLOWLIST. Each entry is a place where a credential-shaped string
+# is deliberately present and provably not a credential; each says why, because an
+# unexplained allowlist entry is how a real secret eventually gets ignored.
+# =====================================================================================
+title = "StarLink"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Documented non-secrets"
+
+paths = [
+  # The configuration template. Its values are development placeholders, and they are
+  # deliberately the ones the product is tested against — see the file's own header.
+  '''^\.env\.example$''',
+  # The lockfile carries integrity hashes, which are high-entropy by construction.
+  '''^pnpm-lock\.yaml$''',
+  # The imported design reference: static HTML, CSS and asset hashes from the design tool.
+  '''^design/''',
+]
+
+regexes = [
+  # The local development database, which is the same string in the compose file, the
+  # README, CLAUDE.md and .env.example. It reaches a Postgres that exists only on a
+  # developer's own machine and holds nothing but seeded fixtures.
+  '''starlink_dev_only''',
+  # The CI database, defined in the workflow that uses it and reachable only from inside
+  # that job's network namespace for the life of the job.
+  '''starlink_ci_only''',
+  # Placeholders the config guard REFUSES to start on in production. Their presence in a
+  # deployed environment is a startup failure, which is the property that makes them safe
+  # to commit — see apps/api/src/config.ts.
+  '''dev-only-[a-z]+-secret-change-me-32chars''',
+  # Test fixtures with obviously fake values: an AWS key of literal "TEST" repeated, and
+  # the `u:p@` credentials in the TLS-inference unit tests.
+  '''AKIATESTTESTTESTTEST''',
+  '''postgres://u:p@''',
+]

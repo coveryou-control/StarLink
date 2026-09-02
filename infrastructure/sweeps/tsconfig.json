@@ -1,0 +1,19 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "../../packages/shared-contracts" },
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/sla" },
+    { "path": "../../packages/service-case" },
+    { "path": "../../packages/attachments" },
+    { "path": "../../packages/notifications" }
+  ]
+}

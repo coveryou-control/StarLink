@@ -1,0 +1,41 @@
+# =====================================================================================
+# Line endings and binary handling.
+#
+# The team is on Windows and CI is on ubuntu-latest. Without this, a file committed with
+# CRLF makes a shell script unrunnable in CI and a snapshot test fail on a difference
+# nobody can see in a diff.
+# =====================================================================================
+
+# Normalise to LF in the repository; check out whatever the platform wants.
+* text=auto eol=lf
+
+# Scripts that an interpreter reads directly. CRLF here is a runtime error, not a style
+# question: `#!/usr/bin/env bash\r` looks for an interpreter named "bash\r".
+*.sh      text eol=lf
+*.mjs     text eol=lf
+*.cjs     text eol=lf
+
+# PowerShell stays CRLF — it is only ever run on Windows here, and the local-postgres
+# and boundary-fixture scripts are the two things a new machine runs first.
+*.ps1     text eol=crlf
+
+# SQL migrations are compared by checksum in some tooling; pin them.
+*.sql     text eol=lf
+
+# Never touched, never diffed as text.
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.ico     binary
+*.webp    binary
+*.pdf     binary
+*.docx    binary
+*.xlsx    binary
+*.woff    binary
+*.woff2   binary
+*.ttf     binary
+
+# Generated. Collapsing these keeps a pull request's diff about the change.
+pnpm-lock.yaml       linguist-generated=true -diff
+design/**            linguist-vendored=true

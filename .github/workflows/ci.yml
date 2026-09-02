@@ -1,0 +1,109 @@
+# =====================================================================================
+# StarLink CI.
+#
+# Every job here is a gate from STARLINK_TEST_STRATEGY.md §1. The boundary and spike
+# jobs exist because doc §45's technology-validation gate requires these properties to
+# be PROVEN before implementation continues, not assumed.
+# =====================================================================================
+name: ci
+
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: starlink
+          POSTGRES_PASSWORD: starlink_ci_only
+          POSTGRES_DB: starlink
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U starlink -d starlink"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+
+    env:
+      SL_DATABASE_URL: postgres://starlink:starlink_ci_only@localhost:5432/starlink
+      SL_REDIS_URL: redis://localhost:6379
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.12.1 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build packages
+        run: pnpm build
+
+      # `eslint.config.mjs` and every package's `lint` script exist so that this line can
+      # fail. Until it was added here, `lint-gate.test.ts` proved the scripts were capable
+      # of failing and nothing ever gave them the chance.
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Boundary law (ADR-002). A cross-boundary import must fail the build, which is
+      # what keeps "swap the adapter, don't rewrite the domain" true at Phase 9/10.
+      - name: Architecture boundaries
+        run: pnpm boundaries
+
+      # Doc §35.1 and §36.2 both say these belong in the build rather than in a
+      # reviewer's goodwill: one prefix with no fallback, and no dependency on a peer
+      # platform. Each has been verified to fail on a deliberate violation.
+      - name: Repository guards (config namespace, platform independence)
+        run: pnpm --filter @starlink/guards test
+
+      - name: Migrate
+        run: pnpm --filter @starlink/database migrate
+
+      # Unit, authorization matrix, and the Phase 1 validation spikes. The spikes SKIP
+      # loudly without a database — here one is provided, so they must actually run.
+      #
+      # This MUST be `test:verify` and not `vitest run`. `pnpm test` (and a bare vitest run)
+      # report "all tasks passed" over a report containing skips; `test:verify` serialises
+      # the run, writes a JSON report and hands it to the no-skips gate, which fails and
+      # names every test that did not execute. CI ran the weaker command until 2026-08-30,
+      # with a hand-written skip check beside it that filtered `pending` while Vitest emits
+      # `skipped` — the exact defect `no-skips.mjs` documents as already fixed once. The
+      # gate the repository built and the gate the merge actually used were not the same
+      # gate, and nothing pointed that out because both were green.
+      - name: Tests (serialised, fails on any skip)
+        run: pnpm test:verify
+
+      # TEST_STRATEGY §1 lists "E2E browser" as a gate row. Every UI claim that is not
+      # covered here rests on a unit test of a hook or a controller — the class of evidence
+      # that let a socket protocol mismatch survive with both halves passing their own
+      # tests. The journeys ran locally and were absent from the merge gate entirely.
+      - name: Install the browser the suite drives
+        run: pnpm exec playwright install --with-deps chrome
+
+      - name: E2E browser journeys (fails on any skip)
+        run: pnpm test:e2e:verify
+
+      - name: Keep the failure diagnosable
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-failure
+          path: |
+            test-results/
+            .playwright/
+            .playwright-report.json
+          if-no-files-found: ignore
+          retention-days: 7

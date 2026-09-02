@@ -1,0 +1,64 @@
+/* Typography — the file's "Typography Hierarchy System".
+   5 roles x 9 sizes on desktop (14 -> 56px), 4 sizes on mobile (12 -> 18px)
+   plus a 24px weight ladder. Role names, weights, sizes and usage notes are
+   transcribed from the desktop_typography_guide / mobile_typography_guide frames.
+   Family: font/family/title = Poppins (cy Typography collection). */
+:root {
+  /* Weights, from the cy Typography variable collection */
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+
+  /* Desktop size ladder */
+  --size-small: 14px;
+  --size-medium: 16px;
+  --size-large: 18px;
+  --size-x-large: 20px;
+  --size-2x-large: 22px;
+  --size-3x-large: 24px;
+  --size-4x-large: 28px;
+  --size-5x-large: 36px;
+  --size-6x-large: 56px;
+
+  /* Mobile size ladder */
+  --size-mobile-small: 12px;
+  --size-mobile-medium: 14px;
+  --size-mobile-large: 16px;
+  --size-mobile-x-large: 18px;
+
+  /* Role -> weight mapping (the 5 text types) */
+  --weight-body: var(--font-weight-regular);
+  --weight-label: var(--font-weight-medium);
+  --weight-title: var(--font-weight-semibold);
+  --weight-subheading: var(--font-weight-semibold);
+  --weight-heading: var(--font-weight-bold);
+}
+
+/* Role classes. Size is set by the -sm/-md/... modifier or inline. */
+.cy-body, .cy-label, .cy-title, .cy-subheading, .cy-heading {
+  font-family: var(--font-family-brand);
+  color: var(--interactive-input-label, rgb(30,32,40));
+  margin: 0;
+}
+/* Body — main content, paragraphs */
+.cy-body { font-weight: var(--weight-body); font-size: var(--size-medium); line-height: 1.5 }
+/* Label — form labels, tags, badges */
+.cy-label { font-weight: var(--weight-label); font-size: var(--size-small); line-height: 1.4 }
+/* Title — section titles, card titles */
+.cy-title { font-weight: var(--weight-title); font-size: var(--size-x-large); line-height: 1.35 }
+/* Sub Heading — page headings, major sections */
+.cy-subheading { font-weight: var(--weight-subheading); font-size: var(--size-3x-large); line-height: 1.3 }
+/* Heading — main headlines, hero text */
+.cy-heading { font-weight: var(--weight-heading); font-size: var(--size-5x-large); line-height: 1.15; letter-spacing: -0.01em }
+
+.cy-sm { font-size: var(--size-small) }
+.cy-md { font-size: var(--size-medium) }
+.cy-lg { font-size: var(--size-large) }
+.cy-xl { font-size: var(--size-x-large) }
+.cy-2xl { font-size: var(--size-2x-large) }
+.cy-3xl { font-size: var(--size-3x-large) }
+.cy-4xl { font-size: var(--size-4x-large) }
+.cy-5xl { font-size: var(--size-5x-large) }
+.cy-6xl { font-size: var(--size-6x-large) }

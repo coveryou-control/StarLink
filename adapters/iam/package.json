@@ -1,0 +1,28 @@
+{
+  "name": "@starlink/adapter-iam",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --emitDeclarationOnly",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@starlink/database": "workspace:*",
+    "@starlink/shared-contracts": "workspace:*",
+    "drizzle-orm": "^0.38.2"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "pg": "^8.13.1",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,993 @@
+{
+  "uid": "starlink-operations",
+  "title": "StarLink — Operations (§68 gate 7)",
+  "tags": [
+    "starlink",
+    "gate-7"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "editable": false,
+  "description": "Part IV §68 gate 7: 'dashboards/alerts exist for sockets, queue age, routing orphan count, DLQ, DB/query health, channel errors and security anomalies.'\n\nSix of the seven are here. CHANNEL ERRORS is deliberately absent: starlink_channel_send_failures_total has no producer because no external channel adapter is wired — D-01 chose web chat, and the WhatsApp/SMS/email adapters are unbuilt. A panel over a series nothing can emit would be the same silence this dashboard exists to remove. It lands with the first channel adapter.\n\nEvery panel below references a metric that something actually emits; infrastructure/guards/src/alerts-have-producers.test.ts fails the build otherwise.",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Sockets (§68 gate 7 · §32.4 reconnect storm)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "description": "A realtime node's live connections and the rate at which they are established. Both series existed as definitions and were emitted by nothing until 2026-08-29; the gateway had no /metrics endpoint at all.",
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Live connections per node",
+      "description": "Labelled by node because §33's target topology is several gateway nodes behind a load balancer. A node at zero while others carry traffic is the case RealtimeNodeWithNoConnections watches for.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_active_connections",
+          "legendFormat": "{{node}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Connections established per second",
+      "description": "§32.4: 'Realtime reconnect storm — above baseline — instability, or a deploy going wrong.' Counts every establishment, not only re-establishments: this gateway has no resume protocol, because recovery is re-fetch over HTTP (invariant 9).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "rate(starlink_reconnects_total[5m])",
+          "legendFormat": "established/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "row",
+      "title": "Queue age and pressure (§23.4, §32.3)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 9
+      },
+      "description": "What a customer is actually waiting through.",
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Oldest waiting conversation vs the team's promise",
+      "description": "The two series CustomerWaitingBeyondStandard compares. The threshold comes from the team's FIRST_RESPONSE target (D-22) — where none is configured the series is absent, which is the honest shape: no promise was made.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_oldest_waiting_seconds",
+          "legendFormat": "waiting · {{team}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_team_waiting_threshold_seconds",
+          "legendFormat": "standard · {{team}}",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Queue depth and unassigned work",
+      "description": "Depth alone is not pressure — a deep queue that is draining is fine. Read with the waiting age above.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 10
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_queue_depth",
+          "legendFormat": "{{team}} · {{priority}}",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_unassigned_conversations",
+          "legendFormat": "unassigned (all teams)",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "row",
+      "title": "Routing orphans (§32.3, BR-13)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 18
+      },
+      "description": "The invariant with a target of ZERO. Any other value is unreachable customer work.",
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Conversations owned by an inactive principal",
+      "description": "§21.9 calls departure 'the one that silently loses customers'. The gauge is written by a SWEEP rather than incremented at deactivation, so it cannot drift on restart. InactiveOwnerConversations alerts on > 0.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 19
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_inactive_owner_open_conversations",
+          "legendFormat": "orphaned",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "stat",
+      "title": "Teams with no business calendar",
+      "description": "An unconfigured team is treated as AFTER_HOURS (§23.3) — honest, but it means work waits until someone configures hours. This makes that a number rather than a team that mysteriously never gets work.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 19
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_teams_without_calendar",
+          "legendFormat": "teams",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Capacity reservations expiring",
+      "description": "A hold that expired rather than being released. Expected while N-38 stands: the TTL is 120s and work outlives it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 19
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "rate(starlink_reservation_expiries_total[15m])",
+          "legendFormat": "expiries/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "row",
+      "title": "Queues, outbox and the dead letter (§29.4, §29.6, §34.3)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 27
+      },
+      "description": "A silent backlog is the failure mode that matters — worse than the outage itself.",
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Transactional outbox: depth against publish rate",
+      "description": "OutboxNotDraining fires on depth > 100 AND publish rate == 0 — both series, because depth alone cannot tell a busy queue from a stuck one.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_outbox_depth",
+          "legendFormat": "pending",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "rate(starlink_outbox_published_total[5m])",
+          "legendFormat": "published/s",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Oldest unpublished event",
+      "description": "Depth can stay flat while the same row ages for ever. This is the series that shows a poison message.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 28
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_outbox_oldest_age_seconds",
+          "legendFormat": "oldest age",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Notification backlog",
+      "description": "§34.3: rows stay pending and retry with backoff while a provider is down. Non-zero is normal during an outage; non-zero and NOT falling afterwards is the problem.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 36
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_notification_outbox_depth",
+          "legendFormat": "pending notifications",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Dead-lettered notifications",
+      "description": "§29.6: 'not retried forever'. A rise means notifications are being abandoned — the row survives as evidence and is replayable from the admin surface.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 36
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "increase(starlink_dead_letter_total[15m])",
+          "legendFormat": "dead-lettered · {{queue}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Attachments awaiting scan",
+      "description": "§28.1: an uploaded-but-unscanned attachment is reachable by nobody. A growing backlog means files people believe they sent are not yet deliverable.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_attachment_scan_backlog",
+          "legendFormat": "unscanned",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "row",
+      "title": "Database and query health (§32.4, §38, NFR-PRF-2)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 52
+      },
+      "description": "The two numbers that show a regression before anybody reports one.",
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Message page: rows examined per row returned",
+      "description": "§38's paging property. Sits near 1 while the compound index serves the ordering and climbs when it does not — 'the earliest available warning of the exact regression §38 measured'. MessagePageIndexRegression alerts above 3. Published by a sweep that runs EXPLAIN ANALYZE against the same query shape the API pages with.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 53
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_message_page_rows_examined_ratio",
+          "legendFormat": "ratio",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Send acknowledgement latency (p50 / p95)",
+      "description": "NFR-PRF-2's target is p95 < 300ms, and 0.3 is an explicit bucket boundary so the quantile is accurate at the threshold rather than interpolated across it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 53
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "histogram_quantile(0.5, rate(starlink_message_send_ack_seconds_bucket[5m]))",
+          "legendFormat": "p50",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "histogram_quantile(0.95, rate(starlink_message_send_ack_seconds_bucket[5m]))",
+          "legendFormat": "p95",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0.3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "row",
+      "title": "Service standards (§23.5, §23.6)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
+      "description": "Computed on read, never stored — a corrected calendar corrects history.",
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Cases approaching a target",
+      "description": "Published even when zero. A series that never appears evaluates over no data and reads as health.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 62
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "starlink_sla_at_risk",
+          "legendFormat": "{{team}} · {{clock}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Targets missed",
+      "description": "Counted once per case per clock, because the notification claim gates it — a gauge recomputed each tick would count the same breach for as long as it lasted.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 62
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "increase(starlink_sla_breaches_total[1h])",
+          "legendFormat": "{{team}} · {{clock}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "row",
+      "title": "Security anomalies (§27.5, §31, §32.4)",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 70
+      },
+      "description": "Refusals matter most: a burst of refused privileged reads is what an attempt looks like.",
+      "panels": []
+    },
+    {
+      "type": "timeseries",
+      "title": "Authentication failures",
+      "description": "§32.4: 'above baseline — credential attack'. Counted at the single refusal funnel, so it cannot distinguish 'no such user' from 'wrong password' any more than the response can (§27.1).",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 71
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "rate(starlink_auth_failures_total[5m])",
+          "legendFormat": "failures/s",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Authorization refusals, privileged split",
+      "description": "PrivilegedReadRefusalSpike watches the privileged series — 'someone probing for access'. Labelled by action, never by principal: who was refused is the audit ledger's answer, and a principal label would put an identifier in a metrics endpoint.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 71
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "rate(starlink_authz_refused_total{privileged=\"true\"}[5m])",
+          "legendFormat": "privileged",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "rate(starlink_authz_refused_total{privileged=\"false\"}[5m])",
+          "legendFormat": "ordinary",
+          "refId": "B"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    },
+    {
+      "type": "timeseries",
+      "title": "Audit write failures",
+      "description": "§32.4 threshold is > 0: 'accountability is degraded' (FR-AUD-5). The ledger is the record of authority — losing writes means losing the answer to what happened.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "starlink-prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 71
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "starlink-prometheus"
+          },
+          "expr": "increase(starlink_audit_write_failures_total[5m])",
+          "legendFormat": "failures",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {},
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {}
+    }
+  ]
+}

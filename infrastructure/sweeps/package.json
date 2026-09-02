@@ -1,0 +1,35 @@
+{
+  "name": "@starlink/sweeps",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --emitDeclarationOnly",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@starlink/attachments": "workspace:*",
+    "@starlink/notifications": "workspace:*",
+    "@starlink/observability": "workspace:*",
+    "@starlink/service-case": "workspace:*",
+    "@starlink/shared-contracts": "workspace:*",
+    "@starlink/sla": "workspace:*",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@starlink/adapter-attachment-scanner": "workspace:*",
+    "@starlink/adapter-object-storage": "workspace:*",
+    "@starlink/database": "workspace:*",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  }
+}

@@ -1,0 +1,34 @@
+# =====================================================================================
+# Editor defaults, so a file's shape does not depend on who opened it.
+#
+# `charset = utf-8` is load-bearing on Windows: a UTF-8 BOM in a package.json makes every
+# import in that package unresolvable, including relative ones, and the symptom names
+# nothing useful. See CLAUDE.md, "Platform notes".
+# =====================================================================================
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 2
+insert_final_newline = true
+trim_trailing_whitespace = true
+max_line_length = 100
+
+[*.md]
+# Two trailing spaces are a hard line break in Markdown; trimming them silently reflows
+# the paragraph.
+trim_trailing_whitespace = false
+
+[*.{yml,yaml}]
+indent_size = 2
+
+[*.ps1]
+# PowerShell on Windows; CRLF is what the shell and the ISE both write.
+end_of_line = crlf
+
+[*.{png,jpg,jpeg,gif,ico,pdf,docx,woff,woff2}]
+# Binary: nothing here applies, and declaring so stops an editor from "fixing" one.
+insert_final_newline = false
+trim_trailing_whitespace = false

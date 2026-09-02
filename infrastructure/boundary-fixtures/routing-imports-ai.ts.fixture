@@ -1,0 +1,15 @@
+/**
+ * Deliberate violation of `ai-must-not-reach-a-deciding-path`.
+ *
+ * Copied into `packages/routing/src/` by `verify-boundaries.ps1`, which then asserts the
+ * boundary law FAILS. It is written the way the real mistake would be written — not as an
+ * obvious `if (ai.saysDeny)`, but as a plausible-looking confidence threshold inside a
+ * routing decision, which is how an advisory actually becomes an authority.
+ *
+ * Part IV §57: "AI output is recommendation or derived interpretation, not business
+ * truth … hard compliance, entitlement, payment, policy and case state remain
+ * deterministic authority."
+ */
+import { DisabledAIProvider } from '@starlink/ai-assist';
+
+export const __boundaryViolation = new DisabledAIProvider();

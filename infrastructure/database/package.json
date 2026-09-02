@@ -1,0 +1,38 @@
+{
+  "name": "@starlink/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./schema": "./dist/schema.js",
+    "./guard": "./dist/guard.js",
+    "./repositories": "./dist/repositories/index.js",
+    "./testing": "./dist/testing/fixture-reset.js"
+  },
+  "scripts": {
+    "migrate": "node scripts/migrate.mjs",
+    "seed": "node scripts/seed.mjs",
+    "build": "tsc -b",
+    "typecheck": "tsc -b --emitDeclarationOnly",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "@starlink/attachments": "workspace:*",
+    "@starlink/conversation-domain": "workspace:*",
+    "@starlink/messaging": "workspace:*",
+    "@starlink/notifications": "workspace:*",
+    "@starlink/shared-contracts": "workspace:*",
+    "@starlink/sla": "workspace:*",
+    "drizzle-orm": "^0.38.2",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  }
+}

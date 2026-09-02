@@ -1,0 +1,180 @@
+# =====================================================================================
+# Alert rules. Doc §32.4: what a human must actually be told about.
+#
+# Two of these encode product invariants rather than infrastructure health, and they
+# are the reason this file exists at all:
+#   * inactive_owner_open_conversations must be ZERO — any other value is unreachable
+#     customer work (BR-13), which is the failure that silently loses customers.
+#   * the documents-examined ratio is the earliest possible warning of a lost index —
+#     doc §38 measured 301 rows examined per page with the right index and 20,000
+#     without it.
+#
+# Deliberately NOT alerted (doc §32.4): individual 403s, individual notification
+# retries, ordinary realtime disconnections, unread counts.
+# =====================================================================================
+groups:
+  - name: starlink-invariants
+    rules:
+      - alert: InactiveOwnerConversations
+        expr: starlink_inactive_owner_open_conversations > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Customer work is owned by an inactive principal (target: 0)'
+          runbook: 'Reassign via admin console; check the employee-exit flow fired.'
+
+      - alert: CustomerWaitingBeyondStandard
+        expr: starlink_oldest_waiting_seconds > on(team) starlink_team_waiting_threshold_seconds
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: 'A customer has waited beyond the configured standard'
+
+      # GUARD-WAIVER: starlink_available_capacity_units — blocked on D-05.
+      #
+      # This alert cannot fire today, deliberately. It reads capacity units, and nothing
+      # publishes them because a capacity CEILING per person is D-05's and unanswered —
+      # an unconfigured ceiling means no ceiling, so the honest value is "unbounded",
+      # which is not a number. Publishing a zero or a guess would make this alert fire on
+      # fiction, which is worse than it not firing.
+      #
+      # The waiver is declared rather than implicit so `alerts-have-producers.test.ts`
+      # passes without the guard being weakened for everyone. Remove both the waiver and
+      # this comment when D-05 lands.
+      - alert: UnassignedConversationsGrowing
+        expr: increase(starlink_unassigned_conversations[10m]) > 0 and starlink_available_capacity_units == 0
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Queue growing with no available agent capacity'
+
+  - name: starlink-durability
+    rules:
+      - alert: OutboxNotDraining
+        expr: starlink_outbox_depth > 100 and rate(starlink_outbox_published_total[5m]) == 0
+        for: 5m
+        labels: { severity: critical }
+        annotations:
+          summary: 'Transactional outbox is not draining — events are not reaching consumers'
+
+      - alert: NotificationBacklogNotDraining
+        # §29.6 instructs this directly: "Provider outage — rows accumulate as pending and
+        # drain on recovery. Alerted on (§32.4) — a silent backlog is the failure mode that
+        # matters." Distinct from OutboxNotDraining below, which watches the TRANSACTIONAL
+        # outbox; this watches the NOTIFICATION outbox, and the two fail independently.
+        #
+        # No rate condition: the depth gauge is published every tick including zero, so a
+        # sustained non-zero depth already means rows are not draining. The email transport
+        # is DOWN by design until N-07 selects a provider, so expect this to fire in any
+        # environment where an "external if away" notification has been raised.
+        expr: starlink_notification_outbox_depth > 0
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Notifications have been queued for 30 minutes without draining'
+          runbook: 'Check transport health (/readyz). An unconfigured email provider (A-21, N-07) presents exactly this way.'
+
+      - alert: DeadLetterRising
+        expr: increase(starlink_dead_letter_total[15m]) > 0
+        for: 1m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Jobs are dead-lettering'
+
+      - alert: AttachmentScanBacklogNotDraining
+        # NOT a transcription of §32.4 — that table names no attachment alert. It is
+        # §32.4's own "Outbox depth growing without draining · Sustained · Provider outage
+        # or a stuck worker" applied to the other worker queue we now run. The failure is
+        # the same shape and worse in effect: a stuck scanner means a customer's claim
+        # documents sit in quarantine, unreachable, with the conversation looking healthy.
+        # Recorded here as an addition so a reviewer can disagree with it deliberately.
+        expr: starlink_attachment_scan_backlog > 0
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Attachments have been waiting to be scanned for 15 minutes'
+          runbook: 'Check the scanner adapter health and object-storage reachability; scans retry on the next sweep.'
+
+      - alert: PlacementFailures
+        # A failed placement does NOT retry: `requestRouting` commits the queue entry in
+        # its own transaction before the assign, and the sweep skips anything that already
+        # holds one. The conversation sits WAITING and claimable by hand, and nothing will
+        # place it automatically. Any occurrence is worth waking someone.
+        expr: increase(starlink_routing_placement_failures_total[10m]) > 0
+        labels: { severity: warning }
+        annotations:
+          summary: 'Automatic placement is failing — affected conversations will never be routed'
+
+      - alert: AuditWriteFailures
+        # Covers writes made through `AuditWriter`, which holds its own pool and logs a
+        # failure without failing the operation — the silent degradation this alert exists
+        # for. It does NOT cover the participation-grant row, which is written inline on the
+        # granting transaction's own connection so the grant and its audit record commit or
+        # roll back together. A failure there is not silent: it aborts the operation, so it
+        # surfaces as a 5xx on the claim paths and on `PlacementFailures` for the sweep.
+        # Stated because the counter's name reads broader than its coverage.
+        expr: increase(starlink_audit_write_failures_total[5m]) > 0
+        labels: { severity: critical }
+        annotations:
+          summary: 'Audit writes failing — accountability degraded (FR-AUD-5)'
+
+  - name: starlink-performance
+    rules:
+      - alert: MessagePageIndexRegression
+        expr: starlink_message_page_rows_examined_ratio > 3
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Rows examined per row returned has drifted — a compound index may be lost'
+
+      - alert: SendAckLatencyBreach
+        expr: histogram_quantile(0.95, rate(starlink_message_send_ack_seconds_bucket[5m])) > 0.3
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'p95 message send acknowledgement above the 300ms target (NFR-PRF-2)'
+
+  - name: starlink-realtime
+    rules:
+      # §32.4: "Realtime reconnect storm — Above baseline — Instability, or a deploy
+      # going wrong." The last of §32.4's eleven rows to get an implementation.
+      #
+      # The threshold is "above baseline" and the document gives no number, so this is a
+      # SEED like the other unspecified ones (N-32) and is meant to be tuned from pilot
+      # data. Five connections per second sustained for five minutes is far above a
+      # steady state where clients hold long-lived sockets, and far below the momentary
+      # spike a deploy produces — the `for:` is what separates a storm from a rollout.
+      - alert: RealtimeReconnectStorm
+        expr: rate(starlink_reconnects_total[5m]) > 5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Sockets reconnecting far above baseline — instability, or a deploy going wrong'
+
+      # Part IV §68 gate 7 asks for dashboards and alerts covering sockets. A gateway
+      # reporting ZERO connections is the failure this catches: the process is alive
+      # enough to be scraped and no client is attached to it, which a liveness probe
+      # cannot distinguish from health. Absent for the whole window rather than
+      # instantaneous, so a quiet night on a single-node dev deployment does not page.
+      - alert: RealtimeNodeWithNoConnections
+        expr: max_over_time(starlink_active_connections[15m]) == 0
+        for: 15m
+        labels: { severity: info }
+        annotations:
+          summary: 'A realtime node has held no connections for 15 minutes'
+
+  - name: starlink-security
+    rules:
+      - alert: PrivilegedReadRefusalSpike
+        expr: rate(starlink_authz_refused_total{privileged="true"}[5m]) > 0.5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Burst of refused privileged reads — someone may be probing for access'
+
+      - alert: AuthFailureSpike
+        expr: rate(starlink_auth_failures_total[5m]) > 1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: 'Authentication failure rate above baseline'

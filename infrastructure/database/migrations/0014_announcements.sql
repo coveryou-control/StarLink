@@ -1,0 +1,29 @@
+-- Announcements: a conversation everybody reads and few may write in.
+--
+-- ## Why a conversation type and not a new table
+--
+-- An announcement is a thread: it has messages, a sequence, read state, attachments,
+-- mentions, realtime delivery and an audit trail, and every one of those already exists and
+-- is tested. A separate `announcements` table would be a second, thinner copy of all of it —
+-- and the second copy is where the authorization check gets forgotten (§38).
+--
+-- What actually differs is one thing: who may SEND. That is a permission, and permissions
+-- are `decide()`'s business, not the schema's. So this migration adds a type and nothing
+-- else; `conversation.announcement.post` carries the difference.
+--
+-- ## The audience is materialised
+--
+-- Every active employee gets a participant row when an announcement is created, exactly as
+-- they would in a group. The alternative — a rule in `decide()` saying "any employee may
+-- read any announcement" — would put a second, type-shaped path into the one function every
+-- content read goes through, and would leave the conversation LIST (which is a join on
+-- participants) unable to show the thing it just authorised.
+--
+-- The known limit of that choice: somebody who joins the company after an announcement is
+-- posted is not a participant of it and will not see it. That is a real gap and it belongs
+-- to whoever owns the joiner process, not to a `decide()` special case invented here.
+--
+-- `ADD VALUE` runs inside this migration's transaction, which PostgreSQL 12+ permits as
+-- long as the new label is not USED in the same transaction. Nothing below uses it.
+
+ALTER TYPE conversation.conversation_type ADD VALUE IF NOT EXISTS 'INTERNAL_ANNOUNCEMENT';

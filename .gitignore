@@ -1,0 +1,77 @@
+# Dependencies and build output
+node_modules/
+dist/
+build/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# Test and coverage artefacts
+coverage/
+*.lcov
+spike-report.json
+
+# Report artefacts written by one-off tool runs (`eslint -f json -o ...`). Named here
+# because one sat in the repository root for a week looking like configuration.
+.eslint.json
+.eslint-report.json
+
+# Environment and secrets.
+#
+# Nothing secret is ever committed: a committed secret is a ROTATED secret, not a deleted
+# one (doc §27.14). Only the example template belongs in the repository, and CI runs a
+# secret scan behind this as a backstop (.github/workflows/secrets.yml).
+.env
+.env.*
+!.env.example
+
+# Key material, wherever it lands. There is no legitimate reason for any of these to be
+# in the tree; the pattern is here so an accident is caught by `git status` rather than
+# by a reviewer.
+*.pem
+*.key
+*.p12
+*.pfx
+*.keystore
+id_rsa
+id_rsa.*
+*.gpg
+
+# Local infrastructure state
+pgdata/
+miniodata/
+
+# Editor and OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary boundary-gate artefact — the fixture is committed, the activated
+# violation never is (see infrastructure/boundary-fixtures/).
+packages/*/src/__boundary_violation__.ts
+.vitest-report.json
+
+# Browser-suite artefacts. The JSON report is written on every run now, not only under
+# CI, because `pnpm test:e2e:verify` feeds it to the same no-skips gate the unit run uses.
+.playwright-report.json
+.playwright/
+test-results/
+playwright-report/
+
+# Verification transcripts. `pnpm test:verify` and `pnpm test:e2e:verify` are long enough
+# that their output gets redirected to a file rather than watched; the gate's verdict is
+# the exit code, and the transcript is scratch.
+#
+# They belong in `.local/logs/` and that is where new ones go. The two root patterns stay:
+# `.e2e.log` was matched literally and a second run redirected to `.e2e2.log` was not, so
+# seven of them accumulated in the repository root before anybody noticed. A glob now.
+.verify.log
+.e2e*.log
+
+# Local run scratch: the dev env file, the three service logs, and any one-off script used
+# to drive the running stack. Holds a database password, so it is never committed.
+.local/

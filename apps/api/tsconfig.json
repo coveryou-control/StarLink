@@ -1,0 +1,41 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "tsBuildInfoFile": "./dist/.tsbuildinfo",
+    "types": ["node"],
+    // NestJS is decorator-driven. We do NOT enable emitDecoratorMetadata: every
+    // dependency here is injected by an explicit @Inject(TOKEN), because the things
+    // being injected are INTERFACES and interfaces do not exist at runtime for
+    // metadata to describe (ADR-003). Explicit tokens are what make adapter swapping
+    // a configuration change.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": false
+  },
+  "include": ["src/**/*"],
+  "exclude": ["src/**/*.test.ts"],
+  "references": [
+    { "path": "../../packages/shared-contracts" },
+    { "path": "../../packages/conversation-domain" },
+    { "path": "../../packages/messaging" },
+    { "path": "../../packages/observability" },
+    { "path": "../../packages/security" },
+    { "path": "../../packages/search" },
+    { "path": "../../packages/routing" },
+    { "path": "../../packages/sla" },
+    { "path": "../../packages/ai-assist" },
+    { "path": "../../packages/service-case" },
+    { "path": "../../packages/attachments" },
+    { "path": "../../packages/notifications" },
+    { "path": "../../infrastructure/database" },
+    { "path": "../../adapters/iam" },
+    { "path": "../../adapters/employee-directory" },
+    { "path": "../../adapters/customer-identity" },
+    { "path": "../../adapters/work-orchestrator" },
+    { "path": "../../adapters/attachment-scanner" },
+    { "path": "../../adapters/object-storage" },
+    { "path": "../../adapters/notification-provider" },
+    { "path": "../../infrastructure/sweeps" }
+  ]
+}

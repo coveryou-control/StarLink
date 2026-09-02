@@ -1,0 +1,89 @@
+/* Semantic aliases — a short, memorable surface over the 760 raw Figma variables.
+   Every value here points at a token from tokens/fig-tokens.css (the generated
+   Figma Variable export); nothing is invented. Use these in new work and drop to
+   the raw tokens when you need a specific step of a ramp. */
+:root {
+  /* Brand */
+  --brand: var(--cy-orange);              /* rgb(240,93,73) — "CY Orange" */
+  --brand-ink: var(--cy-grey);            /* rgb(17,17,17)  — "CY Grey"  */
+  --brand-tint: var(--brand-primary-50);
+  --brand-strong: var(--brand-primary-700);
+
+  /* Theme trio (cy theme collection — flips with data-theme="dark") */
+  --theme-fg: var(--base-surface-on-primary);
+
+  /* Surfaces */
+  --surface: var(--base-surface-primary);
+  --surface-raised: var(--base-surface-secondary);
+  --surface-sunken: var(--base-surface-tertiary);
+  --surface-card: var(--base-container-primary);
+  --surface-media: var(--base-media-surface-primary);
+
+  /* Text */
+  --text-primary: var(--base-surface-on-primary);
+  --text-secondary: var(--base-surface-on-secondary);
+  --text-tertiary: var(--base-surface-on-teriary);
+  --text-on-media: var(--base-media-surface-on-primary);
+  --text-on-brand: var(--interactive-primary-brand-label);
+
+  /* Lines */
+  --border: var(--base-seperation-divider);
+  --border-strong: var(--base-seperation-dimmer);
+  --divider: var(--base-seperation-divider);
+  --thread-line: var(--base-seperation-thread-lines);
+
+  /* Status containers */
+  --info-bg: var(--base-info-bg);          --info-label: var(--base-info-label);
+  --success-bg: var(--base-success-bg);    --success-label: var(--base-success-label);
+  --warning-bg: var(--base-warning-bg);    --warning-label: var(--base-warning-label);
+  --critical-bg: var(--base-critical-bg);  --critical-label: var(--base-critical-label);
+
+  /* Primary (filled) button — neutral is the default in the source */
+  --btn-primary-bg: var(--interactive-primary-neutral-enabled);
+  --btn-primary-bg-hover: var(--interactive-primary-neutral-hovered);
+  --btn-primary-bg-pressed: var(--interactive-primary-neutral-pressed);
+  --btn-primary-label: var(--interactive-primary-neutral-label);
+  --btn-primary-ring: var(--interactive-primary-neutral-ring);
+
+  /* Primary (filled) button — brand colourway */
+  --btn-brand-bg: var(--interactive-primary-brand-enabled);
+  --btn-brand-bg-hover: var(--interactive-primary-brand-hovered);
+  --btn-brand-bg-pressed: var(--interactive-primary-brand-pressed);
+  --btn-brand-label: var(--interactive-primary-brand-label);
+
+  /* Secondary / tertiary buttons */
+  --btn-secondary-bg: var(--interactive-secondary-enabled);
+  --btn-secondary-bg-hover: var(--interactive-secondary-hovered);
+  --btn-secondary-bg-pressed: var(--interactive-secondary-pressed);
+  --btn-secondary-label: var(--interactive-secondary-label);
+  --btn-tertiary-bg: var(--interactive-tertiary-enabled);
+  --btn-tertiary-bg-hover: var(--interactive-tertiary-hovered);
+  --btn-tertiary-label: var(--interactive-tertiary-label);
+
+  /* Inputs */
+  --input-bg: var(--interactive-input-enabled);
+  --input-bg-hover: var(--interactive-input-hovered);
+  --input-border: var(--interactive-input-border);
+  --input-border-focus: var(--interactive-input-border-focused);
+  --input-label: var(--interactive-input-label);
+  --input-placeholder: var(--interactive-input-placeholder);
+  --input-helper: var(--interactive-input-helper);
+  --input-ring: var(--interactive-input-ring);
+
+  /* Booleans (checkbox / radio / switch) */
+  --boolean-off: var(--interactive-boolean-off-enabled);
+  --boolean-on: var(--interactive-boolean-on-enabled);
+  --boolean-fg: var(--interactive-boolean-foreground);
+  --boolean-border: var(--interactive-boolean-border);
+
+  /* Interaction physics observed across the kit */
+  --disabled-opacity: 0.5; /* @kind other */      /* every disabled state is opacity 50% */
+  --focus-ring-width: 8px;      /* focused states carry an 8px ring */
+  --state-layer-hover: 0.08; /* @kind other */
+  --state-layer-pressed: 0.12; /* @kind other */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1); /* @kind other */
+  --duration-fast: 120ms; /* @kind other */
+  --duration-base: 200ms; /* @kind other */
+}
+a { color: var(--brand); text-decoration: none }
+a:hover { color: var(--brand-strong); text-decoration: underline }

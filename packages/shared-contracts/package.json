@@ -1,0 +1,31 @@
+{
+  "name": "@starlink/shared-contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": "./dist/index.js",
+    "./adapters": "./dist/adapters/index.js",
+    "./events": "./dist/events/index.js",
+    "./domain": "./dist/domain/index.js",
+    "./testing": "./dist/testing/index.js",
+    "./http/employee": "./dist/http/employee-routes.js",
+    "./http/customer": "./dist/http/customer-routes.js",
+    "./realtime": "./dist/realtime/index.js"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "dependencies": {
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.8"
+  }
+}

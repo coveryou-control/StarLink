@@ -1,0 +1,27 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+
+  // Turbo sanitises the environment by default, so anything a task needs must be
+  // declared here. Without this, database tests silently fall back to the localhost
+  // default and exercise a different database than the developer configured — passing
+  // or failing for reasons unrelated to the code.
+  "globalEnv": ["SL_*", "CI", "NODE_ENV"],
+
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"],
+      // Never cached: these talk to a real database whose state is not part of the
+      // task's input hash, so a cached pass could hide a schema that no longer matches.
+      "cache": false
+    },
+    "lint": {}
+  }
+}

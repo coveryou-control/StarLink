@@ -1,0 +1,27 @@
+# =====================================================================================
+# The Prometheus datasource, provisioned rather than clicked.
+#
+# Grafana ran in the dev stack from Phase 1 with no datasource and no dashboards, so it
+# opened on an empty screen and every metric the application published was invisible
+# unless somebody configured it by hand — and a configuration that lives in one person's
+# browser is not one the next person has.
+#
+# `uid` is fixed and referenced by every dashboard. A generated uid would change per
+# environment and silently orphan the panels.
+# =====================================================================================
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: starlink-prometheus
+    type: prometheus
+    access: proxy
+    # The compose service name. Grafana resolves it on the compose network, which is why
+    # this is not `localhost` — that would be Grafana's own container.
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      # Matches `scrape_interval` in prometheus.yml. A shorter value here makes Grafana
+      # request resolution the data does not have, and the graphs gap.
+      timeInterval: 15s

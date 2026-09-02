@@ -1,0 +1,17 @@
+# Everything the build produces or the host happens to be holding. Without this the build
+# context ships node_modules and .next from the developer's machine, which is both slow
+# and a way for a local artefact to end up in a deployed image.
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+.git
+.local
+.playwright
+test-results
+playwright-report
+*.log
+.env
+.env.*
+!.env.example

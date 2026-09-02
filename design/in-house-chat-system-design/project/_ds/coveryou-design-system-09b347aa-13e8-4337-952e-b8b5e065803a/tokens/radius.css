@@ -1,0 +1,21 @@
+/* Corner radius scale — from the Corner Radius Scale page of the .fig.
+   Values are the exact dp values labelled in the source. */
+:root {
+  --radius-none: 0px;
+  --radius-extra-small: 4px;
+  --radius-small: 8px;
+  --radius-medium: 12px;
+  --radius-large: 16px;
+  --radius-large-increased: 20px;
+  --radius-extra-large: 28px;
+  --radius-extra-large-increased: 32px;
+  --radius-extra-extra-large: 48px;
+  --radius-full: 50%;
+
+  /* Applied radii observed on components */
+  --radius-button: 12px;        /* Button - Primary, huge/lg/md */
+  --radius-button-small: 8px;   /* Button - Primary, sm */
+  --radius-card: 16px;
+  --radius-sheet: 32px;
+  --radius-pill: 999px;
+}

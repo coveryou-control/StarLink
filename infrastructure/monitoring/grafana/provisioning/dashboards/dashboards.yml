@@ -1,0 +1,23 @@
+# =====================================================================================
+# Dashboard provisioning (Part IV §68 gate 7).
+#
+# Gate 7 asks that "dashboards/alerts exist for sockets, queue age, routing orphan count,
+# DLQ, DB/query health, channel errors and security anomalies". `alerts.yml` had the
+# alerts; there were no dashboards at all, and no way for Grafana to have found one.
+#
+# Provisioned from a file rather than created in the UI so a dashboard is reviewable in a
+# diff. `allowUiUpdates: false` is the point of that: a panel edited in the browser and
+# not committed is a panel the next environment does not have.
+# =====================================================================================
+apiVersion: 1
+
+providers:
+  - name: starlink
+    orgId: 1
+    folder: StarLink
+    type: file
+    disableDeletion: false
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

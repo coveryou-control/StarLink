@@ -1,0 +1,10 @@
+/* CoverYou Design System — global CSS entry point.
+   Consumers link this one file. Imports only; no rules here. */
+@import './tokens/fonts.css';
+@import './tokens/fig-tokens.css';
+@import './tokens/semantic.css';
+@import './tokens/typography.css';
+@import './tokens/radius.css';
+@import './tokens/elevation.css';
+@import './components/core/fig-assets.css';
+@import './ui_kits/chrome/fig-assets.css';

@@ -1,0 +1,246 @@
+/* =====================================================================================
+   STARLINK — customer surface visual system
+   "Quiet instrument", 2026-08-31.
+
+   ## One product, two surfaces
+
+   Tokens are deliberately IDENTICAL in name and value to the employee surface, with two
+   exceptions noted below. A customer who is also a colleague should not feel they changed
+   companies between the widget and the workspace, and a shared vocabulary is what stops
+   the two drifting the next time either is touched.
+
+   The two deliberate differences:
+
+     * `--radius` is larger. A small floating widget carries a softer corner than a
+       full-height application shell; the same radius on both makes the widget look like a
+       cropped screenshot of the workspace.
+     * Base font size is 16px, not 14px. iOS Safari zooms the viewport when a focused input
+       is smaller than 16px, which on a mobile-first surface throws the layout every time
+       somebody types. This is a functional constraint, not a stylistic choice.
+
+   ## The design position
+
+   This widget sits on CoverYou's website beside marketing copy, and it must read as part
+   of the company without competing with the page it lives on. So: restrained, warm,
+   quiet. The customer is often anxious — a claim, a complaint, a renewal they do not
+   understand — and the surface should feel calm and unhurried rather than bright and
+   eager.
+   ===================================================================================== */
+
+:root {
+  /* Warm ink neutrals — see the employee stylesheet for why the ramp is warm. */
+  --bg: #fbfaf9;
+  --surface: #ffffff;
+  --surface-2: #f4f3f0;
+  --surface-3: #ecebe7;
+  --border: #e4e2dd;
+  --border-strong: #c5c2ba;
+  --text: #1a1917;
+  --text-muted: #6d6a63;
+  --text-subtle: #8d8a82;
+
+  --accent: #15556e;
+  --accent-hover: #0f4457;
+  --accent-contrast: #ffffff;
+  --accent-soft: #e7f0f4;
+  --accent-line: #b6d3de;
+
+  --danger: #a52218;
+  --danger-soft: #fdecea;
+
+  /* The customer NEVER sees an internal note; these exist only so a shared component can
+     resolve them without a missing-variable fallback. */
+  --note-bg: #fff4d6;
+  --note-border: #b07d00;
+  --note-text: #4a3400;
+
+  --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --lh-tight: 1.25;
+  --lh: 1.5;
+  --track-tight: -0.011em;
+  --track-caps: 0.06em;
+
+  --radius-sm: 8px;
+  --radius: 14px;
+  --radius-pill: 999px;
+
+  --shadow-sm: 0 1px 2px rgb(26 25 23 / 5%);
+  --shadow-md: 0 12px 32px -8px rgb(26 25 23 / 18%), 0 2px 8px rgb(26 25 23 / 8%);
+
+  --hover: #f3f2ef;
+
+  --dur: 120ms;
+  --ease: cubic-bezier(0.2, 0.6, 0.35, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121211;
+    --surface: #1a1a18;
+    --surface-2: #232320;
+    --surface-3: #2c2c28;
+    --border: #302f2c;
+    --border-strong: #4a4842;
+    --text: #eceae5;
+    --text-muted: #a09d95;
+    --text-subtle: #817e77;
+
+    --accent: #6bb8d4;
+    --accent-hover: #8ccbe2;
+    --accent-contrast: #0a1e26;
+    --accent-soft: #16303b;
+    --accent-line: #2d5567;
+
+    --danger: #ff9b90;
+    --danger-soft: #3a1c18;
+
+    --note-bg: #3a2f10;
+    --note-border: #d9a400;
+    --note-text: #ffe9a8;
+
+    --hover: #232320;
+    --shadow-sm: 0 1px 2px rgb(0 0 0 / 40%);
+    --shadow-md: 0 12px 32px -8px rgb(0 0 0 / 60%), 0 2px 8px rgb(0 0 0 / 40%);
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  /* 16px minimum: see the header note on iOS Safari viewport zoom. */
+  font-size: 16px;
+  line-height: var(--lh);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-variant-numeric: tabular-nums;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+textarea,
+input[type='text'],
+input[type='tel'] {
+  transition:
+    border-color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+
+textarea:focus-visible,
+input:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+/* Visible focus is a requirement, not decoration (NFR-ACC-1). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* =====================================================================================
+   The host page
+
+   Marketing copy above a chat launcher. Set quietly: this page exists to be a plausible
+   backdrop for the widget, not to compete with it.
+   ===================================================================================== */
+
+main {
+  max-width: 62ch;
+  margin: 0 auto;
+  padding: var(--space-6) var(--space-5);
+}
+
+main h1 {
+  font-size: 28px;
+  font-weight: 660;
+  letter-spacing: -0.02em;
+  line-height: var(--lh-tight);
+  margin: 0 0 var(--space-3);
+}
+
+main p {
+  color: var(--text-muted);
+  margin: 0 0 var(--space-4);
+}
+
+/* =====================================================================================
+   Widget internals
+
+   The widget's own boxes are style objects in `chat.tsx` — they are positional and
+   stateful, and expressing them as classes would move the state into the stylesheet. What
+   lives here is everything that does not depend on component state.
+   ===================================================================================== */
+
+/* The customer's own thread. No borders between turns: a conversation with one company is
+   one continuous thing, and ruling every message off makes it read like a transaction log. */
+[aria-label='Messages'] {
+  scroll-behavior: smooth;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [aria-label='Messages'] {
+    scroll-behavior: auto;
+  }
+}
+
+/* The topic chooser. Options are targets a thumb has to hit on a phone, so they carry a
+   real minimum height rather than only padding. */
+[role='radiogroup'] [role='radio'] {
+  min-height: 40px;
+}

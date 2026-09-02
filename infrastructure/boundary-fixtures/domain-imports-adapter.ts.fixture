@@ -1,0 +1,14 @@
+/**
+ * DELIBERATE BOUNDARY VIOLATION — kept disabled, renamed to .ts by the gate test.
+ *
+ * This file exists so the boundary law can be proven rather than assumed
+ * (STARLINK_IMPLEMENTATION_PLAN.md Phase 1 gate (a)). Doc §18.3 makes the point that
+ * without a build-time check, a modular monolith is a naming convention — and naming
+ * conventions decay.
+ *
+ * A domain package importing an adapter implementation is exactly the coupling that
+ * would make "swap the adapter, don't rewrite the domain" untrue at Phase 9/10.
+ */
+import { MockIamAdapter } from '@starlink/adapter-iam';
+
+export const illegal = new MockIamAdapter();

@@ -1,0 +1,16 @@
+{
+  "name": "@starlink/guards",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Repository-wide architectural guards that run in the build, not in a reviewer's goodwill (doc §35.1, §36.2)",
+  "scripts": {
+    "build": "echo 'no build'",
+    "typecheck": "echo 'no typecheck'",
+    "test": "vitest run",
+    "lint": "eslint ."
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
+  }
+}

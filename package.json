@@ -1,0 +1,45 @@
+{
+  "name": "starlink",
+  "version": "0.1.0",
+  "private": true,
+  "description": "StarLink — CoverYou Conversation OS (monorepo root)",
+  "packageManager": "pnpm@10.12.1",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "turbo run build",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:verify": "turbo run build && vitest run --no-file-parallelism --reporter=json --outputFile=.vitest-report.json && node infrastructure/guards/src/no-skips.mjs .vitest-report.json",
+    "lint": "turbo run lint",
+    "boundaries": "depcruise --config .dependency-cruiser.cjs packages adapters infrastructure apps",
+    "spikes": "vitest run --project spikes",
+    "verify": "pnpm build && pnpm lint && pnpm typecheck && pnpm boundaries && pnpm test:verify && pnpm test:e2e:verify",
+    "dev:up": "docker compose -f infrastructure/deployment/compose.yaml up -d",
+    "dev:down": "docker compose -f infrastructure/deployment/compose.yaml down",
+    "seed:people": "node infrastructure/deployment/seed-dev-people.mjs",
+    "test:e2e": "playwright test",
+    "test:e2e:verify": "playwright test && node infrastructure/guards/src/no-skips.mjs .playwright-report.json"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.62.1",
+    "@starlink/database": "workspace:*",
+    "@starlink/security": "workspace:*",
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.23.1",
+    "dependency-cruiser": "^16.8.0",
+    "eslint": "^10.9.1",
+    "pg": "^8.23.0",
+    "turbo": "^2.3.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^2.1.8"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  }
+}
