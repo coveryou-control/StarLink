@@ -20,14 +20,15 @@ import type { MessageView } from '../lib/api-client';
 const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🎉'] as const;
 
 /**
- * What you can do to a message.
+ * The two actions worth showing on hover: react, and reply.
  *
- * ## Every entry works
+ * ## Everything else is on right-click
  *
- * Reply and react are server-backed; copy is a client capability that needs nothing. Edit
- * and delete are server-backed too and appear only on your OWN messages — editing somebody
- * else's words is impersonation and deleting them is moderation, and the server refuses
- * both, so offering them would be offering a refusal.
+ * There was a third control here — a kebab, whose label is "there is more" — and the menu
+ * behind it is now the message's context menu. Right-clicking is what people already do,
+ * it is how every desktop application offers the same list, and it costs no pixels beside
+ * every message on the screen. See `message-context-menu.tsx`, which also explains why
+ * moving it fixed a rendering bug rather than just tidying one.
  *
  * ## Revealed on hover, reachable by keyboard
  *
@@ -37,39 +38,19 @@ const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🎉']
  */
 export function MessageActions({
   message,
-  isMine,
   onReply,
   onReact,
-  onEdit,
-  onDelete,
 }: {
   readonly message: MessageView;
-  /** Gates edit and delete. The server checks the same thing; this stops us offering it. */
-  readonly isMine: boolean;
   readonly onReply?: ((message: MessageView) => void) | undefined;
   readonly onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
-  readonly onEdit?: ((message: MessageView) => void) | undefined;
-  readonly onDelete?: ((message: MessageView) => void) | undefined;
 }): ReactNode {
-  const [menuOpen, setMenuOpen] = useState(false);
   const [reactOpen, setReactOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  /*
-     One dismissal for both popovers.
-
-     Two `useEffect`s listening for the same outside click was the alternative, and the two
-     would race: whichever bound last would close first, and clicking from the reaction
-     strip straight onto the kebab closed the strip and then reopened nothing.
-  */
-  const anyOpen = menuOpen || reactOpen;
   useEffect(() => {
-    if (!anyOpen) return;
-    const close = (): void => {
-      setMenuOpen(false);
-      setReactOpen(false);
-    };
+    if (!reactOpen) return;
+    const close = (): void => setReactOpen(false);
     const onDown = (event: MouseEvent): void => {
       if (ref.current !== null && !ref.current.contains(event.target as Node)) close();
     };
@@ -82,40 +63,16 @@ export function MessageActions({
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [anyOpen]);
-
-  /** Cleared on a timer so the confirmation does not become part of the menu. */
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1_600);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  const copy = async (): Promise<void> => {
-    try {
-      await navigator.clipboard.writeText(message.body);
-      setCopied(true);
-    } catch {
-      /**
-       * The clipboard API is refused outside a secure context and in some embedded
-       * browsers. Silently doing nothing would look like a broken button, so the menu
-       * closes and no confirmation appears — the absence of "Copied" is the signal.
-       */
-      setMenuOpen(false);
-    }
-  };
+  }, [reactOpen]);
 
   /**
-   * A deleted message has nothing to reply to, react to, copy, edit or delete again.
+   * A deleted message has nothing to react to or reply to.
    *
-   * Showing the bar over "this message was deleted" would be five controls attached to
-   * an absence.
+   * Showing the bar over "this message was deleted" would be two controls attached to an
+   * absence. The row's context menu withholds itself on the same condition.
    */
   if (message.redactedAt !== undefined) return null;
   if (onReply === undefined && onReact === undefined) return null;
-
-  const canEdit = isMine && onEdit !== undefined;
-  const canDelete = isMine && onDelete !== undefined;
 
   return (
     <div className="message-actions" ref={ref}>
@@ -130,10 +87,7 @@ export function MessageActions({
           <button
             type="button"
             className="message-action"
-            onClick={() => {
-              setReactOpen((was) => !was);
-              setMenuOpen(false);
-            }}
+            onClick={() => setReactOpen((was) => !was)}
             aria-expanded={reactOpen}
             aria-label="React to this message"
             title="React"
@@ -201,69 +155,6 @@ export function MessageActions({
         </button>
       ) : null}
 
-      <button
-        type="button"
-        className="message-action"
-        onClick={() => {
-          setMenuOpen((was) => !was);
-          setReactOpen(false);
-        }}
-        aria-expanded={menuOpen}
-        aria-haspopup="menu"
-        aria-label="More actions"
-        title="More"
-      >
-        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
-          <circle cx="5" cy="12" r="1.7" fill="currentColor" />
-          <circle cx="12" cy="12" r="1.7" fill="currentColor" />
-          <circle cx="19" cy="12" r="1.7" fill="currentColor" />
-        </svg>
-      </button>
-
-      {menuOpen ? (
-        <div className="message-menu" role="menu" aria-label="Message actions">
-          <button type="button" role="menuitem" onClick={() => void copy()}>
-            {copied ? 'Copied' : 'Copy text'}
-          </button>
-          {onReply !== undefined ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                onReply(message);
-                setMenuOpen(false);
-              }}
-            >
-              Reply
-            </button>
-          ) : null}
-          {canEdit ? (
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                onEdit(message);
-                setMenuOpen(false);
-              }}
-            >
-              Edit
-            </button>
-          ) : null}
-          {canDelete ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="menu-danger"
-              onClick={() => {
-                onDelete(message);
-                setMenuOpen(false);
-              }}
-            >
-              Delete
-            </button>
-          ) : null}
-        </div>
-      ) : null}
     </div>
   );
 }

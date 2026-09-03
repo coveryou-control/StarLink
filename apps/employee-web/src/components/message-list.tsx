@@ -10,6 +10,7 @@ import { initialsFor, senderColour } from './conversation-naming';
 import { crossesDay, daySeparatorLabel, unreadDividerIndex } from './timeline';
 import { splitBody } from '../lib/mention-draft';
 import { MessageActions } from './message-actions';
+import { MessageContextMenu } from './message-context-menu';
 
 import type { MessageView } from '../lib/api-client';
 import type { PendingSend } from './composer';
@@ -272,11 +273,28 @@ function MessageRow({
    */
   const showHead = isGroup && !isMine && !grouped;
 
+  /** Where the context menu was summoned, or absent when it is closed. */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | undefined>();
+
   return (
     <li
       className={`message-row${isCustomerNote ? ' internal' : ''}${isMine ? ' mine' : ''}${
         grouped ? ' grouped' : ''
       }${showHead ? ' with-head' : ''}`}
+      /*
+        Right-click opens the message's actions — see `message-context-menu.tsx`.
+
+        On the ROW rather than on the bubble, so the whole line responds: aiming at a
+        two-character bubble to reach a menu is a target the size of the word "hi".
+
+        A deleted message has nothing to copy, reply to, edit or delete again, so it keeps
+        the browser's own menu rather than offering four items attached to an absence.
+      */
+      onContextMenu={(event) => {
+        if (message.redactedAt !== undefined) return;
+        event.preventDefault();
+        setMenuAt({ x: event.clientX, y: event.clientY });
+      }}
     >
       {/*
         An avatar gutter on the left, filled once per turn.
@@ -466,17 +484,30 @@ function MessageRow({
 
 
       {/*
-        Reply, copy and react, in one menu on hover. Every entry does something — a menu
-        with a disabled or decorative item is worse than a shorter menu.
+        React and reply, on hover. Everything else is on right-click — see the row's
+        `onContextMenu` above.
       */}
       <MessageActions
         message={message}
-        isMine={isMine}
         {...(onReply !== undefined ? { onReply } : {})}
         {...(onReact !== undefined ? { onReact } : {})}
-        {...(onEdit !== undefined ? { onEdit } : {})}
-        {...(onDelete !== undefined ? { onDelete } : {})}
       />
+
+      {menuAt !== undefined ? (
+        <MessageContextMenu
+          message={message}
+          at={menuAt}
+          /* Edit and delete are yours alone: editing somebody else's words is
+             impersonation and deleting them is moderation. The server refuses both, so
+             offering them would be offering a refusal. */
+          canEdit={isMine}
+          canDelete={isMine}
+          {...(onReply !== undefined ? { onReply } : {})}
+          {...(onEdit !== undefined ? { onEdit } : {})}
+          {...(onDelete !== undefined ? { onDelete } : {})}
+          onClose={() => setMenuAt(undefined)}
+        />
+      ) : null}
 
       {/*
         Reaction chips, below the bubble.

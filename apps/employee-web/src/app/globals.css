@@ -2108,6 +2108,40 @@ input[type='search']::-webkit-search-cancel-button {
 
 /* Takes the slack, so everything after it groups against the right edge instead of
    crowding the name. */
+/*
+   The avatar, the name and the subtitle, as one target that opens the panel.
+
+   A button, so it is reachable by keyboard and announces itself — but it must not LOOK like
+   one. It is the header's content, and a bordered control wrapped around the conversation's
+   name would make the header read as a toolbar. Everything a button brings visually is
+   stripped; what is left is the hover tint, which is the only hint it needs.
+*/
+.chat-identity-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 6px 8px;
+  margin-left: -8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.chat-identity-button {
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.chat-identity-button:hover {
+  background: var(--hover);
+}
+
 .chat-identity {
   display: flex;
   flex-direction: column;
@@ -3240,11 +3274,21 @@ input[type='search']::-webkit-search-cancel-button {
   background: var(--accent-soft);
 }
 
+/*
+   The message context menu, positioned at the pointer.
+
+   `fixed`, and portalled to `document.body`, which is the fix rather than the styling. It
+   was `absolute` inside `.message-actions` and rendered BEHIND the messages below it —
+   `z-index: 30` could not help, because each `.message-row` paints in document order and a
+   later row paints over an earlier row's overflowing child whatever index that child asks
+   for. An index only orders siblings inside one stacking context.
+
+   `left`/`top` come from the component, which measures the menu and pulls it back inside
+   the viewport before paint.
+*/
 .message-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 30;
+  position: fixed;
+  z-index: 80;
   min-width: 160px;
   padding: var(--space-1);
   border: 1px solid var(--border);
