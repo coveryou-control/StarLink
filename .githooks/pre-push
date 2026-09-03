@@ -1,0 +1,73 @@
+#!/bin/sh
+#
+# Refuse a direct push to a protected branch.
+#
+# ## Why this exists alongside branch protection
+#
+# GitHub's branch protection is the real control: it is server-side, nobody can skip
+# it, and it is what makes "everything went through a pull request" a fact rather than
+# a habit. This hook is not a substitute for it. It is the half that fails EARLY —
+# before the objects leave the machine, with a message that says what to do instead,
+# rather than after a thirty-second upload and a rejection from a server.
+#
+# It is also the half that works when the server-side rule is not there yet. This
+# repository's protection has to be set by somebody with admin, and until it is, this
+# is the only thing standing between a tired evening and an untracked commit on main.
+#
+# ## Installed by `pnpm install`
+#
+# Git does not clone hooks. The root package.json's `prepare` script points
+# `core.hooksPath` at this directory, so the hook arrives with the dependencies and
+# nobody has to remember a setup step. `guards/src/hooks.test.ts` fails the build if
+# that wiring is removed.
+#
+# ## The escape hatch is `git push --no-verify`
+#
+# Deliberately not a bespoke environment variable. `--no-verify` is standard, every
+# developer already knows it, and typing it is a decision somebody makes on purpose
+# rather than a flag that ends up in a shell alias. If you need it routinely, the
+# workflow is wrong, not the hook.
+
+PROTECTED='main master'
+
+# Git feeds refs on stdin: <local ref> <local sha> <remote ref> <remote sha>
+while read -r _local_ref _local_sha remote_ref _remote_sha; do
+  # A branch deletion pushes the zero sha; refuse those too — deleting main is worse
+  # than pushing to it.
+  branch=${remote_ref#refs/heads/}
+  [ "$branch" = "$remote_ref" ] && continue   # not a branch ref (a tag, say)
+
+  for protected in $PROTECTED; do
+    if [ "$branch" = "$protected" ]; then
+      cat >&2 <<MESSAGE
+
+  ✗ Direct push to '$protected' refused.
+
+    Everything reaches $protected through a pull request, so that every change has a
+    diff, a review and a green build attached to it. A commit pushed straight to the
+    branch has none of those, and nothing afterwards can reconstruct them.
+
+    What to do instead — your work is already committed, so this is just re-pointing it:
+
+      git switch -c feat/short-description
+      git push -u origin feat/short-description
+      gh pr create --fill
+
+    If you have already committed onto $protected locally, move those commits to the
+    branch and put $protected back where the remote has it:
+
+      git switch -c feat/short-description
+      git switch $protected
+      git reset --hard origin/$protected
+      git switch feat/short-description
+
+    This hook is the early half of the rule. The binding half is branch protection on
+    the server; see CONTRIBUTING.md.
+
+MESSAGE
+      exit 1
+    fi
+  done
+done
+
+exit 0
