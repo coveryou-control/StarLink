@@ -36,8 +36,6 @@ export function ChatHeader({
   onToggleDetails,
   searchOpen = false,
   onToggleSearch,
-  pinned = false,
-  onTogglePin,
   compact = false,
 }: {
   readonly conversation: ConversationSummary | undefined;
@@ -47,17 +45,16 @@ export function ChatHeader({
   readonly detailsOpen?: boolean;
   readonly onToggleDetails?: (() => void) | undefined;
   /**
-   * The reference's three header controls, and all three do something.
+   * The header's controls, and both of them do something.
    *
    * Screen 02 draws a phone, a magnifier and a star. The phone is a call, which StarLink
-   * does not have and is not going to — so the row is search, pin and info: the magnifier
-   * and star the design draws, plus the control that opens the fourth column. Three buttons
-   * in the design's own treatment, none of them a picture of a feature.
+   * does not have and is not going to. The star has gone too: it toggled "pin to top", and
+   * the information panel already carries that as a labelled switch — a glyph in the header
+   * doing the same job meant the state had two homes and one of them had to be hovered to
+   * find out what it was. Search, and the control that opens the fourth column.
    */
   readonly searchOpen?: boolean;
   readonly onToggleSearch?: (() => void) | undefined;
-  readonly pinned?: boolean;
-  readonly onTogglePin?: (() => void) | undefined;
   /** A phone. The header keeps the back control, the person and one action — see below. */
   readonly compact?: boolean;
 }): ReactNode {
@@ -284,27 +281,6 @@ export function ChatHeader({
                 stroke="currentColor"
                 strokeWidth="1.8"
                 strokeLinecap="round"
-              />
-            </svg>
-          </button>
-        )}
-
-        {compact || isGroup || onTogglePin === undefined ? null : (
-          <button
-            type="button"
-            className="chat-header-action"
-            onClick={onTogglePin}
-            aria-pressed={pinned}
-            aria-label={pinned ? 'Unpin from the top of your list' : 'Pin to the top of your list'}
-            title={pinned ? 'Unpin' : 'Pin to top'}
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <path
-                d="m12 4.2 2.24 4.54 5.01.73-3.62 3.53.85 4.99L12 15.63l-4.48 2.36.85-4.99L4.75 9.47l5.01-.73L12 4.2Z"
-                fill={pinned ? 'currentColor' : 'none'}
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinejoin="round"
               />
             </svg>
           </button>

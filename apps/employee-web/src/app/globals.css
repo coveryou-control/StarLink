@@ -1,4 +1,5 @@
 @import './emoji-font.css';
+@import './chat-wallpaper.css';
 
 /* =====================================================================================
    STARLINK — employee surface
@@ -108,7 +109,19 @@
      button, the active tab, the mobile compose button. It is deliberately NOT the
      selected-row fill, NOT a bubble and NOT a panel. */
   --accent: var(--brand);
-  --accent-hover: var(--btn-brand-bg-hover);
+  /*
+     One step along the brand ramp, not five.
+
+     `--btn-brand-bg-hover` chains to `--brand-primary-900`, which in the light theme is
+     rgb(48,19,15) — the far, near-black end of the ramp. So every accent control turned
+     almost black under the pointer: the compose button, the send arrow, the account avatar
+     on the rail. Reported twice as "it gets black", and it was.
+
+     700 is the step that reads as the same button, pressed. The ramp inverts in the dark
+     theme (700 there is a lighter pink than 600), so this one line gives a darker hover on
+     light and a lighter one on dark, which is the correct direction for both.
+  */
+  --accent-hover: var(--brand-primary-700);
   --accent-contrast: var(--btn-brand-label);
   --accent-soft: var(--brand-primary-100);
   --accent-line: var(--brand-primary-200);
@@ -867,6 +880,15 @@ input[type='search']::-webkit-search-cancel-button {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+  /*
+     The menu's own ink, because it does not want the rail's.
+
+     It is a light popover rendered inside `.rail`, which sets `color: rgb(255 255 255 /
+     50%)` for the icons on its dark ground — and colour inherits. So the signed-in name was
+     white at half opacity on a white card: technically rendered, and unreadable. A surface
+     that changes its background has to state its foreground.
+  */
+  color: var(--text);
   box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
@@ -2004,12 +2026,28 @@ input[type='search']::-webkit-search-cancel-button {
    shadows"). Rendered white, the colleague's bubble was a white box on a white page held
    together by a hairline nobody could see, and the whole thread read flat.
 */
+/*
+   The wallpaper.
+
+   A faint tiled line pattern behind the messages, in CoverYou's own motifs — see
+   `scripts/generate-wallpaper.mjs` for why it is drawn rather than borrowed. It is on the
+   SCROLLER rather than the pane so it ends where the messages end: under the header or the
+   composer it would show through two surfaces that are meant to be solid.
+
+   `background-attachment: local` is the detail that makes it feel like paper rather than
+   like a screen effect. The default pins a background to the viewport, so the tiles hold
+   still while the messages slide over them; `local` scrolls the pattern with the content,
+   the way a sheet moves with what is written on it.
+*/
 .thread-scroll {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
   overscroll-behavior: contain;
-  background: var(--surface-raised);
+  background-color: var(--thread-ground, var(--surface-raised));
+  background-image: var(--thread-wallpaper);
+  background-repeat: repeat;
+  background-attachment: local;
 }
 
 /* Everything that is not the scroller keeps its natural height and never shrinks — a
