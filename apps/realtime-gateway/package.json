@@ -20,7 +20,7 @@
     "@starlink/observability": "workspace:*",
     "@starlink/security": "workspace:*",
     "@starlink/shared-contracts": "workspace:*",
-    "cookie": "^1.0.2",
+    "cookie": "^2.0.1",
     "pg": "^8.13.1",
     "socket.io": "^4.8.1",
     "zod": "^3.24.1"
