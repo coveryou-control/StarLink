@@ -171,7 +171,7 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
     await test.step('start an internal conversation with one colleague (SL-001)', async () => {
       await employee.getByRole('button', { name: 'New conversation' }).click();
       const panel = employee.getByRole('region', { name: 'Start a conversation' });
-      await panel.getByPlaceholder('name or department').fill('E2E Lead');
+      await panel.getByPlaceholder(/name, department/i).fill('E2E Lead');
       await panel.getByRole('button', { name: 'Find' }).click();
       await panel.getByRole('button', { name: /E2E Lead/ }).first().click();
       await expect(panel.getByRole('list', { name: 'Chosen colleagues' })).toContainText('E2E Lead');
@@ -213,7 +213,7 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
 
     await test.step('adding a third person warns that history is exposed (BR-07)', async () => {
       const participants = employee.getByRole('region', { name: 'Participants' });
-      await participants.getByPlaceholder('name or department').fill('E2E Colleague');
+      await participants.getByPlaceholder(/name, department/i).fill('E2E Colleague');
       await participants.getByRole('button', { name: 'Find' }).click();
       await participants.getByRole('button', { name: /E2E Colleague/ }).first().click();
 

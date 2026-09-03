@@ -82,18 +82,6 @@ export interface MessageRecord {
    * a bubble, because nobody said it.
    */
   readonly messageClass?: string;
-  readonly threadParentId?: UUID;
-  /** A threaded reply the sender also put back in the channel. Meaningless without a parent. */
-  readonly alsoSendToChannel?: boolean;
-  /**
-   * How many replies this message's thread holds, and when the newest arrived.
-   *
-   * Present only on a CHANNEL page, which computes them. Absent means "this query did not
-   * ask" and never "no replies" — the two would be indistinguishable to a renderer drawing
-   * "N replies", and it would draw nothing for a busy thread.
-   */
-  readonly replyCount?: number;
-  readonly lastReplyAt?: Timestamp;
   /** When the body was last corrected. Absent means never. */
   readonly editedAt?: Timestamp;
   /** When the message was deleted. Absent means it was not. The row always survives. */
@@ -128,9 +116,6 @@ export interface InsertMessage {
   readonly senderDisplayName: string;
   readonly body: string;
   readonly replyToMessageId?: UUID;
-  /** See `MessageRecord.threadParentId` — containment, not a quote. */
-  readonly threadParentId?: UUID;
-  readonly alsoSendToChannel?: boolean;
   readonly clientMessageId?: string;
   /**
    * Structured mentions, already validated against the conversation's participants.
@@ -250,10 +235,5 @@ export interface MessageReader {
     readonly visibility: readonly MessageVisibility[];
     readonly limit: number;
     readonly before?: { readonly createdAt: Timestamp; readonly id: UUID };
-    /**
-     * The root whose replies to read. Absent reads the channel's own timeline, which
-     * EXCLUDES threaded replies — see the implementation for the one exception.
-     */
-    readonly threadParentId?: UUID;
   }): Promise<readonly MessageRecord[]>;
 }

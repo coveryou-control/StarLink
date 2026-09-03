@@ -20,7 +20,6 @@ import {
   EmployeeDetails,
   SharedFiles,
 } from '../../../components/conversation-info';
-import { ThreadPane } from '../../../components/thread-pane';
 import { ConversationSearch } from '../../../components/conversation-search';
 import { useMediaQuery } from '../../../lib/use-media-query';
 import {
@@ -90,15 +89,6 @@ export default function ThreadPage(): ReactNode {
    */
   const [columnHidden, setColumnHidden] = useState(false);
   const [overlayOpen, setOverlayOpen] = useState(false);
-
-  /**
-   * The message whose thread is open, if one is.
-   *
-   * An id rather than the message, so the pane always renders the CURRENT version of the
-   * root: a copy captured at click time would keep showing the old body after an edit and
-   * the old text after a deletion. Resolved against the page below.
-   */
-  const [threadRootId, setThreadRootId] = useState<string | undefined>();
 
   /** The header's magnifier: the same search, narrowed to this thread. */
   const [searchOpen, setSearchOpen] = useState(false);
@@ -481,19 +471,14 @@ export default function ThreadPage(): ReactNode {
    * made the designed composition the exceptional case. Below 1024px the same control
    * reveals it, because there it is covering the conversation.
    */
-  /**
-   * One fourth column, two things that want it.
-   *
-   * A thread wins when it is open: you asked for it, it is about a specific message, and
-   * the information panel is a standing reference you can bring back with one control. The
-   * design gives them the same column for the same reason — at any moment you are asking
-   * "who is this" or "what did people say about that", never both.
-   */
-  const threadRoot = messages.find((message) => message.messageId === threadRootId);
-  const showThread = threadRoot !== undefined;
+  /*
+     The fourth column has one occupant now.
 
-  const showDetails =
-    !showThread && canOpenDetails && (panelOverlays ? overlayOpen : !columnHidden);
+     It used to be shared with a thread pane, and "a thread wins when it is open" was the
+     rule that arbitrated between them. There are no threads, so the information panel is
+     simply what the column shows.
+  */
+  const showDetails = canOpenDetails && (panelOverlays ? overlayOpen : !columnHidden);
   const toggleDetails = (): void =>
     panelOverlays ? setOverlayOpen((was) => !was) : setColumnHidden((was) => !was);
 
@@ -544,9 +529,7 @@ export default function ThreadPage(): ReactNode {
 
   return (
     <div
-      className={`thread-stage${showDetails || showThread ? ' details-open' : ' details-hidden'}${
-        showThread ? ' thread-open' : ''
-      }`}
+      className={`thread-stage${showDetails ? ' details-open' : ' details-hidden'}`}
     >
     {/*
       `one-to-one` on the pane, so the stylesheet can drop the per-message avatar on a phone.
@@ -667,12 +650,6 @@ export default function ThreadPage(): ReactNode {
               /* Positive test, so an unresolved kind keeps the note marking. */
               conversationIsInternal={conversationType?.startsWith('INTERNAL') === true}
               isGroup={isGroup}
-              /*
-                 Threads are a CHANNEL affordance. A one-to-one is already the side
-                 conversation, and threading inside an announcement would put replies
-                 somewhere most of the audience cannot post to anyway.
-              */
-              {...(isGroup ? { onOpenThread: (message) => setThreadRootId(message.messageId) } : {})}
               unreadOnOpen={unreadOnOpen.current}
               readWatermark={readWatermark}
               onReact={react}
@@ -783,28 +760,6 @@ export default function ThreadPage(): ReactNode {
       It opens with the thing it is about: the avatar at size and the conversation's name.
       A details panel that opens with a search field is a form.
     */}
-    {/*
-      The thread, in the fourth column, instead of the information panel.
-
-      Closing it returns the column to whatever it was showing — the panel state is
-      untouched while a thread is open rather than reset, so the reader gets back the
-      arrangement they left.
-    */}
-    {showThread ? (
-      <ThreadPane
-        conversationId={conversationId}
-        root={threadRoot}
-        principalId={state.me.principalId}
-        senderDisplayName={state.me.displayName}
-        isGroup={isGroup}
-        conversationIsInternal={conversationType?.startsWith('INTERNAL') === true}
-        onClose={() => setThreadRootId(undefined)}
-        /* The channel page carries the reply count, so it is re-read when this changes it
-           — otherwise "3 replies" stays 3 until something else forces a load. */
-        onRepliesChanged={() => void refetch()}
-      />
-    ) : null}
-
     {showDetails ? (
       <aside className="details-drawer" aria-label={detailsTitle}>
         {/*

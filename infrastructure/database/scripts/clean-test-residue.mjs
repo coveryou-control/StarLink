@@ -143,15 +143,6 @@ total += await run(
        WHERE conversation_id IN (${FIXTURE_CONVERSATIONS}))`,
   args,
 );
-/* A threaded reply points at another message in the same conversation, so the set deletes
-   as one — but only once nothing outside it points in. Cleared rather than ordered,
-   because "delete the roots last" is not expressible in a single statement. */
-total += await run(
-  'thread links',
-  `UPDATE conversation.messages SET thread_parent_id = NULL
-    WHERE conversation_id IN (${FIXTURE_CONVERSATIONS}) AND thread_parent_id IS NOT NULL`,
-  args,
-);
 total += await run(
   'reply links',
   `UPDATE conversation.messages SET reply_to_message_id = NULL

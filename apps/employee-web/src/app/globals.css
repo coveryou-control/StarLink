@@ -5074,136 +5074,6 @@ input[type='search']::-webkit-search-cancel-button {
    Threads in a channel (design screen 03)
    ===================================================================================== */
 
-/*
-   The affordance under a message that has a thread.
-
-   `--info-label` — the design system's informational blue — rather than the brand orange.
-   Rule 1 keeps orange for signals that need acting on: unread, mentions, the send button. A
-   thread that exists is a fact about a message, not a summons.
-*/
-.thread-summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 0;
-  border: 0;
-  background: transparent;
-  color: var(--info-label);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.thread-summary:hover:not(:disabled) {
-  background: transparent;
-  text-decoration: underline;
-}
-
-/* Screen 03 sets the whole line — glyph, count and "last reply 2m ago" — in one blue at
-   one weight. Greying the tail split a single sentence into two typographic voices. */
-.thread-summary-when {
-  color: inherit;
-}
-
-/*
-   The pane itself: the fourth column, when a thread is what is in it.
-
-   Same width, same ground and the same hairline as the information panel, because it is
-   the same column. The one difference is that it holds a composer, so it is a flex column
-   with a scrolling middle rather than a single scrolling body.
-*/
-.thread-pane-column {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-  background: var(--surface-raised);
-  border-left: 1px solid var(--border);
-}
-
-.thread-pane-scroll {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-/*
-   The root, set apart from its replies.
-
-   A hairline under it rather than a tint or a card: rule 4 gives the product one elevation,
-   and the whole pane is already one surface. The line says "everything below is about
-   this", which is the only thing that needs saying.
-*/
-.thread-root {
-  border-bottom: 1px solid var(--border);
-}
-
-.thread-count {
-  margin: 0;
-  padding: 10px 16px 4px;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-secondary);
-}
-
-/* The pane is narrow, so the thread's own messages get the narrow treatment: no avatar
-   gutter to spare, tighter gutters, and a measure bounded by the column rather than 620px. */
-/*
-   A thread reads from the top, not the bottom.
-
-   `.thread` is `justify-content: flex-end; min-height: 100%` so a half-empty channel sits
-   above the composer rather than floating at the top of the screen. In the pane there are
-   two of these stacked inside one scroller, and the rule pushed each to the bottom of its
-   own 100%-tall box — the root at the foot of a screen-high gap, then the replies below the
-   fold. A thread is short and read downward from the message it is about.
-*/
-.thread-pane-column .thread {
-  padding: 12px 16px;
-  gap: 14px;
-  min-height: 0;
-  justify-content: flex-start;
-}
-
-.thread-pane-column .message-stack,
-.thread-pane-column .message-row.mine .message-stack {
-  max-width: 100%;
-}
-
-.thread-pane-column .composer {
-  padding: 12px 16px 16px;
-}
-
-/*
-   "Also send to channel".
-
-   Above the field, because it changes WHERE the message goes — the same class of decision
-   as internal-versus-customer, and that one is never hidden behind the control you press
-   last.
-*/
-/*
-   The composer's caption. 12px, secondary, aligned with the field's own left edge.
-
-   `.composer` is a flex column with a 10px gap, so this needs no margin of its own — and
-   giving it one is how the gap and the margin end up disagreeing the next time either
-   changes.
-*/
-.composer-also {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.composer-also input {
-  width: 16px;
-  height: 16px;
-  margin: 0;
-  accent-color: var(--accent);
-}
-
 /* =====================================================================================
    "You" — screen 08's fourth phone.
 
@@ -6542,10 +6412,9 @@ input[type='search']::-webkit-search-cancel-button {
     display: none;
   }
 
-  /* The thread takes the same overlay treatment for the same reason: below four columns
-     there is no room for a conversation and a pane side by side. */
-  .details-drawer,
-  .thread-pane-column {
+  /* Below four columns there is no room for a conversation and a panel side by side, so
+     the panel comes over the top of it. */
+  .details-drawer {
     position: absolute;
     inset: 0 0 0 auto;
     width: min(340px, 100%);
@@ -6561,7 +6430,7 @@ input[type='search']::-webkit-search-cancel-button {
    above the thread, so a phone showed half a conversation list and half a conversation and
    neither was usable. Two panes cannot share a 375px screen.
 
-   So exactly one of them owns the viewport, chosen by `data-thread-open`, which the shell
+   So exactly one of them owns the viewport, chosen by `data-conversation-open`, which the shell
    sets from whether a conversation id is in the route. The list is the screen when nothing
    is selected; the thread is the screen when something is; the chat header's back control
    is the way between them. That is how a phone chat application behaves, and it is a
@@ -6604,11 +6473,11 @@ input[type='search']::-webkit-search-cancel-button {
     border-right: none;
   }
 
-  .app-body[data-thread-open='true'] > aside {
+  .app-body[data-conversation-open='true'] > aside {
     display: none;
   }
 
-  .app-body[data-thread-open='false'] > main {
+  .app-body[data-conversation-open='false'] > main {
     display: none;
   }
 
@@ -6693,8 +6562,7 @@ input[type='search']::-webkit-search-cancel-button {
 
   /* The drawer is a full-screen PAGE: at this width there is nothing behind it worth
      showing a sliver of. */
-  .details-drawer,
-  .thread-pane-column {
+  .details-drawer {
     width: 100%;
     border-left: 0;
   }
@@ -6928,7 +6796,7 @@ input[type='search']::-webkit-search-cancel-button {
     width: min(260px, calc(100vw - var(--space-4)));
   }
 
-  .app-shell[data-thread-open='true'] .rail {
+  .app-shell[data-conversation-open='true'] .rail {
     display: none;
   }
 

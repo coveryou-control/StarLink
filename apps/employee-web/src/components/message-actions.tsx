@@ -38,18 +38,11 @@ export function MessageActions({
   onReact,
   onEdit,
   onDelete,
-  onOpenThread,
 }: {
   readonly message: MessageView;
   /** Gates edit and delete. The server checks the same thing; this stops us offering it. */
   readonly isMine: boolean;
   readonly onReply?: ((message: MessageView) => void) | undefined;
-  /**
-   * Starts or opens a thread on this message. Absent where threads do not exist — inside a
-   * thread, and on a one-to-one, where a side conversation about a message between two
-   * people is the conversation.
-   */
-  readonly onOpenThread?: ((message: MessageView) => void) | undefined;
   readonly onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
   readonly onEdit?: ((message: MessageView) => void) | undefined;
   readonly onDelete?: ((message: MessageView) => void) | undefined;
@@ -127,38 +120,6 @@ export function MessageActions({
             );
           })
         : null}
-
-      {/*
-        Reply in thread, beside quote-reply and deliberately not instead of it.
-
-        They are different acts: a quote answers a message in the room, a thread takes the
-        answer out of it. Offering only one would make people use it for both, which is how
-        a channel ends up with forty quoted replies nobody can follow — or with a thread per
-        remark and a channel nobody reads.
-      */}
-      {onOpenThread !== undefined ? (
-        <button
-          type="button"
-          className="message-action"
-          onClick={() => onOpenThread(message)}
-          aria-label={
-            (message.replyCount ?? 0) > 0
-              ? `Open thread, ${message.replyCount} replies`
-              : `Reply in thread to ${message.senderDisplayName}`
-          }
-          title={(message.replyCount ?? 0) > 0 ? 'Open thread' : 'Reply in thread'}
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
-            <path
-              d="M4 6h16M4 11h11M4 16h7"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinecap="round"
-            />
-          </svg>
-        </button>
-      ) : null}
 
       {onReply !== undefined ? (
         <button

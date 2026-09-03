@@ -68,17 +68,9 @@ const sendSchema = z
      * send. The column is nullable and always was; only this line said otherwise.
      */
     body: z.string().max(10_000),
-  visibility: z.enum(['INTERNAL', 'CUSTOMER_VISIBLE']),
-  replyToMessageId: uuid.optional(),
-  /**
-   * Reply inside a thread, and optionally put it in the channel as well.
-   *
-   * Both are checked in the domain — the root must be in this conversation and must not
-   * itself be threaded — so this schema only guarantees the transport is well formed.
-   */
-  threadParentId: uuid.optional(),
-  alsoSendToChannel: z.boolean().optional(),
-  clientMessageId: z.string().min(1).max(200).optional(),
+    visibility: z.enum(['INTERNAL', 'CUSTOMER_VISIBLE']),
+    replyToMessageId: uuid.optional(),
+    clientMessageId: z.string().min(1).max(200).optional(),
   /** Attachments to bind to this message once it exists (§28.1, ADR-012). */
   attachmentIds: z.array(uuid).max(10).optional(),
   /**
@@ -138,14 +130,6 @@ const reactionSchema = z.object({
 const pageSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   cursor: z.string().min(1).optional(),
-  /**
-   * Read one thread instead of the channel's timeline.
-   *
-   * Same authorization, same route, same page shape — a thread is part of the conversation
-   * and not a separate object, so it is a parameter rather than a second endpoint with a
-   * second copy of the object check (§38).
-   */
-  thread: z.string().uuid().optional(),
 });
 
 @Controller('v1/employee/conversations/:conversationId/messages')
@@ -204,12 +188,6 @@ export class EmployeeMessagesController {
         hasAttachment: (parsed.data.attachmentIds?.length ?? 0) > 0,
         ...(parsed.data.replyToMessageId !== undefined
           ? { replyToMessageId: parsed.data.replyToMessageId }
-          : {}),
-        ...(parsed.data.threadParentId !== undefined
-          ? {
-              threadParentId: parsed.data.threadParentId,
-              ...(parsed.data.alsoSendToChannel === true ? { alsoSendToChannel: true } : {}),
-            }
           : {}),
         ...(parsed.data.clientMessageId !== undefined
           ? { clientMessageId: parsed.data.clientMessageId }
@@ -422,9 +400,6 @@ export class EmployeeMessagesController {
       visibility: ['CUSTOMER_VISIBLE', 'INTERNAL'],
       limit: parsed.data.limit,
       ...(before !== undefined ? { before } : {}),
-      /* Scoped by the query, not filtered after: a client-side split would return short
-         pages and then page against a cursor that had skipped what it dropped. */
-      ...(parsed.data.thread !== undefined ? { threadParentId: parsed.data.thread } : {}),
     });
 
     /**
@@ -531,24 +506,9 @@ export class EmployeeMessagesController {
          * visibility was decided elsewhere.
          */
         ...(m.replyToMessageId !== undefined ? { replyToMessageId: m.replyToMessageId } : {}),
-        /*
-           Threading, as three separate facts.
-
-           `threadParentId` says where the message lives. `replyCount`/`lastReplyAt` are the
-           design's "3 replies · last reply 2m ago" and are present only on a channel page —
-           absent means the query did not ask, never zero, so a renderer cannot draw "0
-           replies" on a thread page where the question was never put.
-        */
         /* Only when it is not an ordinary message — see the record's own note on why the
            common case sends nothing. */
         ...(m.messageClass !== undefined ? { messageClass: m.messageClass } : {}),
-        ...(m.threadParentId !== undefined ? { threadParentId: m.threadParentId } : {}),
-        ...(m.replyCount !== undefined && m.replyCount > 0
-          ? {
-              replyCount: m.replyCount,
-              ...(m.lastReplyAt !== undefined ? { lastReplyAt: m.lastReplyAt } : {}),
-            }
-          : {}),
         /**
          * Structured mentions, exactly as stored.
          *

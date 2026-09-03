@@ -45,21 +45,6 @@ export interface SendMessageCommand {
    */
   readonly visibility: MessageVisibility;
   readonly replyToMessageId?: UUID;
-  /**
-   * The message this one is a threaded reply to, if any.
-   *
-   * Containment rather than a quote — see `MessageRecord.threadParentId`. Validated below
-   * against the SAME conversation and against the root itself being unthreaded: threads are
-   * one level deep on purpose.
-   */
-  readonly threadParentId?: UUID;
-  /**
-   * A threaded reply the sender also wants in the channel's timeline.
-   *
-   * The design's "Also send to channel". Ignored without a parent, because there is nothing
-   * to send it back FROM.
-   */
-  readonly alsoSendToChannel?: boolean;
   /** Idempotency key, unique per (sender, conversation). */
   readonly clientMessageId?: string;
   /**
@@ -98,7 +83,6 @@ export type SendFailure =
   | 'BODY_TOO_LONG'
   | 'REPLY_TARGET_NOT_IN_CONVERSATION'
   /** The thread root is missing, in another conversation, or is itself a threaded reply. */
-  | 'THREAD_ROOT_INVALID'
   | 'CUSTOMER_CANNOT_SEND_INTERNAL'
   /** Mention validation, from `validateMentions`. See `mentions.ts` for each case. */
   | MentionFailure;
@@ -270,27 +254,6 @@ export async function sendMessage(
     }
 
     /**
-     * The thread's root, checked the same way and for a second reason.
-     *
-     * Same conversation, for the reason a quote target is: a reply must not point at a
-     * thread the sender cannot read. And the root must not itself be threaded — a thread of
-     * threads is a tree, and a tree is not readable on a phone. One level is the rule every
-     * product that tried the alternative has ended up back at.
-     *
-     * A CUSTOMER-visible reply inside an INTERNAL root is refused for the same reason a
-     * quote of one is: the thread's context travels with the reply, and rule 5 is that a
-     * customer can never see an internal note.
-     */
-    if (command.threadParentId !== undefined) {
-      const root = await tx.findMessageInConversation(command.conversationId, command.threadParentId);
-      if (root === undefined) return { ok: false, reason: 'THREAD_ROOT_INVALID' };
-      if (root.threadParentId !== undefined) return { ok: false, reason: 'THREAD_ROOT_INVALID' };
-      if (root.visibility === 'INTERNAL' && command.visibility === 'CUSTOMER_VISIBLE') {
-        return { ok: false, reason: 'THREAD_ROOT_INVALID' };
-      }
-    }
-
-    /**
      * Mentions, checked against the conversation as it is RIGHT NOW.
      *
      * Inside the transaction and after the participant load, so the set a mention is
@@ -326,15 +289,6 @@ export async function sendMessage(
       senderDisplayName: command.senderDisplayName,
       body,
       ...(command.replyToMessageId !== undefined ? { replyToMessageId: command.replyToMessageId } : {}),
-      ...(command.threadParentId !== undefined
-        ? {
-            threadParentId: command.threadParentId,
-            /* Only ever true alongside a parent — the store re-checks the same pairing,
-               because a flag without a parent would put an ordinary message into the
-               timeline predicate twice. */
-            ...(command.alsoSendToChannel === true ? { alsoSendToChannel: true } : {}),
-          }
-        : {}),
       ...(command.clientMessageId !== undefined ? { clientMessageId: command.clientMessageId } : {}),
       ...(mentions.length > 0 ? { mentions } : {}),
     };

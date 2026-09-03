@@ -174,22 +174,6 @@ export interface MessageView {
    * because nobody said it.
    */
   readonly messageClass?: string;
-  /**
-   * The message whose thread this one is in.
-   *
-   * Different from `replyToMessageId`: a quote is context and stays in the timeline, a
-   * thread is containment and is out of it. Set on messages read from a thread page.
-   */
-  readonly threadParentId?: string;
-  /**
-   * How many replies this message's thread holds, and when the last arrived — the design's
-   * "3 replies · last reply 2m ago".
-   *
-   * Present only on a CHANNEL page, and only when there is at least one. Absent means "not
-   * asked", so a thread page never draws a reply count it was never told.
-   */
-  readonly replyCount?: number;
-  readonly lastReplyAt?: string;
   readonly attachments?: readonly AttachmentView[];
   readonly visibility: 'INTERNAL' | 'CUSTOMER_VISIBLE';
   /** Absent for system-authored messages. Employee surface only. */
@@ -424,15 +408,6 @@ export const api = {
        * message in a thread the sender may not read.
        */
       replyToMessageId?: string;
-      /**
-       * Reply inside a thread, and optionally also into the channel.
-       *
-       * The root is checked server-side against this conversation and against being
-       * unthreaded itself — threads are one level deep, which is the rule every product
-       * that tried the alternative came back to.
-       */
-      threadParentId?: string;
-      alsoSendToChannel?: boolean;
       /**
        * Structured mentions, as offsets into `body`.
        *

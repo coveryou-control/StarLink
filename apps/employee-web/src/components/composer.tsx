@@ -47,16 +47,7 @@ interface ComposerProps {
   /** UC-E16: the message being replied to, cleared by the composer once sent. */
   readonly replyingTo?: MessageView | undefined;
   readonly onCancelReply?: (() => void) | undefined;
-  /**
-   * The thread this composer writes into, if it is a thread's composer.
-   *
-   * Present turns on the design's "Also send to channel" checkbox, because that is the one
-   * choice a threaded reply has that a channel message does not. Absent, the composer is
-   * exactly what it was — this is not a mode the channel composer can be put into by
-   * accident.
-   */
-  readonly threadParentId?: string | undefined;
-  /** Placeholder override, so a thread's composer can say "Reply in thread". */
+  /** Placeholder override, so the composer can name the conversation it writes into. */
   readonly placeholder?: string | undefined;
 }
 
@@ -83,21 +74,12 @@ export function Composer({
   onTyping,
   replyingTo,
   onCancelReply,
-  threadParentId,
   placeholder,
 }: ComposerProps): ReactNode {
   const [visibility, setVisibility] = useState<Visibility>(
     canReplyToCustomer ? 'CUSTOMER_VISIBLE' : 'INTERNAL',
   );
   const [body, setBody] = useState('');
-  /**
-   * Off by default, and reset after every send.
-   *
-   * A threaded reply is out of the channel by definition; putting it back is the exception
-   * somebody asks for one message at a time. A sticky checkbox would quietly turn a thread
-   * back into the channel noise it was created to escape.
-   */
-  const [alsoSendToChannel, setAlsoSendToChannel] = useState(false);
   const [pending, setPending] = useState<readonly PendingSend[]>([]);
   const [error, setError] = useState<string | undefined>(undefined);
   /** Files uploaded and waiting for a message to bind them to (§28.1). */
@@ -287,8 +269,6 @@ export function Composer({
 
     setPending((current) => [...current, optimistic]);
     setBody('');
-    /* The choice is per message. See the state's own note for why it does not stick. */
-    setAlsoSendToChannel(false);
     autosaver.cancel();
     setError(undefined);
 
@@ -318,15 +298,6 @@ export function Composer({
         // stripped, so every retry created a duplicate and nothing reported it.
         clientMessageId: localId,
         ...(replyTarget !== undefined ? { replyToMessageId: replyTarget.messageId } : {}),
-        /* The thread this composer belongs to, and the sender's choice about the channel.
-           Both travel together: the flag is meaningless without a parent, and the server
-           refuses to store it that way. */
-        ...(threadParentId !== undefined
-          ? {
-              threadParentId,
-              ...(alsoSendToChannel ? { alsoSendToChannel: true } : {}),
-            }
-          : {}),
         /**
          * Pruned once more against the text actually being sent.
          *
@@ -507,20 +478,6 @@ export function Composer({
     visibility,
     mentions,
     labelFor,
-    /*
-       Both of these, and the second is why this comment exists.
-
-       `send` is memoised, so anything it reads and this list omits is frozen at the render
-       where the list last changed. `alsoSendToChannel` was omitted: ticking "Also send to
-       channel" updated the checkbox, the state and nothing else — the send kept posting the
-       value from before the tick, so the message was stored threaded-only and the channel
-       never showed it. The control worked, the state was right, and the request was wrong.
-
-       `threadParentId` never changes for a given pane, so it was correct by luck. It is
-       listed because the next person should not have to work out which of the two was.
-    */
-    alsoSendToChannel,
-    threadParentId,
   ]);
 
   const onKeyDown = useCallback(
@@ -610,26 +567,7 @@ export function Composer({
   const empty = body.trim() === '' && readyFiles.length === 0;
 
   return (
-    <div className={`composer${isCustomerNote ? ' internal' : ''}${threadParentId !== undefined ? ' in-thread' : ''}`}>
-      {/*
-        "Also send to channel" — the one choice a threaded reply has that a channel message
-        does not.
-
-        Above the field rather than beside the send button: it changes WHERE the message
-        goes, which is the same class of decision as internal-vs-customer, and that decision
-        is never hidden behind a control you press last. It is a real checkbox, and the
-        server stores the flag the timeline query reads.
-      */}
-      {threadParentId !== undefined ? (
-        <label className="composer-also">
-          <input
-            type="checkbox"
-            checked={alsoSendToChannel}
-            onChange={(event) => setAlsoSendToChannel(event.target.checked)}
-          />
-          Also send to channel
-        </label>
-      ) : null}
+    <div className={`composer${isCustomerNote ? ' internal' : ''}`}>
       {/*
         UC-E16. What is being replied to is shown while composing, because the reply is
         only meaningful relative to it - and because a reply aimed at the wrong message is

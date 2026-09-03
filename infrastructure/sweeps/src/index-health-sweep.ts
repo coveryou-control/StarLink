@@ -113,15 +113,11 @@ export class MessagePageIndexHealthSweep {
            strings against the reader's for exactly this reason, and it is what caught the
            drift the day the predicate was added.
 
-           The LATERAL that computes reply counts is deliberately NOT here: it runs once per
-           row of the page against `messages_thread_idx`, so it scales with the page and not
-           with the conversation, which is the property this probe exists to watch.
         */
         `EXPLAIN (ANALYZE, FORMAT JSON)
          SELECT * FROM conversation.messages m
           WHERE m.conversation_id = $1
             AND m.visibility = ANY($2::conversation.message_visibility[])
-            AND (m.thread_parent_id IS NULL OR m.also_send_to_channel)
           ORDER BY m.created_at DESC, m.message_id DESC
           LIMIT $3`,
         [conversationId, ['CUSTOMER_VISIBLE', 'INTERNAL'], pageSize],

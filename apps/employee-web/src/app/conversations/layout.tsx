@@ -222,7 +222,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
          the height and the chat header's back control is the way out. The attribute is on
          the shell as well as the body because the bar is the shell's child, not the
          body's. */
-      data-thread-open={params.id !== undefined ? 'true' : 'false'}
+      data-conversation-open={params.id !== undefined ? 'true' : 'false'}
     >
       {/*
         A navigation rail, one panel, one thread.
@@ -253,7 +253,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
       />
 
       {/*
-        `data-thread-open` is what makes this a chat app on a phone rather than a shrunken
+        `data-conversation-open` is what makes this a chat app on a phone rather than a shrunken
         desktop. At narrow widths the panel and the thread cannot share the screen, so
         exactly one of them owns it: the panel when nothing is selected, the thread when
         something is. The stylesheet reads this attribute; the back control lives in the
@@ -272,7 +272,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
           <SettingsPanel displayName={state.me.displayName} compact={onPhone} />
         </div>
       ) : (
-      <div className="app-body" data-thread-open={params.id !== undefined ? 'true' : 'false'}>
+      <div className="app-body" data-conversation-open={params.id !== undefined ? 'true' : 'false'}>
         <aside className="sidebar">
           {section === 'chats' ? (
             <section className="panel" aria-label="Chats">

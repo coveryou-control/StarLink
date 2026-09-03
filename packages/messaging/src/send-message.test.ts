@@ -104,14 +104,6 @@ function createStore(over: Partial<ConversationRecord> = {}): { store: MessageSt
             clientKey: message.clientMessageId,
             // Carried like the real store does, so a test can assert what was written.
             ...(message.mentions !== undefined ? { mentions: message.mentions } : {}),
-            /* Threading, carried the same way — and `alsoSendToChannel` only alongside a
-               parent, which is the pairing the real store enforces in SQL. */
-            ...(message.threadParentId !== undefined
-              ? {
-                  threadParentId: message.threadParentId,
-                  ...(message.alsoSendToChannel === true ? { alsoSendToChannel: true } : {}),
-                }
-              : {}),
           } as MessageRecord & { clientKey?: string };
           stagedMessages.push(record);
           return record;
@@ -379,103 +371,6 @@ describe('validation', () => {
       replyToMessageId: note.message.messageId,
     });
     expect(result.ok).toBe(false);
-  });
-});
-
-/**
- * Threading, and the three ways it must refuse.
- *
- * A thread is CONTAINMENT — the reply leaves the channel's timeline and lives inside the
- * root's — so every one of these is a message ending up somewhere nobody expects it, which
- * is a worse failure than a refused send.
- */
-describe('threads', () => {
-  it('accepts a reply into a root in this conversation', async () => {
-    const { store } = createStore();
-    const root = await send(store, { body: 'the question' });
-    expect(root.ok).toBe(true);
-    if (!root.ok) return;
-
-    const reply = await send(store, {
-      body: 'the answer',
-      threadParentId: root.message.messageId,
-    });
-    expect(reply.ok).toBe(true);
-    if (!reply.ok) return;
-    expect(reply.message.threadParentId).toBe(root.message.messageId);
-    /* Off unless asked for. A threaded reply is out of the channel by definition, and the
-       flag is the exception somebody chooses one message at a time. */
-    expect(reply.message.alsoSendToChannel ?? false).toBe(false);
-  });
-
-  it('carries "also send to channel" only when it is asked for', async () => {
-    const { store } = createStore();
-    const root = await send(store, { body: 'the question' });
-    if (!root.ok) return;
-
-    const reply = await send(store, {
-      body: 'everyone should see this',
-      threadParentId: root.message.messageId,
-      alsoSendToChannel: true,
-    });
-    expect(reply.ok).toBe(true);
-    if (!reply.ok) return;
-    expect(reply.message.alsoSendToChannel).toBe(true);
-  });
-
-  it('refuses a root in another conversation', async () => {
-    /**
-     * The same rule a quote target obeys, and for a stronger reason: a threaded reply is
-     * READ through its root, so a root in a thread the sender cannot see would put their
-     * words under a message they were never shown.
-     */
-    const { store } = createStore();
-    const result = await send(store, {
-      threadParentId: '018f2c5a-9999-7000-8000-000000000002',
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toBe('THREAD_ROOT_INVALID');
-  });
-
-  it('refuses a thread on a threaded reply — one level, always', async () => {
-    /**
-     * A thread of threads is a tree, and a tree is not readable in a 320px column. Refused
-     * in the domain rather than discouraged in the interface: the depth would otherwise be
-     * whatever the last client to be written happened to allow.
-     */
-    const { store } = createStore();
-    const root = await send(store, { body: 'the question' });
-    if (!root.ok) return;
-    const reply = await send(store, {
-      body: 'the answer',
-      threadParentId: root.message.messageId,
-    });
-    if (!reply.ok) return;
-
-    const nested = await send(store, {
-      body: 'a reply to the reply',
-      threadParentId: reply.message.messageId,
-    });
-    expect(nested.ok).toBe(false);
-    if (!nested.ok) expect(nested.reason).toBe('THREAD_ROOT_INVALID');
-  });
-
-  it('refuses a customer-visible reply inside an internal root', async () => {
-    /**
-     * Rule 5, applied to containment. A thread is read with its root above it, so a
-     * customer-visible reply under an internal note would put staff-only text on the
-     * customer's screen as the context for the reply they were sent.
-     */
-    const { store } = createStore();
-    const note = await send(store, { visibility: 'INTERNAL', body: 'staff only' });
-    if (!note.ok) return;
-
-    const result = await send(store, {
-      visibility: 'CUSTOMER_VISIBLE',
-      threadParentId: note.message.messageId,
-    });
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.reason).toBe('THREAD_ROOT_INVALID');
   });
 });
 

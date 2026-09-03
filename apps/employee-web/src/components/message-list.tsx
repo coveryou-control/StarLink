@@ -6,7 +6,7 @@ import type { ReactNode } from 'react';
 import { api, ApiError, type AttachmentView } from '../lib/api-client';
 import { extensionOf, formatBytes } from './attachment-picker';
 import { deliveryTick, type DeliveryTick } from '@starlink/shared-contracts';
-import { initialsFor, relativeTime, senderColour } from './conversation-naming';
+import { initialsFor, senderColour } from './conversation-naming';
 import { crossesDay, daySeparatorLabel, unreadDividerIndex } from './timeline';
 import { splitBody } from '../lib/mention-draft';
 import { MessageActions } from './message-actions';
@@ -59,14 +59,6 @@ interface MessageListProps {
   readonly isGroup?: boolean;
 
   /**
-   * Opens a message's thread. Absent means this surface has no threads.
-   *
-   * Absent rather than a no-op, so the affordance is not RENDERED where it cannot work —
-   * the thread pane itself passes nothing, because a thread of threads is a tree and the
-   * server refuses one anyway.
-   */
-  readonly onOpenThread?: ((message: MessageView) => void) | undefined;
-  /**
    * How many messages were unread when this conversation was opened, for the "New" rule.
    *
    * Frozen by the caller at mount. Opening a conversation marks it read, so the live
@@ -104,7 +96,6 @@ export function MessageList({
   onReply,
   conversationIsInternal = false,
   isGroup = false,
-  onOpenThread,
   unreadOnOpen = 0,
   onReact,
   onEdit,
@@ -169,7 +160,6 @@ export function MessageList({
           onReply={onReply}
           conversationIsInternal={conversationIsInternal}
           isGroup={isGroup}
-          onOpenThread={onOpenThread}
           currentPrincipalId={currentPrincipalId}
           onReact={onReact}
           onEdit={onEdit}
@@ -222,7 +212,6 @@ function MessageRow({
   onReply,
   conversationIsInternal,
   isGroup,
-  onOpenThread,
   currentPrincipalId,
   onReact,
   onEdit,
@@ -238,7 +227,6 @@ function MessageRow({
   onReply?: ((message: MessageView) => void) | undefined;
   conversationIsInternal: boolean;
   isGroup: boolean;
-  onOpenThread?: ((message: MessageView) => void) | undefined;
   currentPrincipalId: string;
   onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
   onEdit?: ((message: MessageView) => void) | undefined;
@@ -456,46 +444,11 @@ function MessageRow({
       <MessageActions
         message={message}
         isMine={isMine}
-        {...(onOpenThread !== undefined ? { onOpenThread } : {})}
         {...(onReply !== undefined ? { onReply } : {})}
         {...(onReact !== undefined ? { onReact } : {})}
         {...(onEdit !== undefined ? { onEdit } : {})}
         {...(onDelete !== undefined ? { onDelete } : {})}
       />
-
-      {/*
-        "3 replies · last reply 2m ago" — screen 03's thread affordance.
-
-        Rendered only where BOTH are true: this surface can open threads, and this message
-        actually has some. `replyCount` is absent on a thread page rather than zero, so a
-        reply inside a thread cannot sprout a "0 replies" line — the two states are kept
-        apart precisely so this line cannot be drawn from a guess.
-
-        A button rather than a link: it opens a pane beside the conversation, it does not
-        navigate, and a link that does not navigate is a lie to anybody using a keyboard.
-      */}
-      {onOpenThread !== undefined && (message.replyCount ?? 0) > 0 ? (
-        <button type="button" className="thread-summary" onClick={() => onOpenThread(message)}>
-          {/* A speech bubble, as screen 03 draws it — three stacked rules read as a list
-              control, which is the one thing this is not. */}
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
-            <path
-              d="M20.5 11.7c0 3.9-3.8 7-8.5 7a9.8 9.8 0 0 1-2.6-.35L4.5 20l1.2-3.3A6.6 6.6 0 0 1 3.5 11.7c0-3.9 3.8-7 8.5-7s8.5 3.1 8.5 7Z"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinejoin="round"
-            />
-          </svg>
-          {message.replyCount} {message.replyCount === 1 ? 'reply' : 'replies'}
-          {message.lastReplyAt !== undefined ? (
-            <span className="thread-summary-when">
-              {' · last reply '}
-              {relativeTime(message.lastReplyAt)}
-            </span>
-          ) : null}
-        </button>
-      ) : null}
 
       {/*
         Reaction chips, below the bubble.

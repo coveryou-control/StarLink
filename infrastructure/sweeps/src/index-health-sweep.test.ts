@@ -150,22 +150,23 @@ describe('the probe measures the query the product runs', () => {
       'utf8',
     );
 
-    // The clauses that decide the plan: the predicate, the visibility filter, the threading
-    // predicate and the compound ordering that the index has to serve.
+    // The clauses that decide the plan: the predicate, the visibility filter and the
+    // compound ordering the index has to serve.
     //
-    // The threading one is here because it is what this guard caught. Threads added
-    // `thread_parent_id IS NULL OR also_send_to_channel` to the channel page; the probe
-    // still explained the query without it, so the alert would have kept reporting a
-    // healthy ratio for a plan nobody was running any more.
+    // There was a fourth. Threads added `thread_parent_id IS NULL OR also_send_to_channel`
+    // to the page, the probe kept explaining the query without it, and the alert would have
+    // gone on reporting a healthy ratio for a plan nobody ran any more — this guard is what
+    // caught that, and it is why the list is checked against BOTH files rather than
+    // maintained in one. Removing threads removed the clause from the reader, so it comes
+    // out of the list in the same commit; leaving it here would fail the build for the
+    // opposite reason and teach the next person to delete the guard.
     //
-    // The clauses are written with the reader's `m` alias, which arrived with the thread
-    // summary's LATERAL join. Comparing unaliased text would have quietly stopped matching
-    // the reader the day the alias appeared — a drift guard that no longer sees the thing
-    // it guards is worse than none, because it is still green.
+    // The clauses carry the reader's `m` alias. Comparing unaliased text would quietly stop
+    // matching the day an alias appeared — a drift guard that no longer sees the thing it
+    // guards is worse than none, because it is still green.
     for (const clause of [
       'WHERE m.conversation_id = $1',
       'm.visibility = ANY($2::conversation.message_visibility[])',
-      '(m.thread_parent_id IS NULL OR m.also_send_to_channel)',
       'ORDER BY m.created_at DESC, m.message_id DESC',
     ]) {
       expect(probe, `probe lost: ${clause}`).toContain(clause);

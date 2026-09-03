@@ -36,24 +36,10 @@ const toMessage = (row: Record<string, unknown>): MessageRecord => ({
   senderDisplayName: row.sender_display_name as string,
   body: (row.body as string | null) ?? '',
   ...(row.reply_to_message_id !== null ? { replyToMessageId: row.reply_to_message_id as UUID } : {}),
-  /*
-     Threading. `threadParentId` says this message lives inside another one's thread;
-     `alsoSendToChannel` says it appears in the channel's timeline as well.
-
-     `replyCount` and `lastReplyAt` are present only on the channel page, which computes
-     them — absent means "this query did not ask", never "zero replies". The two are
-     different facts and the "N replies" affordance is drawn from the first.
-  */
   /* Only when it is NOT the default. Ninety-nine rows in a hundred are 'TEXT', and a
      field that is present and always the same is a field every reader learns to ignore. */
   ...(row.message_class != null && row.message_class !== 'TEXT'
     ? { messageClass: row.message_class as string }
-    : {}),
-  ...(row.thread_parent_id != null ? { threadParentId: row.thread_parent_id as UUID } : {}),
-  ...(row.also_send_to_channel === true ? { alsoSendToChannel: true } : {}),
-  ...(row.reply_count != null ? { replyCount: Number(row.reply_count) } : {}),
-  ...(row.last_reply_at != null
-    ? { lastReplyAt: (row.last_reply_at as Date).toISOString() }
     : {}),
   createdAt: (row.created_at as Date).toISOString(),
   /**
@@ -173,9 +159,8 @@ class PgWriteTransaction implements MessageWriteTransaction {
     const result = await this.client.query(
       `INSERT INTO conversation.messages
          (message_id, conversation_id, seq, visibility, sender_principal_id, sender_kind,
-          sender_display_name, body, reply_to_message_id, client_message_id, mentions,
-          thread_parent_id, also_send_to_channel)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+          sender_display_name, body, reply_to_message_id, client_message_id, mentions)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
         message.messageId,
@@ -197,11 +182,6 @@ class PgWriteTransaction implements MessageWriteTransaction {
         message.mentions !== undefined && message.mentions.length > 0
           ? JSON.stringify(message.mentions)
           : null,
-        message.threadParentId ?? null,
-        /* Meaningless without a parent, and stored false rather than trusted: a client that
-           sent the flag on an unthreaded message would otherwise put a row in the timeline
-           twice over by a predicate that reads it. */
-        message.threadParentId !== undefined && message.alsoSendToChannel === true,
       ],
     );
     return toMessage(result.rows[0]);
@@ -399,32 +379,23 @@ export class PgMessageReader implements MessageReader {
   constructor(private readonly pool: pg.Pool) {}
 
   /**
-   * A page of a conversation — the channel's timeline, or one thread inside it.
+   * A page of a conversation's timeline.
    *
-   * ## The timeline excludes threaded replies, and that is the whole feature
+   * Every message in the conversation, newest first, keyset-paged. There was a second mode
+   * — one thread inside the conversation — with a predicate that excluded threaded replies
+   * from the timeline and a LATERAL that counted them per row. Threads are gone, so the
+   * page is the conversation and the query says so directly.
    *
-   * A side conversation threaded off a busy channel is out of the channel by definition;
-   * leaving it in would make the thread a rendering flourish rather than a place. The one
-   * exception is the design's own "Also send to channel", which is a per-message decision
-   * the sender made and is read from the row rather than inferred.
-   *
-   * ## The counts are computed with the page, not stored
-   *
-   * `reply_count` and `last_reply_at` come from a LATERAL over the thread index, once per
-   * row of a page of at most fifty. A stored counter would be a second copy of a fact these
-   * rows already carry, wrong from the first write path that forgot to bump it.
-   *
-   * They are attached ONLY on the channel page. On a thread page every row would carry a
-   * zero, and a zero is indistinguishable from "not asked" to a reader that renders "N
-   * replies" from it.
+   * The keyset below is the part worth keeping in mind: a row-value comparison rather than
+   * `created_at < x OR (created_at = x AND id < y)`, because it matches the composite index
+   * as a range scan rather than a filter. That is what keeps rows-examined proportional to
+   * rows-returned (doc §38).
    */
   async readPage(query: {
     conversationId: UUID;
     visibility: readonly MessageVisibility[];
     limit: number;
     before?: { createdAt: Timestamp; id: UUID };
-    /** The root whose replies to read. Absent means the channel's own timeline. */
-    threadParentId?: UUID;
   }): Promise<readonly MessageRecord[]> {
     const params: unknown[] = [query.conversationId, query.visibility, query.limit];
     let keyset = '';
@@ -438,32 +409,11 @@ export class PgMessageReader implements MessageReader {
       keyset = `AND (m.created_at, m.message_id) < ($4::timestamptz, $5::uuid)`;
     }
 
-    const inThread = query.threadParentId !== undefined;
-    if (inThread) {
-      params.push(query.threadParentId);
-    }
-
-    const scope = inThread
-      ? `AND m.thread_parent_id = $${params.length}::uuid`
-      : `AND (m.thread_parent_id IS NULL OR m.also_send_to_channel)`;
-
-    /* The thread summary is dead weight on a thread page — see the note above — so the
-       LATERAL is only in the channel query. */
-    const summary = inThread
-      ? ''
-      : `LEFT JOIN LATERAL (
-             SELECT count(*)::int AS reply_count, max(r.created_at) AS last_reply_at
-               FROM conversation.messages r
-              WHERE r.thread_parent_id = m.message_id
-           ) t ON m.thread_parent_id IS NULL`;
-
     const result = await this.pool.query(
-      `SELECT m.*${inThread ? '' : ', t.reply_count, t.last_reply_at'}
+      `SELECT m.*
          FROM conversation.messages m
-         ${summary}
         WHERE m.conversation_id = $1
           AND m.visibility = ANY($2::conversation.message_visibility[])
-          ${scope}
           ${keyset}
         ORDER BY m.created_at DESC, m.message_id DESC
         LIMIT $3`,
