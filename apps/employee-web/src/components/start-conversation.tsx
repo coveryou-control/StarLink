@@ -223,7 +223,7 @@ export function StartConversation({
         bubble says the noun and the plus says the verb, which is the icon every messenger
         uses for this and the one people recognise without reading a tooltip.
       */}
-      <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
+      <svg viewBox="0 0 24 24" width="21" height="21" aria-hidden="true" focusable="false">
         <path
           d="M20.5 11.3c0 4-3.8 7.2-8.5 7.2a10 10 0 0 1-2.7-.36L4.6 20l1.25-3.4A6.8 6.8 0 0 1 3.5 11.3c0-4 3.8-7.2 8.5-7.2s8.5 3.2 8.5 7.2Z"
           fill="none"
@@ -318,9 +318,15 @@ export function StartConversation({
                         />
                       </svg>
                     </span>
+                    {/*
+                      The label alone. It had a line of explanation under it — "One
+                      colleague, one thread" — and a two-item choice between "chat" and
+                      "group" does not need either of them defined. A subtitle that restates
+                      the noun above it is furniture that makes the row taller and the
+                      decision no easier.
+                    */}
                     <span className="start-mode-text">
                       <strong>New chat</strong>
-                      <span className="muted">One colleague, one thread</span>
                     </span>
                   </button>
                 </li>
@@ -347,7 +353,6 @@ export function StartConversation({
                     </span>
                     <span className="start-mode-text">
                       <strong>New group</strong>
-                      <span className="muted">Several colleagues, with a name</span>
                     </span>
                   </button>
                 </li>
@@ -461,8 +466,12 @@ export function StartConversation({
                 </ul>
 
                 {/*
-                  Three states, and they are not the same thing. "Nothing matches" is an
-                  answer; "still looking" is not; and an untouched field is neither.
+                  Two states, and they are not the same thing: "nothing matches" is an
+                  answer and "still looking" is not.
+
+                  There was a third — a line telling somebody to start typing, under an
+                  empty field whose placeholder already said "Search by name, department or
+                  ID". Instructions for a control that is explaining itself.
                 */}
                 {searching && found.length === 0 ? (
                   <p className="muted result-note">Searching…</p>
@@ -470,23 +479,22 @@ export function StartConversation({
                 {searched && !searching && found.length === 0 && message === undefined ? (
                   <p className="muted result-note">No colleague matches that.</p>
                 ) : null}
-                {term.trim() === '' && chosen.length === 0 ? (
-                  <p className="muted result-note">
-                    Start typing a name, a department or an employee ID.
-                  </p>
-                ) : null}
-
                 {/*
-                  A group needs a name, and it is asked for from the start rather than
-                  appearing once a second person is picked.
+                  A group needs a name, asked for once there is a group to name.
+
+                  It was on screen from the moment the mode was chosen, which put an empty
+                  required field above an empty member list — the form asking for the last
+                  answer before the first. Every phone messenger collects the people and
+                  then names them, and it reads as one step following another rather than
+                  as a form to fill in.
 
                   `createInternalConversation` refuses a group without a title
                   (`TITLE_REQUIRED_FOR_GROUP`), and that refusal used to surface as "check
                   the colleagues you chose" — which blames the one part of the form that was
-                  correct. The button below is disabled until it is filled, so the rule is
-                  visible before the request rather than after it.
+                  correct. The button below stays disabled until the field is filled, so the
+                  rule is visible before the request rather than after it.
                 */}
-                {mode === 'group' ? (
+                {mode === 'group' && chosen.length > 0 ? (
                   <label className="stacked-field">
                     <span>Name this group</span>
                     <input

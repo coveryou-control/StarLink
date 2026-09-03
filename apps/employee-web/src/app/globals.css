@@ -1562,8 +1562,10 @@ input[type='search']::-webkit-search-cancel-button {
 */
 .fab-new {
   position: static;
-  width: 34px;
-  height: 34px;
+  /* 38, up from 34. It is the one thing this column exists to let you DO, and at 34 the
+     tile was smaller than the filter pills beside it. */
+  width: 38px;
+  height: 38px;
   padding: 0;
   border: 0;
   border-radius: 10px;
@@ -5791,21 +5793,15 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--accent-ink);
 }
 
+/* One line now — the subtitle under each label is gone, and a two-item choice between
+   "chat" and "group" needs neither of them defined. */
 .start-mode-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
   min-width: 0;
 }
 
 .start-mode-text strong {
   font-size: var(--text-md);
   font-weight: 600;
-}
-
-.start-mode-text .muted {
-  font-size: var(--text-base);
-  font-weight: 400;
 }
 
 /*
