@@ -1,0 +1,78 @@
+name: Bug report
+description: Something behaves differently from what it says it does.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Do not report a security issue here.** A vulnerability, a data-exposure
+        bug, or anything that lets one person read another's messages goes through
+        the private route in [SECURITY.md](../blob/main/SECURITY.md) — a GitHub
+        issue is readable by everyone with access to this repository.
+
+        **Do not paste real customer data**, and do not attach a screenshot
+        containing any. A synthetic reproduction is worth more than a real one.
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, and what the product did instead.
+      placeholder: |
+        I typed "what" into the search box.
+        It said "No results for what", but the word is visibly in a message.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: One sentence is enough. It is here because the gap between
+        this and the box above is usually where the actual defect is.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: How to get there
+      description: Numbered steps from a signed-in state. Say which dev account
+        you were using if it matters.
+      placeholder: |
+        1. Sign in as archit.bali
+        2. Open the DingDong group
+        3. Type "what" in the Chats search box
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      multiple: true
+      options:
+        - Employee web (desktop)
+        - Employee web (phone / installed PWA)
+        - API
+        - Realtime
+        - Database / migrations
+        - Build, tests or CI
+        - Not sure
+    validations:
+      required: true
+
+  - type: input
+    id: build
+    attributes:
+      label: Which build
+      description: The commit you were running, if you know it — `git rev-parse --short HEAD`.
+      placeholder: c02b9d0
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Anything that would save the next person an hour
+      description: A log line, a failing test name, a screenshot with no real data
+        in it, or the network response. "It just broke" is fine too if that is all
+        there is.

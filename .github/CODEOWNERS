@@ -1,0 +1,48 @@
+# Who is asked to review what.
+#
+# GitHub requests these reviewers automatically. It is a routing table, not a
+# permission system — it decides who is ASKED, and branch protection decides who
+# must approve.
+#
+# Only handles that are known to be real are listed. An owner entry pointing at a
+# username that does not exist, or at a team nobody is in, silently requests
+# nobody: the pull request then looks reviewed-by-design and is reviewed by
+# no one. Add a line when you know the handle, not before.
+
+# Everything, by default.
+*                                   @architinit
+
+# ---------------------------------------------------------------------------
+# The parts where a mistake is not a bug but a breach. These carry the thirteen
+# rules in CLAUDE.md, and every one of them is enforced by a test that a
+# sufficiently determined change can also edit.
+# ---------------------------------------------------------------------------
+
+# Authorization. `decide()` is the object check, and it runs before content is
+# read on every path.
+/packages/conversation-domain/      @architinit
+
+# Message visibility and the durability ordering — a message is durable before it
+# is delivered, and a customer can never see an internal note.
+/packages/messaging/                @architinit
+
+# Schema, constraints and the namespace guard. The one-owner exclusion constraint
+# and the append-only audit trigger live here; so does the guard that runs before
+# the first connection.
+/infrastructure/database/           @architinit
+
+# The build's own gates. Weakening one of these is invisible in a green run,
+# which is exactly why it needs a second pair of eyes.
+/infrastructure/guards/             @architinit
+/.github/workflows/                 @architinit
+/.dependency-cruiser.cjs            @architinit
+/vitest.config.ts                   @architinit
+/vitest.workspace.ts                @architinit
+
+# Configuration contracts: the SL_ prefix, no fallback chains, no shipped
+# production defaults.
+/.env.example                       @architinit
+
+# The documents the code is answerable to.
+/docs/                              @architinit
+/CLAUDE.md                          @architinit

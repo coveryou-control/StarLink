@@ -1,0 +1,17 @@
+# A blank issue is a bug report with the questions deleted, so the templates are
+# the only way in.
+blank_issues_enabled: false
+
+contact_links:
+  - name: Report a security issue
+    url: https://github.com/coveryou-control/StarLink/blob/main/SECURITY.md
+    about: >-
+      Privately, never as an issue. A vulnerability described here is readable by
+      everyone with access to this repository, for as long as it takes to fix.
+
+  - name: A business decision, not a defect
+    url: https://github.com/coveryou-control/StarLink/blob/main/docs/STARLINK_OPEN_QUESTIONS.md
+    about: >-
+      SLA targets, working hours, categories, capacity and the like are configuration
+      awaiting sign-off, tracked in the open-questions register. The product refuses
+      to invent them on purpose (rule 10).

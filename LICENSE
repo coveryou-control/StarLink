@@ -1,0 +1,31 @@
+Copyright (c) 2026 CoverYou Insurance Broking Services. All rights reserved.
+
+PROPRIETARY AND CONFIDENTIAL
+
+This repository and everything in it — source code, configuration, database
+migrations, design assets and the accompanying architecture and planning
+documents — is the property of CoverYou. It is made available for use by
+CoverYou personnel and authorised contractors in the course of their work on
+StarLink, and for no other purpose.
+
+No licence is granted, expressly or by implication, to any other party. In
+particular, and without limiting the foregoing, you may not copy, modify, merge,
+publish, distribute, sublicense, sell, or create derivative works from any part
+of this repository, nor use it to train or evaluate a machine-learning model,
+without prior written permission from CoverYou.
+
+The absence of a permissive licence is deliberate. If this repository is visible
+to you and you are not working on StarLink for CoverYou, that visibility is not
+a grant of rights.
+
+Third-party dependencies retain their own licences, which are recorded in
+pnpm-lock.yaml and in each package's own distribution. Nothing above alters them.
+
+TO REPORT A SECURITY ISSUE, SEE SECURITY.md. DO NOT OPEN A PUBLIC ISSUE.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.

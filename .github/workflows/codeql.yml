@@ -1,0 +1,48 @@
+# =====================================================================================
+# CodeQL — static analysis for the classes of bug tests do not catch.
+#
+# The gates in ci.yml prove that the product does what it is supposed to. This looks
+# for the other thing: injection, unsafe deserialisation, a path built from user
+# input, a comparison that leaks timing. Those pass every functional test in the
+# suite, because functionally they work.
+#
+# `security-and-quality` rather than the default `security` pack: the quality rules
+# catch the dead branch and the always-true comparison, which is how a check that
+# looks like it runs turns out not to.
+#
+# Weekly as well as per-push. A dependency's advisory can make code that was clean
+# on Monday vulnerable on Thursday without a line of it changing.
+# =====================================================================================
+name: codeql
+
+on:
+  push: { branches: [main] }
+  pull_request:
+  schedule:
+    # Monday 04:20 UTC. Off the hour on purpose — every other repository in the world
+    # schedules on it, and the runner queue reflects that.
+    - cron: '20 4 * * 1'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  analyse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-and-quality
+
+      # No build step. CodeQL extracts TypeScript directly, and running the real
+      # build here would only add a way for this job to fail for a reason that has
+      # nothing to do with what it is looking for.
+      - uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:javascript-typescript
