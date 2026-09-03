@@ -12,7 +12,20 @@
 import type { Server as HttpServer } from 'node:http';
 import { hostname } from 'node:os';
 import { Server, type Socket } from 'socket.io';
-import { parse as parseCookie } from 'cookie';
+/*
+   `parseCookie`, not `parse`.
+
+   cookie v2 renamed every export — `parse`/`serialize` became
+   `parseCookie`/`stringifyCookie` — so the old import failed the build outright with
+   "Module 'cookie' has no exported member 'parse'". Renamed rather than aliased back,
+   because an alias would hide which version's API this file is written against.
+
+   The return type widened with it, from `Record<string, string>` to
+   `Record<string, string | undefined>`. The guard below already tested for `undefined`,
+   so nothing else here changes — it was defensive against a case v1's types said could
+   not happen, and in v2 it can.
+*/
+import { parseCookie } from 'cookie';
 import type { SessionService, Surface } from '@starlink/security';
 import { METRICS, metrics, type Logger } from '@starlink/observability';
 import { isUuid, SOCKET_EVENTS } from '@starlink/shared-contracts';
