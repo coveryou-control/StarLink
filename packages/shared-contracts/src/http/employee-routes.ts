@@ -61,6 +61,26 @@ export const EMPLOYEE_API_BASE = '/v1/employee';
  */
 export const SEARCH_MINIMUM_TERM_LENGTH = 1;
 
+/**
+ * A `LIKE`/`ILIKE` pattern that matches the term as TEXT, not as a pattern.
+ *
+ * `%` and `_` are wildcards. A search box that interpolates the term straight into
+ * `'%' || term || '%'` therefore hands the caller a wildcard language they never asked
+ * for — and one of those wildcards is a corpus dump: searching for a single `%` matched
+ * every active employee in the directory, which is precisely the "search returns
+ * everything" outcome FR-SRCH-5 exists to prevent. It was found by typing `%` into the
+ * box, not by review.
+ *
+ * Here, not in each caller, because there were three callers and only one of them had
+ * remembered. A person searching for "100%" or "q1_report" means those characters.
+ *
+ * Backslash is escaped first, and must be: escaping it last would double the backslashes
+ * this function had itself just introduced.
+ */
+export const likePattern = (term: string): string =>
+  `%${term.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+
+
 export const employeeRoutes = {
   auth: {
     signIn: `${EMPLOYEE_API_BASE}/auth/sign-in`,

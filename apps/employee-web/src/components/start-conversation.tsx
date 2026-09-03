@@ -253,7 +253,7 @@ export function StartConversation({
             type="search"
             value={term}
             onChange={(e) => setTerm(e.target.value)}
-            placeholder="Search by name or department"
+            placeholder="Search by name, department or ID"
           />
         </label>
         <button type="submit">Find</button>

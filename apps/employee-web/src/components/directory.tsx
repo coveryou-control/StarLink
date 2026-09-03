@@ -242,7 +242,7 @@ export function Directory({
         {!searched && !loadingTeam && colleagues.length === 0 ? (
           <p className="state-note">
             <strong>Find a colleague</strong>
-            Search by name or department. Pick someone to open a conversation with them.
+            Search by name, department or employee ID. Pick someone to open a conversation with them.
           </p>
         ) : null}
         {!searched && colleagues.length > 0 ? (

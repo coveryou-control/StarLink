@@ -22,7 +22,7 @@ import type {
   Result,
   UUID,
 } from '@starlink/shared-contracts';
-import { err, ok, SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
+import { err, likePattern, ok, SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
 
 const notFound = (): Result<never> =>
   err({
@@ -128,8 +128,30 @@ export class LocalEmployeeDirectory implements EmployeeDirectoryProvider {
 
     // Scope is a predicate, not a post-filter. An absent scope returns nothing rather
     // than everything (the §30.2 discipline, applied to the directory).
-    const conditions = [`p.kind = 'EMPLOYEE'`, `p.status = 'ACTIVE'`, `p.display_name ILIKE $1`];
-    const params: unknown[] = [`%${term}%`];
+    /*
+       Name, department, employee ID and branch — because that is what the field says.
+
+       Three placeholders in the employee surface read "name or department" and this
+       matched `display_name` alone, so typing "Operations" into a box that offers to
+       search departments returned nobody. The results rendered the department on every
+       row, one line under the field that could not find it.
+
+       Employee ID and branch come along for the same reason: they are shown on the person
+       and they are what somebody has in front of them when they are looking for a
+       colleague they cannot name.
+
+       `likePattern` rather than an interpolated `%${term}%`: unescaped, a search for a
+       single `%` returned every active employee in the company.
+    */
+    const conditions = [
+      `p.kind = 'EMPLOYEE'`,
+      `p.status = 'ACTIVE'`,
+      `(p.display_name ILIKE $1
+        OR p.department ILIKE $1
+        OR p.employee_id ILIKE $1
+        OR p.branch ILIKE $1)`,
+    ];
+    const params: unknown[] = [likePattern(term)];
 
     if (scope.visibility === 'DEPARTMENT') {
       params.push(scope.requestedBy);

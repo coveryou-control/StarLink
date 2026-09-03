@@ -31,7 +31,7 @@ import type {
   Timestamp,
   UUID,
 } from '@starlink/shared-contracts';
-import { err, ok } from '@starlink/shared-contracts';
+import { err, likePattern, ok } from '@starlink/shared-contracts';
 
 /** Search is expensive and is the natural bulk-extraction surface (§27.5, FR-SRCH-3). */
 const MAX_RESULTS = 50;
@@ -113,16 +113,8 @@ export class PgSearchProvider implements SearchProvider {
     const term = query.trim();
     if (term === '') return ok({ items: [] });
 
-    /*
-       The substring pattern, escaped HERE rather than in SQL.
-
-       `%` and `_` are wildcards to ILIKE, so somebody searching for "100%" or "q1_report"
-       would otherwise get a broader match than they asked for — and the SQL to escape them
-       inline is three nested `replace` calls that nobody can read. A parameter built in
-       TypeScript says what it means.
-    */
-    const like = `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
-    const params: unknown[] = [scope.principalId, term, like];
+    // Escaped, so `%` is a percent sign rather than "everything" — see `likePattern`.
+    const params: unknown[] = [scope.principalId, term, likePattern(term)];
 
     /*
        Two ways to match, ORed.

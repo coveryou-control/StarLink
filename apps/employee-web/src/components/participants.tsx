@@ -295,7 +295,7 @@ export function Participants({
             type="search"
             value={term}
             onChange={(e) => setTerm(e.target.value)}
-            placeholder="name or department"
+            placeholder="name, department or ID"
           />
         </label>
         <button type="submit">Find</button>

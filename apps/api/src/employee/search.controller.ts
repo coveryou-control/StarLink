@@ -8,7 +8,7 @@
 import { Controller, Get, Inject, Query, Req } from '@nestjs/common';
 import { z } from 'zod';
 import { searchMessages, type RateLimiter, type SearchAuditEntry } from '@starlink/search';
-import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
+import { likePattern, SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
 import type { SearchProvider } from '@starlink/shared-contracts';
 import type { Logger } from '@starlink/observability';
 import type pg from 'pg';
@@ -86,7 +86,8 @@ export class EmployeeSearchController {
           AND a.original_filename ILIKE $2
         ORDER BY a.created_at DESC
         LIMIT 25`,
-      [session.principalId, `%${term}%`],
+      // Escaped: `%` is a percent sign, not "every file I can see".
+      [session.principalId, likePattern(term)],
     );
 
     return {
