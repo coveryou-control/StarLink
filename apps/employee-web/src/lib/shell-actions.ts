@@ -33,8 +33,16 @@ const BROWSE_DIRECTORY = 'starlink:browse-directory';
  */
 const OPEN_SECTION = 'starlink:open-section';
 
-export function requestNewConversation(): void {
-  window.dispatchEvent(new Event(NEW_CONVERSATION));
+/**
+ * Opens the new-conversation dialog, optionally straight into one of its modes.
+ *
+ * The empty pane's button says "New chat", and after the dialog grew a mode fork it opened
+ * on a screen whose first option also said "New chat" — the same words twice, one press
+ * apart. Passing the mode makes the button do what it says instead of renaming it to
+ * something the design does not use.
+ */
+export function requestNewConversation(mode?: 'chat' | 'group'): void {
+  window.dispatchEvent(new CustomEvent(NEW_CONVERSATION, { detail: mode }));
 }
 
 export function requestBrowseDirectory(): void {
@@ -48,11 +56,14 @@ export function requestSection(section: string): void {
 
 /** Both listeners in one call, returning a single unsubscribe. */
 export function onShellAction(handlers: {
-  readonly onNewConversation?: () => void;
+  readonly onNewConversation?: (mode?: 'chat' | 'group') => void;
   readonly onBrowseDirectory?: () => void;
   readonly onOpenSection?: (section: string) => void;
 }): () => void {
-  const compose = (): void => handlers.onNewConversation?.();
+  const compose = (event: Event): void => {
+    const mode = (event as CustomEvent<'chat' | 'group' | undefined>).detail;
+    handlers.onNewConversation?.(mode === 'chat' || mode === 'group' ? mode : undefined);
+  };
   const browse = (): void => handlers.onBrowseDirectory?.();
   const open = (event: Event): void => {
     const section = (event as CustomEvent<string>).detail;

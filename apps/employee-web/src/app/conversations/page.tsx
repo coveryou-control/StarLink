@@ -91,7 +91,8 @@ export default function NoConversationSelected(): ReactNode {
           see `shell-actions.ts`.
         */}
         <div className="empty-splash-actions">
-          <button type="button" onClick={requestNewConversation}>
+          {/* Straight into the chat search: the button says "New chat", so it opens one. */}
+          <button type="button" onClick={() => requestNewConversation('chat')}>
             New chat
           </button>
           <button type="button" onClick={requestBrowseDirectory}>

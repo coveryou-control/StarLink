@@ -10,6 +10,7 @@ import { initialsFor, senderColour } from './conversation-naming';
 import { crossesDay, daySeparatorLabel, unreadDividerIndex } from './timeline';
 import { splitBody } from '../lib/mention-draft';
 import { MessageActions } from './message-actions';
+import { MessageContextMenu } from './message-context-menu';
 
 import type { MessageView } from '../lib/api-client';
 import type { PendingSend } from './composer';
@@ -272,11 +273,28 @@ function MessageRow({
    */
   const showHead = isGroup && !isMine && !grouped;
 
+  /** Where the context menu was summoned, or absent when it is closed. */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | undefined>();
+
   return (
     <li
       className={`message-row${isCustomerNote ? ' internal' : ''}${isMine ? ' mine' : ''}${
         grouped ? ' grouped' : ''
       }${showHead ? ' with-head' : ''}`}
+      /*
+        Right-click opens the message's actions — see `message-context-menu.tsx`.
+
+        On the ROW rather than on the bubble, so the whole line responds: aiming at a
+        two-character bubble to reach a menu is a target the size of the word "hi".
+
+        A deleted message has nothing to copy, reply to, edit or delete again, so it keeps
+        the browser's own menu rather than offering four items attached to an absence.
+      */
+      onContextMenu={(event) => {
+        if (message.redactedAt !== undefined) return;
+        event.preventDefault();
+        setMenuAt({ x: event.clientX, y: event.clientY });
+      }}
     >
       {/*
         An avatar gutter on the left, filled once per turn.
@@ -297,13 +315,13 @@ function MessageRow({
       ) : null}
 
       {/*
-        Bubble and stamp, stacked.
+        The bubble, and above it in a group, the author's name.
 
-        The stamp used to live INSIDE the bubble, floated into its bottom-right corner.
-        That works on a lightly tinted bubble and fails on this design's two: on the
-        near-black one it would be grey type on near-black, and on the white one it would
-        crowd a box that is already at its padding. Every screen in the reference puts the
-        time on its own line beneath the bubble, aligned to the side the message came from.
+        The time and the ticks are INSIDE the bubble now — see `.bubble-meta` below. They
+        were on a line underneath it, which is what the reference draws, and which costs a
+        whole row of vertical rhythm per message and puts the receipt further from the words
+        it is about. Inside is what every messenger does and what people read without
+        being taught.
       */}
       <div className="message-stack">
       {/*
@@ -322,7 +340,6 @@ function MessageRow({
           >
             {message.senderDisplayName}
           </strong>
-          <time dateTime={message.createdAt}>{formatTimestamp(message.createdAt)}</time>
         </div>
       ) : null}
       <div className="message-main">
@@ -434,21 +451,63 @@ function MessageRow({
           ))}
         </ul>
       ) : null}
+
+      {/*
+        The time and the receipt, in the corner of the bubble.
+
+        `.message-main` is a flex row ending at the baseline of its last line, so on a short
+        message this sits beside the words and on a long one it sits under them at the
+        right — which is the shape people already know from every phone messenger, and the
+        reason it needs no label.
+
+        Always rendered, including on a turn's first message. The old markup skipped it
+        whenever the author's heading was drawn, on the reasoning that one message needs one
+        timestamp — but the heading's time was above the bubble and this is inside it, so
+        the effect was that the first message of every turn was the one you could not find
+        the tick on.
+      */}
+      <span className="bubble-meta">
+        {/*
+          "edited" beside the time, not instead of it. The message is still from when it was
+          sent; the correction is a second fact about it, and somebody comparing what they
+          remember against what is on screen needs both.
+        */}
+        {message.editedAt !== undefined && message.redactedAt === undefined ? (
+          <span className="message-edited" title={`Edited ${formatTimestamp(message.editedAt)}`}>
+            edited
+          </span>
+        ) : null}
+        <time dateTime={message.createdAt}>{formatTimestamp(message.createdAt)}</time>
+        <DeliveryTicks tick={deliveryTick({ isMine, seq: message.seq, readWatermark })} />
+      </span>
       </div>
 
 
       {/*
-        Reply, copy and react, in one menu on hover. Every entry does something — a menu
-        with a disabled or decorative item is worse than a shorter menu.
+        React and reply, on hover. Everything else is on right-click — see the row's
+        `onContextMenu` above.
       */}
       <MessageActions
         message={message}
-        isMine={isMine}
         {...(onReply !== undefined ? { onReply } : {})}
         {...(onReact !== undefined ? { onReact } : {})}
-        {...(onEdit !== undefined ? { onEdit } : {})}
-        {...(onDelete !== undefined ? { onDelete } : {})}
       />
+
+      {menuAt !== undefined ? (
+        <MessageContextMenu
+          message={message}
+          at={menuAt}
+          /* Edit and delete are yours alone: editing somebody else's words is
+             impersonation and deleting them is moderation. The server refuses both, so
+             offering them would be offering a refusal. */
+          canEdit={isMine}
+          canDelete={isMine}
+          {...(onReply !== undefined ? { onReply } : {})}
+          {...(onEdit !== undefined ? { onEdit } : {})}
+          {...(onDelete !== undefined ? { onDelete } : {})}
+          onClose={() => setMenuAt(undefined)}
+        />
+      ) : null}
 
       {/*
         Reaction chips, below the bubble.
@@ -497,85 +556,83 @@ function MessageRow({
         `read-receipts.ts` for why every ambiguous case has to resolve downward.
         Over-claiming is the only failure here that lies to anybody.
       */}
-      {/*
-        Not when the turn's own heading already carries the time — one message, one
-        timestamp. A group row with a heading has no tick to show either: the tick is only
-        ever drawn on your own messages, and those never take a heading.
-      */}
-      {showHead ? null : (
-        <div className="message-stamp">
-          {/*
-            "edited" beside the time, not instead of it. The message is still from when it
-            was sent; the correction is a second fact about it, and somebody comparing what
-            they remember with what is on screen needs both.
-          */}
-          {message.editedAt !== undefined && message.redactedAt === undefined ? (
-            <span className="message-edited" title={`Edited ${formatTimestamp(message.editedAt)}`}>
-              edited
-            </span>
-          ) : null}
-          <time dateTime={message.createdAt}>{formatTimestamp(message.createdAt)}</time>
-          <DeliveryTicks tick={deliveryTick({ isMine, seq: message.seq, readWatermark })} />
-        </div>
-      )}
       </div>
     </li>
   );
 }
 
 /**
- * One tick or two.
+ * One tick for delivered, two for read.
  *
- * Drawn as a single glyph rather than two overlapping copies of the same path: two
- * `<svg>`s side by side end up either colliding or reading as a wide gap, and the shape
- * people recognise is one check tucked behind another.
+ * ## Why the shape carries it, and not a word
  *
- * The accessible name is a SENTENCE, not "read" — a screen reader announcing "read" after
- * a timestamp says nothing about who, and in a group the whole point of this tick is that
- * it means everybody. `NONE` renders nothing at all, including for a colleague's message,
- * where a tick would be telling them what they already know and telling you nothing.
+ * This used to render a single check plus the WORD "Read", on the reasoning that two
+ * overlapping ticks are a convention borrowed from a consumer messenger and mean nothing
+ * to somebody who has not learned it. That reasoning was wrong about its own audience:
+ * everybody who will use StarLink has used a phone messenger, the convention is the most
+ * widely understood status glyph there is, and the word cost a visible label on every
+ * message you had ever sent.
+ *
+ * The state is still carried twice, which is what NFR-ACC-3 asks for. Not by colour alone:
+ * one tick versus two is a difference in SHAPE, legible in greyscale and to a reader who
+ * cannot separate the hues. The colour is the reinforcement.
+ *
+ * ## The claim is deliberately strict
+ *
+ * Two ticks mean "everybody in this conversation has read it", never "somebody has". A
+ * person who has not opened the thread has no read-state row, which counts as zero and
+ * holds the whole conversation at one tick — see `read-receipts.ts` for why every
+ * ambiguous case resolves downward. Over-claiming is the only failure here that lies to
+ * anybody.
+ *
+ * `NONE` renders nothing, including on a colleague's message, where a tick would tell them
+ * what they already know and tell you nothing.
  */
 function DeliveryTicks({ tick }: { readonly tick: DeliveryTick }): ReactNode {
   if (tick === 'NONE') return null;
 
   const read = tick === 'READ';
-  /**
-   * A tick and the WORD, which is how the design states it: "10:06 ✓ Read".
-   *
-   * Two overlapping ticks are a convention borrowed from a consumer messenger and they
-   * carry the meaning only for people who already know it. The word carries it for
-   * everybody, costs about twenty pixels beside a timestamp that is already there, and
-   * removes the need for a tooltip to explain a glyph.
-   *
-   * "Read by everyone" in a group and in a one-to-one alike: it is true in both, and one
-   * wording means the receipt cannot quietly mean less in a group than it appears to.
-   */
-  const label = read ? 'Read by everyone' : 'Sent';
 
   return (
-    <span className={`message-tick${read ? ' read' : ''}`} title={label}>
+    <span
+      className={`message-tick${read ? ' read' : ''}`}
+      title={read ? 'Read by everyone' : 'Sent'}
+    >
       {/*
-        The tick carries the colour; the word does not.
+        One path, drawn twice at an offset for the read state, rather than two `<svg>`
+        elements side by side — those end up either colliding or reading as a wide gap, and
+        the shape people recognise is one check tucked behind another.
 
-        Screen 02 draws "10:06 <green tick> Read" with the word in the same secondary ink as
-        the timestamp beside it. A green WORD reads as a status banner and pulls the eye to
-        every delivered message on the page, which is the opposite of what a receipt is for.
+        The viewBox widens with the second tick so the glyph is not squeezed to fit.
       */}
-      <span className="message-tick-glyph">
-        <svg viewBox="0 0 16 12" width="14" height="11" aria-hidden="true" focusable="false">
+      <svg
+        viewBox={read ? '0 0 18 12' : '0 0 13 12'}
+        width={read ? 17 : 12}
+        height={11}
+        aria-hidden="true"
+        focusable="false"
+      >
+        {read ? (
           <path
-            d="M1.5 6.4 5 9.9l9-9"
+            d="M1 6.6 4.2 9.8 10.6 2.6"
             fill="none"
             stroke="currentColor"
-            strokeWidth="1.8"
+            strokeWidth="1.7"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
-        </svg>
-      </span>
-      {read ? 'Read' : null}
-      {/* The un-read state is a bare tick; a screen reader still needs the word. */}
-      {read ? null : <span className="sr-only">Sent</span>}
+        ) : null}
+        <path
+          d={read ? 'M6.4 6.6 9.6 9.8 16 2.6' : 'M1 6.6 4.2 9.8 10.6 2.6'}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+      {/* The word is gone from the page; a screen reader still needs it. */}
+      <span className="sr-only">{read ? 'Read by everyone' : 'Sent'}</span>
     </span>
   );
 }
@@ -599,12 +656,12 @@ function PendingRow({
         not change shape when it lands — it is the same bubble, with the clock replaced by
         a word and then by a tick.
       */}
-      <div className="message-stamp">
+      <span className="bubble-meta">
         <span className={failed ? 'pending-failed' : undefined}>
           {failed ? 'Not sent' : 'Sending…'}
           {!conversationIsInternal && pending.visibility === 'INTERNAL' ? ' · internal note' : ''}
         </span>
-      </div>
+      </span>
       {failed ? (
         <p className="pending-explain">Your text has been kept in the composer.</p>
       ) : null}
@@ -629,20 +686,23 @@ function PendingRow({
  * ago it was, and printing a bare clock time on it would put yesterday's message on
  * today's footing.
  */
-function formatTimestamp(iso: string, now: Date = new Date()): string {
+function formatTimestamp(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
 
-  const sameDay =
-    date.getFullYear() === now.getFullYear() &&
-    date.getMonth() === now.getMonth() &&
-    date.getDate() === now.getDate();
+  /*
+     The time, and never the date.
 
-  return date.toLocaleString(undefined, {
-    ...(sameDay ? {} : { day: '2-digit', month: 'short' }),
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+     It used to prepend "Sep 02" to anything not sent today, which put the date on every
+     message in the conversation twice over — once in the stamp and once in the day
+     divider a few rows above it that exists to say exactly that. Two answers to the same
+     question, and the redundant one repeated per message.
+
+     The divider is the load-bearing half: `timeline.ts` inserts TODAY, YESTERDAY or the
+     date whenever the day changes, so every message on screen already sits under a heading
+     that dates it. This is the time within that day.
+  */
+  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }
 
 /**

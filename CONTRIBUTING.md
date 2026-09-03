@@ -29,13 +29,58 @@ pnpm verify                   # every gate, in CI's order
 `pnpm lint && pnpm typecheck && pnpm exec vitest run <path>`, but **the merge gate is
 `pnpm verify`** and a green subset is not evidence.
 
-## Branches and commits
+## Branches and pull requests
 
-- Branch off `main`. Never commit to `main` directly.
+**Nothing is pushed to `main`. Everything arrives through a pull request.** Not as a
+courtesy — as the thing that makes the history usable. A commit pushed straight to the
+branch has no diff anybody read, no build anybody saw pass, and no record of why it was
+thought to be a good idea. None of that can be reconstructed afterwards.
+
+```bash
+git switch -c feat/short-description   # off an up-to-date main
+# ... work, commit ...
+pnpm verify                            # every gate, in CI's order
+git push -u origin feat/short-description
+gh pr create --fill
+```
+
+Already committed onto `main` by mistake? Nothing is lost — the commits just need
+re-pointing, and `main` needs putting back where the remote has it:
+
+```bash
+git switch -c feat/short-description   # your commits come with you
+git switch main
+git reset --hard origin/main
+git switch feat/short-description
+```
+
+### What enforces it
+
+Two things, and they do different jobs:
+
+| | |
+| --- | --- |
+| **Branch protection** on `main` | The binding one. Server-side, applies to everybody including admins, and requires a green `ci` before merge. |
+| **`.githooks/pre-push`** | Fails the push locally, before the upload, with the commands above in the error. Installed by `pnpm install` — see the `prepare` script. |
+
+The hook is the early warning; protection is the rule. `git push --no-verify` skips the
+hook, deliberately: it is standard, everybody knows it, and typing it is a decision rather
+than an accident. It does not skip branch protection.
+
+`infrastructure/guards/src/pull-request-only.test.ts` fails the build if the hook or its
+install script is removed. Git does not clone hooks, so the whole local half rests on one
+line in `package.json` — delete it and nothing breaks, nothing warns, and the next direct
+push succeeds.
+
+### Naming and shape
+
+- `feat/` · `fix/` · `chore/` · `docs/` · `refactor/` — then a few words with hyphens.
 - One concern per branch. A rename and a behaviour change in the same diff cost the
   reviewer the ability to see either.
 - Write the commit message for someone reading it in a year: what changed, and *why the
   previous behaviour was wrong*. "Fix bug" is not a message.
+- Rebase onto `main` rather than merging it in, so the branch stays a readable sequence
+  of your own commits rather than a braid.
 
 ## Pull requests
 

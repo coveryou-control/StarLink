@@ -1,3 +1,6 @@
+@import './emoji-font.css';
+@import './chat-wallpaper.css';
+
 /* =====================================================================================
    STARLINK — employee surface
 
@@ -106,7 +109,19 @@
      button, the active tab, the mobile compose button. It is deliberately NOT the
      selected-row fill, NOT a bubble and NOT a panel. */
   --accent: var(--brand);
-  --accent-hover: var(--btn-brand-bg-hover);
+  /*
+     One step along the brand ramp, not five.
+
+     `--btn-brand-bg-hover` chains to `--brand-primary-900`, which in the light theme is
+     rgb(48,19,15) — the far, near-black end of the ramp. So every accent control turned
+     almost black under the pointer: the compose button, the send arrow, the account avatar
+     on the rail. Reported twice as "it gets black", and it was.
+
+     700 is the step that reads as the same button, pressed. The ramp inverts in the dark
+     theme (700 there is a lighter pink than 600), so this one line gives a darker hover on
+     light and a lighter one on dark, which is the correct direction for both.
+  */
+  --accent-hover: var(--brand-primary-700);
   --accent-contrast: var(--btn-brand-label);
   --accent-soft: var(--brand-primary-100);
   --accent-line: var(--brand-primary-200);
@@ -159,17 +174,42 @@
   /* --- type ------------------------------------------------------------------------
      Poppins is the brand face and the whole kit is set in it. */
   --font: var(--font-family-brand);
+  /*
+     Appended to every face that renders user text.
+
+     A message is one string that may hold both words and emoji, so this cannot be a class
+     on a wrapper — the browser picks a font per CHARACTER, and naming the emoji face last
+     means the body face keeps the letters and Noto picks up only what it has glyphs for.
+     Without it, an emoji somebody sent renders in whatever the platform supplies and a
+     message looks different to its sender and its reader.
+  */
+  --font-with-emoji: var(--font-family-brand), 'Noto Color Emoji';
   --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
 
-  --text-xs: 11px;
-  --text-sm: 12px;
-  --text-base: 13px;
-  --text-md: 15px;
-  --text-lg: 16px;
-  --text-xl: 20px;
-  --text-2xl: 24px;
-  --lh-tight: 1.25;
-  --lh: 1.55;
+  /*
+     One step down from the reference across the board.
+
+     The kit is drawn at a 15px body on a 1440x900 frame, and at that size on a real
+     laptop the product reads as zoomed in — the first impression is of a page pushed into
+     your face rather than one you settle into. Every value here is ~1px smaller, kept as a
+     PROPORTIONAL step so the hierarchy the design established is unchanged: the ratio
+     between a name and its preview line, between a heading and its body, is the same
+     ratio, and only the absolute size moved.
+
+     The pair at the bottom is why this is not just "make the font smaller". Line height
+     goes UP as size comes down — smaller type needs more leading, not less, or the lines
+     start to run together and the page reads as denser rather than calmer, which is the
+     opposite of the point.
+  */
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-base: 12px;
+  --text-md: 14px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
+  --lh-tight: 1.3;
+  --lh: 1.5;
   --track-tight: -0.01em;
   --track-caps: 0.06em;
 
@@ -192,8 +232,12 @@
   --space-6: 32px;
   --space-7: 48px;
 
-  --row-sm: 28px;
-  --row: 36px;
+  /* Down with the type. A 36px control around 14px text has the proportions of a 40px
+     control around 15px; leaving these would have shrunk the words inside boxes that did
+     not move, which reads as loose rather than smaller. `--row-lg` stays 44: it is the
+     touch-target floor, and that is an accessibility number, not a visual one. */
+  --row-sm: 26px;
+  --row: 34px;
   --row-lg: 44px;
 
   /* --- depth -----------------------------------------------------------------------
@@ -208,8 +252,43 @@
   --shadow-float: 0 8px 20px rgb(240 93 73 / 35%);
 
   --hover: var(--base-surface-secondary);
-  --scroll-thumb: rgb(0 0 0 / 18%);
-  --scroll-thumb-hover: rgb(0 0 0 / 32%);
+  /*
+     What a focused text field looks like.
+
+     `--input-border-focus` resolves to `--neutral-1000` — near-black — and six places drew
+     it as a 2px inset. On a white field that is a hard black rule appearing under the
+     pointer the moment somebody goes to type, which is what "it gets highlighted with a
+     black line" was describing. The generic `input:focus-visible` used a full-strength
+     accent border instead, so the same act looked different depending on which field you
+     were in.
+
+     One treatment, in one place: a 1px brand-tinted edge and a soft halo outside it. The
+     halo is what carries the change — it is a shape appearing around the field rather than
+     a line drawn on it, so the field's own geometry does not seem to move.
+
+     Still a real indicator. NFR-ACC-1 needs focus to be visible, and WCAG 2.2's focus
+     appearance is about the CHANGE being perceptible, not about it being black: the halo is
+     3px on all four sides where there was nothing at all.
+  */
+  --focus-field:
+    inset 0 0 0 1px var(--accent-line),
+    0 0 0 3px var(--accent-soft);
+
+  /*
+     What that same field looks like when it was reached with a MOUSE: nothing.
+
+     `:focus-visible` does not help here. The Selectors spec has a text input match it on
+     any focus, clicks included — so the halo appeared every time somebody reached for the
+     search box or the composer with a pointer, which is the flash nobody asked to see.
+     `input-modality.ts` puts `data-pointer` on the root while that is what is happening,
+     and the rules below swap this in.
+
+     A keyboard user is unaffected: press Tab and the attribute goes.
+  */
+  --focus-field-pointer: none;
+
+  --scroll-thumb: rgb(0 0 0 / 12%);
+  --scroll-thumb-hover: rgb(0 0 0 / 28%);
 
   --dur: var(--duration-fast);
   --ease: var(--ease-standard);
@@ -233,8 +312,8 @@
   --rail-bg: var(--neutral-100);
   --rail-fg: rgb(255 255 255 / 55%);
   --rail-item-active: rgb(255 255 255 / 14%);
-  --scroll-thumb: rgb(255 255 255 / 20%);
-  --scroll-thumb-hover: rgb(255 255 255 / 36%);
+  --scroll-thumb: rgb(255 255 255 / 14%);
+  --scroll-thumb-hover: rgb(255 255 255 / 32%);
   --hairline: inset 0 0 0 1px var(--border);
 }
 
@@ -307,8 +386,10 @@ body {
    `thin`, so both engines get the same answer by their own route.
 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  /* 6, not 8. Two panes can be scrollable at once — the conversation and the information
+     column — and at 8px the pair read as furniture down the right-hand side of the page. */
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -318,9 +399,9 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--scroll-thumb);
   border-radius: var(--radius-pill);
-  /* A transparent border with `background-clip` is how a 8px track carries a 4px thumb
+  /* A transparent border with `background-clip` is how a 6px track carries a 4px thumb
      without the thumb touching the content beside it. */
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   background-clip: content-box;
 }
 
@@ -416,12 +497,19 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* The one primary treatment. `.search button` is deliberately absent: the conversation
+/*
+   The one primary treatment. `.search button` is deliberately absent: the conversation
    search submits as you type and has no submit button, so the selector's only remaining
-   matches were the RESULT rows, which rendered as a column of filled accent pills. */
+   matches were the RESULT rows, which rendered as a column of filled accent pills.
+
+   `.start-panel-buttons` asks for the class rather than `:first-child`. Position-based
+   styling breaks the moment the markup changes, and it did: the new-conversation dialog's
+   chat mode has only a Back button, so "first child" made *Back* the full-width accent
+   call to action.
+*/
 .actions-form-buttons button:first-child,
 .picker-search button,
-.start-panel-buttons button:first-child {
+.start-panel-buttons button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-contrast);
@@ -430,12 +518,12 @@ button:disabled {
 
 .actions-form-buttons button:first-child:hover:not(:disabled),
 .picker-search button:hover:not(:disabled),
-.start-panel-buttons button:first-child:hover:not(:disabled) {
+.start-panel-buttons button.primary:hover:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
 
-.start-panel-buttons button:first-child:disabled {
+.start-panel-buttons button.primary:disabled {
   background: var(--surface-2);
   border-color: var(--border);
   color: var(--text-subtle);
@@ -468,8 +556,30 @@ input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  /* The same treatment the boxed fields get — see `--focus-field`. A full-strength accent
+     border here and a near-black inset there meant the same act looked like two different
+     states depending on which field you were in. */
+  border-color: var(--accent-line);
+  box-shadow: var(--focus-field);
+}
+
+/*
+   Reached with a mouse: no ring.
+
+   Only the FIELDS. Buttons, rows and links keep `:focus-visible`, which already withholds
+   itself on a click — this exists for the text inputs, where the browser deliberately does
+   not. See `input-modality.ts` for why the attribute is added rather than removed.
+*/
+:root[data-pointer] input:focus-visible,
+:root[data-pointer] textarea:focus-visible,
+:root[data-pointer] select:focus-visible,
+:root[data-pointer] .field-with-clear input:focus-visible,
+:root[data-pointer] .composer:focus-within .composer-actions,
+:root[data-pointer] .composer:focus-within .composer-field,
+:root[data-pointer] .emoji-search input:focus-visible,
+:root[data-pointer] .signin-input:focus-within {
+  box-shadow: var(--focus-field-pointer);
+  border-color: var(--input-border);
 }
 
 input::placeholder,
@@ -770,6 +880,15 @@ input[type='search']::-webkit-search-cancel-button {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--surface);
+  /*
+     The menu's own ink, because it does not want the rail's.
+
+     It is a light popover rendered inside `.rail`, which sets `color: rgb(255 255 255 /
+     50%)` for the icons on its dark ground — and colour inherits. So the signed-in name was
+     white at half opacity on a white card: technically rendered, and unreadable. A surface
+     that changes its background has to state its foreground.
+  */
+  color: var(--text);
   box-shadow: var(--shadow-md);
   display: flex;
   flex-direction: column;
@@ -1071,16 +1190,17 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
-   A focused field takes the design system's own dark 2px ring, not an orange glow.
+   A focused field takes `--focus-field`, like every other field.
 
-   Screens 02 and 04 both draw it as `inset 0 0 0 2px var(--input-border-focus)`, which is
-   CY Grey — and rule 1 is the reason: orange is a signal about the CONTENT, and "the caret
-   is here" is not one. An orange ring on the search box also put the brand colour on the
-   first thing every screenshot shows, which is exactly the surface use the rule forbids.
+   It had the design system's dark 2px ring, which screens 02 and 04 both draw, on the
+   reasoning that rule 1 keeps orange for signals about the CONTENT and "the caret is here"
+   is not one. That reasoning holds for a SURFACE and this is a hairline: a near-black rule
+   snapping in under the pointer is the thing people notice and dislike, and the brand-tinted
+   edge with a soft halo says the same thing without drawing a line on the field.
 */
 .field-with-clear input:focus-visible {
   background: var(--surface);
-  box-shadow: inset 0 0 0 2px var(--input-border-focus);
+  box-shadow: var(--focus-field);
   border-color: transparent;
   outline: none;
 }
@@ -1496,8 +1616,10 @@ input[type='search']::-webkit-search-cancel-button {
 */
 .fab-new {
   position: static;
-  width: 34px;
-  height: 34px;
+  /* 38, up from 34. It is the one thing this column exists to let you DO, and at 34 the
+     tile was smaller than the filter pills beside it. */
+  width: 38px;
+  height: 38px;
   padding: 0;
   border: 0;
   border-radius: 10px;
@@ -1904,12 +2026,28 @@ input[type='search']::-webkit-search-cancel-button {
    shadows"). Rendered white, the colleague's bubble was a white box on a white page held
    together by a hairline nobody could see, and the whole thread read flat.
 */
+/*
+   The wallpaper.
+
+   A faint tiled line pattern behind the messages, in CoverYou's own motifs — see
+   `scripts/generate-wallpaper.mjs` for why it is drawn rather than borrowed. It is on the
+   SCROLLER rather than the pane so it ends where the messages end: under the header or the
+   composer it would show through two surfaces that are meant to be solid.
+
+   `background-attachment: local` is the detail that makes it feel like paper rather than
+   like a screen effect. The default pins a background to the viewport, so the tiles hold
+   still while the messages slide over them; `local` scrolls the pattern with the content,
+   the way a sheet moves with what is written on it.
+*/
 .thread-scroll {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
   overscroll-behavior: contain;
-  background: var(--surface-raised);
+  background-color: var(--thread-ground, var(--surface-raised));
+  background-image: var(--thread-wallpaper);
+  background-repeat: repeat;
+  background-attachment: local;
 }
 
 /* Everything that is not the scroller keeps its natural height and never shrinks — a
@@ -1970,6 +2108,40 @@ input[type='search']::-webkit-search-cancel-button {
 
 /* Takes the slack, so everything after it groups against the right edge instead of
    crowding the name. */
+/*
+   The avatar, the name and the subtitle, as one target that opens the panel.
+
+   A button, so it is reachable by keyboard and announces itself — but it must not LOOK like
+   one. It is the header's content, and a bordered control wrapped around the conversation's
+   name would make the header read as a toolbar. Everything a button brings visually is
+   stripped; what is left is the hover tint, which is the only hint it needs.
+*/
+.chat-identity-group {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 6px 8px;
+  margin-left: -8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+.chat-identity-button {
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+
+.chat-identity-button:hover {
+  background: var(--hover);
+}
+
 .chat-identity {
   display: flex;
   flex-direction: column;
@@ -2308,7 +2480,22 @@ input[type='search']::-webkit-search-cancel-button {
      min-content, so every message rendered one character per line.
   */
   max-width: 100%;
-  padding: 12px 16px;
+  /*
+     A row ending at the bottom: the words, then the time and the ticks.
+
+     `align-items: flex-end` is what puts the meta on the baseline of the LAST line rather
+     than the first, so a one-line message has its time beside the words and a paragraph has
+     it tucked under the right-hand end — the shape a phone messenger uses, which is why it
+     needs no label.
+
+     The body takes `min-width: 0` and the meta `flex: none`, so a long unbroken word wraps
+     instead of squeezing the timestamp to nothing.
+  */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 2px 10px;
+  padding: 8px 12px;
   border-radius: var(--radius-bubble);
   border-bottom-left-radius: var(--radius-tail);
   background: var(--bubble-them);
@@ -2328,11 +2515,10 @@ input[type='search']::-webkit-search-cancel-button {
   border-bottom-right-radius: var(--radius-tail);
 }
 
-/* The stamp sits OUTSIDE the bubble now, on the page, so both sides take the page's own
-   secondary ink rather than the bubble's. */
-.message-row.mine .message-stamp,
+/* Inside the near-black bubble, "edited" takes the bubble's ink like everything else
+   there — see `.bubble-meta`, which sets the same relationship for the time and the tick. */
 .message-row.mine .message-edited {
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--bubble-mine-ink) 55%, transparent);
 }
 
 /* Grouping. A run of messages from one author within a few minutes reads as one turn of
@@ -2378,10 +2564,37 @@ input[type='search']::-webkit-search-cancel-button {
 /* 15/1.55 — the kit's body size, and the one size in this interface that is read rather
    than scanned. */
 .message-body {
+  font-family: var(--font-with-emoji);
+  /*
+     `flex: 0 1 auto` and NO `min-width: 0`.
+
+     `min-width: 0` let the body's min-content contribution fall to zero, so the bubble —
+     which shrink-wraps — resolved to the width of the timestamp and every message rendered
+     one character per line. The body's minimum is its longest word, which is what
+     `overflow-wrap: anywhere` then keeps from overflowing on a URL.
+  */
+  flex: 0 1 auto;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
   line-height: var(--lh);
   font-size: var(--text-md);
+}
+
+/*
+   Everything in the bubble that is NOT the body takes a row of its own.
+
+   The bubble is a wrapping flex row, so without this a quote or an attachment list sits
+   shoulder to shoulder with the message text and gets squeezed by it — which is exactly
+   what happened: a reply quote rendered as a narrow column beside the word it was
+   answering. `flex-basis: 100%` in a wrapping row is what forces the line break.
+*/
+.message-main > .quoted,
+.message-main > .attachments,
+.message-main > .message-meta,
+.message-main > .message-deleted {
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 /* A deleted message keeps its place in the thread and says why it is empty. */
@@ -2407,20 +2620,39 @@ input[type='search']::-webkit-search-cancel-button {
    screen in the reference puts the stamp on its own line beneath, left-aligned under
    theirs and right-aligned under yours.
 */
-.message-stamp {
+/*
+   The time and the receipt, in the bubble's bottom corner.
+
+   `translateY` earns its place: the meta's line box is taller than its 10px glyphs, so
+   sitting it on the body's baseline leaves it looking a pixel high. Two pixels down puts
+   it on the optical bottom of the bubble rather than the mathematical one.
+*/
+.bubble-meta {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  padding: 0 4px;
-  font-size: 11px;
+  gap: 4px;
+  transform: translateY(2px);
+  font-size: 10px;
   line-height: 1;
-  color: var(--text-muted);
+  white-space: nowrap;
+  color: var(--text-subtle);
   user-select: none;
 }
 
-.message-stamp time {
+.bubble-meta time {
   font-variant-numeric: tabular-nums;
+}
+
+/*
+   On the near-black bubble, the meta is a translucent white rather than the page's grey.
+
+   The page's `--text-subtle` is a light grey chosen against white; on CY Grey it is almost
+   the same value as the surface and the time disappears. This is the same RELATIONSHIP to
+   its ground, not the same colour.
+*/
+.message-row.mine .bubble-meta {
+  color: color-mix(in srgb, var(--bubble-mine-ink) 62%, transparent);
 }
 
 /* "edited" beside the time, not instead of it — quieter than the timestamp, because it is
@@ -2432,36 +2664,29 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
-   One tick for sent, two for read by everybody.
+   One tick for delivered, two for read by everybody.
 
-   The read state is carried by the SHAPE — a second check — before it is carried by the
-   colour, which is what keeps it legible in greyscale and to a reader who cannot separate
-   the two hues (NFR-ACC-3). The colour is a reinforcement: sent is the quiet ink of the
-   surrounding stamp, read is the accent at full strength.
-*/
-/*
-   The receipt: a tick, and once everybody has read it, the word.
+   The state is carried by the SHAPE first — one check or two — which is what keeps it
+   legible in greyscale and to a reader who cannot separate the hues (NFR-ACC-3). The
+   colour reinforces it: delivered takes the meta's own ink, read goes green.
 
    Green rather than the signal orange. The kit pairs presence and "has been seen" in the
-   same success colour, and rule 1 keeps orange for the things that want attention — a
-   read receipt is the opposite of that, it is the absence of anything left to do.
+   same success colour, and rule 1 keeps orange for the things that want attention — a read
+   receipt is the opposite of that, it is the absence of anything left to do.
 */
 .message-tick {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   color: inherit;
-  font-size: 11px;
 }
 
-/* Only the glyph is coloured — see the comment on the component. */
-.message-tick-glyph {
-  display: inline-flex;
-  color: var(--text-subtle);
-}
-
-.message-tick.read .message-tick-glyph {
+/* Bright enough to read on the near-black bubble, where most sent messages live. */
+.message-tick.read {
   color: var(--success);
+}
+
+.message-row.mine .message-tick.read {
+  color: color-mix(in srgb, var(--success) 80%, #fff);
 }
 
 /* The same pair on a conversation row, sized down: the list is scanned, not read. */
@@ -2500,8 +2725,17 @@ input[type='search']::-webkit-search-cancel-button {
   align-items: flex-start;
   gap: 6px;
   min-width: 0;
-  /* The measure, in one place. 56px is the avatar gutter the row reserves beside it. */
-  max-width: min(620px, calc(100% - 56px));
+  /*
+     The measure, in one place.
+
+     56px is the avatar gutter the row reserves; the other 104 is the hover action bar,
+     which is absolutely positioned just OUTSIDE the bubble and is therefore part of how
+     wide a message row really is. Without the reservation it simply hung past the right
+     edge of the column and gave the conversation a horizontal scrollbar — 39px of one at
+     1040px wide, sitting above the composer. Measured, not guessed: see
+     `.local/overflow-probe.mjs`.
+  */
+  max-width: min(620px, calc(100% - 56px - 104px));
 }
 
 /*
@@ -2562,12 +2796,9 @@ input[type='search']::-webkit-search-cancel-button {
 
 .message-row.mine .message-stack {
   align-items: flex-end;
-  /* No avatar gutter on this side, so the stack may use the full measure. */
-  max-width: min(620px, 100%);
-}
-
-.message-row.mine .message-stamp {
-  flex-direction: row;
+  /* No avatar gutter on this side, but the action bar flips to the left and needs the
+     same room. */
+  max-width: min(620px, calc(100% - 104px));
 }
 
 /* A quoted reply is context, not content: inset, muted, and clamped so it can never
@@ -2689,7 +2920,7 @@ input[type='search']::-webkit-search-cancel-button {
 .message-row.internal .message-meta,
 .message-row.internal .author,
 .message-row.internal time,
-.message-row.internal .message-stamp,
+.message-row.internal .bubble-meta,
 .message-row.internal .message-tick {
   color: var(--warn-text);
 }
@@ -2930,6 +3161,81 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
+   The reactions, behind the smiley.
+
+   Anchored to the bar rather than to the message, and ABOVE it: a strip that dropped down
+   would cover the message being reacted to, which is the one thing you are looking at
+   while you choose.
+*/
+.reaction-strip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+/*
+   The strip is wider than the bar it hangs from, so at the edges of the column it would
+   otherwise be clipped. `translateX(-50%)` centres it; these pull it back inside on the
+   side where there is no room.
+*/
+.message-row:not(.mine) .reaction-strip {
+  left: 0;
+  transform: none;
+}
+
+.message-row.mine .reaction-strip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.reaction-choice {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  transition:
+    background var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+
+.reaction-choice:hover {
+  background: var(--surface-2);
+  /* The lift is what says "this one" without a border appearing under the pointer. */
+  transform: scale(1.15);
+}
+
+/* Already yours: pressing it again takes it off, so it reads as selected rather than
+   as merely hovered. */
+.reaction-choice.mine {
+  background: var(--accent-soft);
+}
+
+.reaction-choice .emoji-glyph {
+  font-size: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reaction-choice:hover {
+    transform: none;
+  }
+}
+
+/*
    No gutter, so the bar goes INSIDE the bubble's top-right.
 
    Two cases have no free horizontal space beside the message: an internal note, which is
@@ -2968,11 +3274,21 @@ input[type='search']::-webkit-search-cancel-button {
   background: var(--accent-soft);
 }
 
+/*
+   The message context menu, positioned at the pointer.
+
+   `fixed`, and portalled to `document.body`, which is the fix rather than the styling. It
+   was `absolute` inside `.message-actions` and rendered BEHIND the messages below it —
+   `z-index: 30` could not help, because each `.message-row` paints in document order and a
+   later row paints over an earlier row's overflowing child whatever index that child asks
+   for. An index only orders siblings inside one stacking context.
+
+   `left`/`top` come from the component, which measures the menu and pulls it back inside
+   the viewport before paint.
+*/
 .message-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  z-index: 30;
+  position: fixed;
+  z-index: 80;
   min-width: 160px;
   padding: var(--space-1);
   border: 1px solid var(--border);
@@ -3032,26 +3348,12 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
-   The stamp follows the chips on that row.
+   Nothing shares the reaction row any more.
 
-   `order` rather than reordering the markup: the stamp is after the reactions in the DOM for
-   a reading order that makes sense without styles, and this is purely where they sit.
+   The stamp used to sit beside the chips, because both were under the bubble and one line
+   for the pair was tidier than two. The stamp is inside the bubble now, so the chips have
+   the row to themselves and the stack stays a plain column.
 */
-.message-stack:has(.reactions) {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: 10px;
-}
-
-.message-stack:has(.reactions) > .message-main,
-.message-stack:has(.reactions) > .message-head {
-  flex-basis: 100%;
-}
-
-.message-stack:has(.reactions) .message-stamp {
-  order: 2;
-}
 
 .reaction {
   display: inline-flex;
@@ -3287,7 +3589,7 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .composer:focus-within .composer-actions {
-  box-shadow: inset 0 0 0 2px var(--input-border-focus);
+  box-shadow: var(--focus-field);
 }
 
 .composer-actions .attach-control {
@@ -3486,7 +3788,7 @@ input[type='search']::-webkit-search-cancel-button {
 
 .emoji-search input:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--input-border-focus);
+  box-shadow: var(--focus-field);
 }
 
 /* The category row. A hairline under it separates the chooser from what it chose. */
@@ -3566,20 +3868,23 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
-   The glyph, in a font stack that is ONLY colour-emoji fonts.
+   The glyph, in the bundled emoji face and nothing else.
 
-   Inherited, the body face is matched first for anything it happens to contain, and several
-   of these — ⚠ ✅ ❗ ▶ among them — exist as flat monochrome outlines in a text font. Half
-   the grid rendered as line art beside the other half's colour artwork, which is what
-   "graphically they don't look right" was describing.
+   The stack used to start with whatever the platform had, which is what made the picker
+   look different on every machine and made a third of it render as empty boxes on Windows
+   10. `Noto Color Emoji` is shipped with the application (see `emoji-font.css`), so the
+   first name in the list is always present and always the same artwork.
+
+   Declared rather than inherited: the body face is matched first for anything it happens
+   to contain, and several characters — ⚠ ✅ ❗ ▶ among them — exist as flat monochrome
+   outlines in a text font. Half the grid drew as line art beside the other half's colour.
 
    `font-variant-emoji: emoji` asks for the colour presentation of the characters that have
    both; browsers that do not know the property ignore it and the VS16 in the data carries
    the same request.
 */
 .emoji-glyph {
-  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Twemoji Mozilla',
-    'Segoe UI Symbol', 'EmojiOne Color', 'Android Emoji', sans-serif;
+  font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
   font-size: 22px;
   line-height: 1;
   font-variant-emoji: emoji;
@@ -5492,9 +5797,17 @@ input[type='search']::-webkit-search-cancel-button {
   display: grid;
   place-items: center;
   padding: var(--space-4);
-  background: rgb(23 22 31 / 38%);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  /*
+     A dim, not a blackout.
+
+     38% over a blur read as the page going dark the moment the dialog opened — the
+     complaint was that clicking the compose button "makes it black". The dialog still has
+     to separate itself from what is behind it, and the blur does most of that work; 24% is
+     enough to push the page back without extinguishing it.
+  */
+  background: rgb(23 22 31 / 24%);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   animation: modal-in var(--dur) var(--ease);
 }
 
@@ -5557,18 +5870,83 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--text);
 }
 
-.start-panel form {
+/*
+   The fork: one colleague, or several.
+
+   Two rows rather than a segmented control. Each is a destination with a sentence saying
+   what you get, and a segmented control would make them read as a setting on a form that
+   has not appeared yet.
+*/
+.start-modes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.start-mode {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin: 0;
+  gap: var(--space-3);
+  width: 100%;
+  height: auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+}
+
+.start-mode:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.start-mode-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/* One line now — the subtitle under each label is gone, and a two-item choice between
+   "chat" and "group" needs neither of them defined. */
+.start-mode-text {
   min-width: 0;
 }
 
-.start-panel form label {
-  flex: 1;
+.start-mode-text strong {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+/*
+   The search field, with no button beside it.
+
+   It was a `form` and a Find button, so the field shared a flex row with a control that no
+   longer exists — leaving the rule in place would have left the input sized for a
+   companion it lost.
+*/
+.start-search {
+  min-width: 0;
+}
+
+.start-search label,
+.member-add-field {
+  display: block;
   min-width: 0;
   margin: 0;
+}
+
+.start-search input,
+.member-add-field input {
+  width: 100%;
 }
 
 .start-panel form input {
@@ -6016,7 +6394,7 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .signin-input:focus-within {
-  box-shadow: inset 0 0 0 2px var(--input-border-focus);
+  box-shadow: var(--focus-field);
 }
 
 /*
@@ -6879,7 +7257,7 @@ input[type='search']::-webkit-search-cancel-button {
   }
 
   .composer:focus-within .composer-field {
-    box-shadow: inset 0 0 0 2px var(--input-border-focus);
+    box-shadow: var(--focus-field);
   }
 
   /* Both controls become circles. The attach one is neutral; send keeps the accent and the

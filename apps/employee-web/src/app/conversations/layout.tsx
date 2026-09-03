@@ -346,15 +346,24 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                     <button
                       type="button"
                       className="panel-head-icon"
-                      onClick={requestNewConversation}
+                      onClick={() => requestNewConversation()}
                       aria-label="New conversation"
                     >
+                      {/* The same bubble-with-a-plus the masthead's other compose control
+                          uses — see `start-conversation.tsx` for why it is not a bare plus. */}
                       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
                         <path
-                          d="M12 5v14M5 12h14"
+                          d="M20.5 11.3c0 4-3.8 7.2-8.5 7.2a10 10 0 0 1-2.7-.36L4.6 20l1.25-3.4A6.8 6.8 0 0 1 3.5 11.3c0-4 3.8-7.2 8.5-7.2s8.5 3.2 8.5 7.2Z"
                           fill="none"
                           stroke="currentColor"
-                          strokeWidth="1.8"
+                          strokeWidth="1.7"
+                          strokeLinejoin="round"
+                        />
+                        <path
+                          d="M12 8.6v5.2M9.4 11.2h5.2"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.7"
                           strokeLinecap="round"
                         />
                       </svg>

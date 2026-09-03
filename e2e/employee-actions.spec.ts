@@ -169,13 +169,24 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
     await signIn(employee, 'agent');
 
     await test.step('start an internal conversation with one colleague (SL-001)', async () => {
+      /*
+         The dialog asks "one colleague or several?" before it asks "who?".
+
+         It used to ask only the second and infer the first from how many people you
+         happened to pick, which meant a required group-name field appeared underneath a
+         form somebody thought they had finished. Choosing New chat up front is one click
+         and makes the rest of the dialog honest.
+
+         There is no Find button and no Start button in this path any more. Results appear
+         as you type, and picking the person IS starting the chat — there is nothing else
+         to decide, so a confirm press would be the product asking a question it already
+         has the answer to.
+      */
       await employee.getByRole('button', { name: 'New conversation' }).click();
       const panel = employee.getByRole('region', { name: 'Start a conversation' });
+      await panel.getByRole('button', { name: /New chat/ }).click();
       await panel.getByPlaceholder(/name, department/i).fill('E2E Lead');
-      await panel.getByRole('button', { name: 'Find' }).click();
       await panel.getByRole('button', { name: /E2E Lead/ }).first().click();
-      await expect(panel.getByRole('list', { name: 'Chosen colleagues' })).toContainText('E2E Lead');
-      await panel.getByRole('button', { name: 'Start conversation' }).click();
       await expect(employee).toHaveURL(/\/conversations\/[0-9a-f-]{36}/, { timeout: 20_000 });
     });
 
@@ -213,8 +224,8 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
 
     await test.step('adding a third person warns that history is exposed (BR-07)', async () => {
       const participants = employee.getByRole('region', { name: 'Participants' });
+      // Searched as you type here too; the Find button is gone from both fields.
       await participants.getByPlaceholder(/name, department/i).fill('E2E Colleague');
-      await participants.getByRole('button', { name: 'Find' }).click();
       await participants.getByRole('button', { name: /E2E Colleague/ }).first().click();
 
       // The acknowledgement is asked in words, in a dialog the person has to read. The

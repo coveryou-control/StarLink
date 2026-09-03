@@ -8,6 +8,7 @@
     "node": ">=22"
   },
   "scripts": {
+    "prepare": "git config core.hooksPath .githooks || true",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
@@ -30,6 +31,8 @@
     "@types/node": "^22.10.0",
     "@types/pg": "^8.23.1",
     "dependency-cruiser": "^16.8.0",
+    "emojibase": "^17.0.0",
+    "emojibase-data": "^17.0.0",
     "eslint": "^10.9.1",
     "pg": "^8.23.0",
     "turbo": "^2.3.0",

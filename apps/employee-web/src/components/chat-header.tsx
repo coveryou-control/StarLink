@@ -36,8 +36,6 @@ export function ChatHeader({
   onToggleDetails,
   searchOpen = false,
   onToggleSearch,
-  pinned = false,
-  onTogglePin,
   compact = false,
 }: {
   readonly conversation: ConversationSummary | undefined;
@@ -47,17 +45,16 @@ export function ChatHeader({
   readonly detailsOpen?: boolean;
   readonly onToggleDetails?: (() => void) | undefined;
   /**
-   * The reference's three header controls, and all three do something.
+   * The header's controls, and both of them do something.
    *
    * Screen 02 draws a phone, a magnifier and a star. The phone is a call, which StarLink
-   * does not have and is not going to — so the row is search, pin and info: the magnifier
-   * and star the design draws, plus the control that opens the fourth column. Three buttons
-   * in the design's own treatment, none of them a picture of a feature.
+   * does not have and is not going to. The star has gone too: it toggled "pin to top", and
+   * the information panel already carries that as a labelled switch — a glyph in the header
+   * doing the same job meant the state had two homes and one of them had to be hovered to
+   * find out what it was. Search, and the control that opens the fourth column.
    */
   readonly searchOpen?: boolean;
   readonly onToggleSearch?: (() => void) | undefined;
-  readonly pinned?: boolean;
-  readonly onTogglePin?: (() => void) | undefined;
   /** A phone. The header keeps the back control, the person and one action — see below. */
   readonly compact?: boolean;
 }): ReactNode {
@@ -144,6 +141,54 @@ export function ChatHeader({
     : [department, otherIsOnline ? 'Active now' : undefined].filter(Boolean).join(' · ') ||
       undefined;
 
+  /*
+     The avatar, the name and the subtitle, in one place.
+
+     A local component rather than a duplicated fragment: the clickable and unclickable
+     branches below must render exactly the same thing, and two copies of it is how they
+     stop doing that.
+  */
+  const ChatIdentity = (): ReactNode => (
+    <>
+      {isGroup ? null : (
+        <span className="avatar-wrap">
+          <span className={`chat-avatar${isGroup ? ' group' : ''}`} aria-hidden="true">
+            {conversation !== undefined ? avatarFor(conversation).text : initialsFor(name)}
+          </span>
+          {/* One person, one dot — see `conversation-list.tsx` for why a group gets none. */}
+          {!isGroup && others.length === 1 ? (
+            <PresenceDot principalId={others[0]?.principalId} />
+          ) : null}
+        </span>
+      )}
+
+      <span className="chat-identity">
+        {/*
+          "# Ops — Daily standup".
+
+          The hash is the reference's marker for a channel and the fastest way to tell a
+          group from a person in a header that is otherwise identical. Outside the
+          accessible name, which is the conversation's actual title.
+        */}
+        <h1 className="chat-name" title={name}>
+          {isGroup ? <span aria-hidden="true">#&nbsp;</span> : null}
+          {name}
+        </h1>
+        {subtitle !== undefined && subtitle !== '' ? (
+          <span className="chat-subtitle" title={subtitle}>
+            {isGroup && onlineCount > 0 ? (
+              <>
+                <span className="chat-online">{onlineCount} online</span>
+                {' · '}
+              </>
+            ) : null}
+            {subtitle}
+          </span>
+        ) : null}
+      </span>
+    </>
+  );
+
   return (
     /*
       The details panel used to be a direct child of this header, absolutely positioned
@@ -184,42 +229,34 @@ export function ChatHeader({
         capped with a count, because five overlapping circles stop being faces and start
         being a texture.
       */}
-      {isGroup ? null : (
-        <span className="avatar-wrap">
-          <span className={`chat-avatar${isGroup ? ' group' : ''}`} aria-hidden="true">
-            {conversation !== undefined ? avatarFor(conversation).text : initialsFor(name)}
-          </span>
-          {/* One person, one dot — see `conversation-list.tsx` for why a group gets none. */}
-          {!isGroup && others.length === 1 ? (
-            <PresenceDot principalId={others[0]?.principalId} />
-          ) : null}
+      {/*
+        The whole identity block opens the information panel.
+
+        It was an icon at the far end of the header and nothing else — a small target for the
+        most-wanted thing up there, and no hint that the name is connected to the panel about
+        that name. Every messenger opens contact info by tapping the person at the top, and
+        people try that before they look for a button.
+
+        A `button` rather than a click handler on a `span`: it has to be reachable by
+        keyboard and announce what it does, and `aria-expanded` says whether the panel is
+        already open so a second press is not a surprise. Plain markup where there is no
+        panel to open — an announcement has none.
+      */}
+      {onToggleDetails === undefined ? (
+        <span className="chat-identity-group">
+          <ChatIdentity />
         </span>
+      ) : (
+        <button
+          type="button"
+          className="chat-identity-group chat-identity-button"
+          onClick={onToggleDetails}
+          aria-expanded={detailsOpen}
+          aria-label={isGroup ? 'Group details' : 'Contact details'}
+        >
+          <ChatIdentity />
+        </button>
       )}
-
-      <span className="chat-identity">
-        {/*
-          "# Ops — Daily standup".
-
-          The hash is the reference's marker for a channel and it is the fastest way to tell
-          a group from a person in a header that is otherwise identical. Outside the accessible
-          name, which is the conversation's actual title.
-        */}
-        <h1 className="chat-name" title={name}>
-          {isGroup ? <span aria-hidden="true">#&nbsp;</span> : null}
-          {name}
-        </h1>
-        {subtitle !== undefined && subtitle !== '' ? (
-          <span className="chat-subtitle" title={subtitle}>
-            {isGroup && onlineCount > 0 ? (
-              <>
-                <span className="chat-online">{onlineCount} online</span>
-                {' · '}
-              </>
-            ) : null}
-            {subtitle}
-          </span>
-        ) : null}
-      </span>
 
       <span className="chat-header-end">
         {connection}
@@ -289,42 +326,18 @@ export function ChatHeader({
           </button>
         )}
 
-        {compact || isGroup || onTogglePin === undefined ? null : (
-          <button
-            type="button"
-            className="chat-header-action"
-            onClick={onTogglePin}
-            aria-pressed={pinned}
-            aria-label={pinned ? 'Unpin from the top of your list' : 'Pin to the top of your list'}
-            title={pinned ? 'Unpin' : 'Pin to top'}
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <path
-                d="m12 4.2 2.24 4.54 5.01.73-3.62 3.53.85 4.99L12 15.63l-4.48 2.36.85-4.99L4.75 9.47l5.01-.73L12 4.2Z"
-                fill={pinned ? 'currentColor' : 'none'}
-                stroke="currentColor"
-                strokeWidth="1.6"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-        )}
+        {/*
+          No icon here for a one-to-one.
 
-        {isGroup || onToggleDetails === undefined ? null : (
-          <button
-            type="button"
-            className="chat-header-action chat-details-toggle"
-            onClick={onToggleDetails}
-            aria-expanded={detailsOpen}
-            aria-label={isGroup ? 'Group details' : 'Conversation details'}
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <circle cx="12" cy="5" r="1.7" fill="currentColor" />
-              <circle cx="12" cy="12" r="1.7" fill="currentColor" />
-              <circle cx="12" cy="19" r="1.7" fill="currentColor" />
-            </svg>
-          </button>
-        )}
+          It was a vertical kebab that opened the information panel, and the identity block
+          on the left now does that — a bigger target, in the place people already try. Two
+          controls for one panel also meant two buttons whose accessible names were
+          "Contact details" and "Conversation details", which is a distinction a screen
+          reader user has to guess at.
+
+          A group keeps its named "Group info" button: that is what screen 03 draws, and a
+          word is a better affordance than a glyph for the one control a group header has.
+        */}
       </span>
 
     </header>

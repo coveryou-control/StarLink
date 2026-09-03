@@ -482,22 +482,6 @@ export default function ThreadPage(): ReactNode {
   const toggleDetails = (): void =>
     panelOverlays ? setOverlayOpen((was) => !was) : setColumnHidden((was) => !was);
 
-  /**
-   * Pin, from the header — the same preference the information panel's switch writes.
-   *
-   * The list is sorted on `pinned` server-side, so the shell re-reads rather than reordering
-   * locally: two places deciding the order is two places to disagree about it.
-   */
-  const togglePin = async (): Promise<void> => {
-    if (activeConversation === undefined) return;
-    await api
-      .setConversationPreferences(conversationId, { pinned: !activeConversation.pinned })
-      .then(refreshConversations)
-      // A refused pin leaves the summary as it was, so the star simply does not move —
-      // which is the honest rendering of "that did not happen".
-      .catch(() => undefined);
-  };
-
 
   /**
    * May this reader post an announcement?
@@ -554,16 +538,6 @@ export default function ThreadPage(): ReactNode {
         compact={panelOverlays}
         searchOpen={searchOpen}
         onToggleSearch={() => setSearchOpen((was) => !was)}
-        /*
-           The same preference the information panel's "Pin to top" writes — one fact, two
-           controls, and neither can disagree with the other because both read the summary.
-        */
-        {...(activeConversation !== undefined
-          ? {
-              pinned: activeConversation.pinned,
-              onTogglePin: () => void togglePin(),
-            }
-          : {})}
       />
 
       {/*
