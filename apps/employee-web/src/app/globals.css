@@ -261,6 +261,19 @@
     inset 0 0 0 1px var(--accent-line),
     0 0 0 3px var(--accent-soft);
 
+  /*
+     What that same field looks like when it was reached with a MOUSE: nothing.
+
+     `:focus-visible` does not help here. The Selectors spec has a text input match it on
+     any focus, clicks included — so the halo appeared every time somebody reached for the
+     search box or the composer with a pointer, which is the flash nobody asked to see.
+     `input-modality.ts` puts `data-pointer` on the root while that is what is happening,
+     and the rules below swap this in.
+
+     A keyboard user is unaffected: press Tab and the attribute goes.
+  */
+  --focus-field-pointer: none;
+
   --scroll-thumb: rgb(0 0 0 / 12%);
   --scroll-thumb-hover: rgb(0 0 0 / 28%);
 
@@ -535,6 +548,25 @@ select:focus-visible {
      states depending on which field you were in. */
   border-color: var(--accent-line);
   box-shadow: var(--focus-field);
+}
+
+/*
+   Reached with a mouse: no ring.
+
+   Only the FIELDS. Buttons, rows and links keep `:focus-visible`, which already withholds
+   itself on a click — this exists for the text inputs, where the browser deliberately does
+   not. See `input-modality.ts` for why the attribute is added rather than removed.
+*/
+:root[data-pointer] input:focus-visible,
+:root[data-pointer] textarea:focus-visible,
+:root[data-pointer] select:focus-visible,
+:root[data-pointer] .field-with-clear input:focus-visible,
+:root[data-pointer] .composer:focus-within .composer-actions,
+:root[data-pointer] .composer:focus-within .composer-field,
+:root[data-pointer] .emoji-search input:focus-visible,
+:root[data-pointer] .signin-input:focus-within {
+  box-shadow: var(--focus-field-pointer);
+  border-color: var(--input-border);
 }
 
 input::placeholder,
@@ -5683,9 +5715,17 @@ input[type='search']::-webkit-search-cancel-button {
   display: grid;
   place-items: center;
   padding: var(--space-4);
-  background: rgb(23 22 31 / 38%);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  /*
+     A dim, not a blackout.
+
+     38% over a blur read as the page going dark the moment the dialog opened — the
+     complaint was that clicking the compose button "makes it black". The dialog still has
+     to separate itself from what is behind it, and the blur does most of that work; 24% is
+     enough to push the page back without extinguishing it.
+  */
+  background: rgb(23 22 31 / 24%);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
   animation: modal-in var(--dur) var(--ease);
 }
 

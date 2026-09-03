@@ -5,6 +5,7 @@ import './globals.css';
 import { SessionProvider } from '../components/session-provider';
 import { RuntimeOriginsScript } from '../components/runtime-origins-script';
 import { themeBootScript } from '../lib/theme';
+import { inputModalityBootScript } from '../lib/input-modality';
 
 /**
  * Rendered per request, not prerendered.
@@ -57,6 +58,8 @@ export default function RootLayout({ children }: { children: ReactNode }): React
           this script mutates `<html>` before React reaches it, which is the point.
         */}
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+        {/* Pointer-or-keyboard, before the first paint — see `input-modality.ts`. */}
+        <script dangerouslySetInnerHTML={{ __html: inputModalityBootScript }} />
       </head>
       <body>
         <SessionProvider>{children}</SessionProvider>
