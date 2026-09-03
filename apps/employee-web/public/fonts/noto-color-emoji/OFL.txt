@@ -1,0 +1,11 @@
+﻿Noto Color Emoji is licensed under the SIL Open Font License, Version 1.1.
+
+The full text is at https://openfontlicense.org/ and is reproduced in the upstream
+repository at https://github.com/googlefonts/noto-emoji.
+
+Copyright 2013 Google LLC.
+
+The .woff2 files beside this notice are the unicode-range subsets Google Fonts serves for
+this family, downloaded and committed so the application does not depend on a third-party
+host at runtime. `source.css` is the stylesheet they came from; `src/app/emoji-font.css` is
+generated from it.

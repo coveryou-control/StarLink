@@ -1,3 +1,5 @@
+@import './emoji-font.css';
+
 /* =====================================================================================
    STARLINK — employee surface
 
@@ -159,17 +161,42 @@
   /* --- type ------------------------------------------------------------------------
      Poppins is the brand face and the whole kit is set in it. */
   --font: var(--font-family-brand);
+  /*
+     Appended to every face that renders user text.
+
+     A message is one string that may hold both words and emoji, so this cannot be a class
+     on a wrapper — the browser picks a font per CHARACTER, and naming the emoji face last
+     means the body face keeps the letters and Noto picks up only what it has glyphs for.
+     Without it, an emoji somebody sent renders in whatever the platform supplies and a
+     message looks different to its sender and its reader.
+  */
+  --font-with-emoji: var(--font-family-brand), 'Noto Color Emoji';
   --mono: ui-monospace, SFMono-Regular, "Cascadia Mono", Consolas, monospace;
 
-  --text-xs: 11px;
-  --text-sm: 12px;
-  --text-base: 13px;
-  --text-md: 15px;
-  --text-lg: 16px;
-  --text-xl: 20px;
-  --text-2xl: 24px;
-  --lh-tight: 1.25;
-  --lh: 1.55;
+  /*
+     One step down from the reference across the board.
+
+     The kit is drawn at a 15px body on a 1440x900 frame, and at that size on a real
+     laptop the product reads as zoomed in — the first impression is of a page pushed into
+     your face rather than one you settle into. Every value here is ~1px smaller, kept as a
+     PROPORTIONAL step so the hierarchy the design established is unchanged: the ratio
+     between a name and its preview line, between a heading and its body, is the same
+     ratio, and only the absolute size moved.
+
+     The pair at the bottom is why this is not just "make the font smaller". Line height
+     goes UP as size comes down — smaller type needs more leading, not less, or the lines
+     start to run together and the page reads as denser rather than calmer, which is the
+     opposite of the point.
+  */
+  --text-xs: 10px;
+  --text-sm: 11px;
+  --text-base: 12px;
+  --text-md: 14px;
+  --text-lg: 15px;
+  --text-xl: 18px;
+  --text-2xl: 22px;
+  --lh-tight: 1.3;
+  --lh: 1.5;
   --track-tight: -0.01em;
   --track-caps: 0.06em;
 
@@ -192,8 +219,12 @@
   --space-6: 32px;
   --space-7: 48px;
 
-  --row-sm: 28px;
-  --row: 36px;
+  /* Down with the type. A 36px control around 14px text has the proportions of a 40px
+     control around 15px; leaving these would have shrunk the words inside boxes that did
+     not move, which reads as loose rather than smaller. `--row-lg` stays 44: it is the
+     touch-target floor, and that is an accessibility number, not a visual one. */
+  --row-sm: 26px;
+  --row: 34px;
   --row-lg: 44px;
 
   /* --- depth -----------------------------------------------------------------------
@@ -208,8 +239,8 @@
   --shadow-float: 0 8px 20px rgb(240 93 73 / 35%);
 
   --hover: var(--base-surface-secondary);
-  --scroll-thumb: rgb(0 0 0 / 18%);
-  --scroll-thumb-hover: rgb(0 0 0 / 32%);
+  --scroll-thumb: rgb(0 0 0 / 12%);
+  --scroll-thumb-hover: rgb(0 0 0 / 28%);
 
   --dur: var(--duration-fast);
   --ease: var(--ease-standard);
@@ -233,8 +264,8 @@
   --rail-bg: var(--neutral-100);
   --rail-fg: rgb(255 255 255 / 55%);
   --rail-item-active: rgb(255 255 255 / 14%);
-  --scroll-thumb: rgb(255 255 255 / 20%);
-  --scroll-thumb-hover: rgb(255 255 255 / 36%);
+  --scroll-thumb: rgb(255 255 255 / 14%);
+  --scroll-thumb-hover: rgb(255 255 255 / 32%);
   --hairline: inset 0 0 0 1px var(--border);
 }
 
@@ -307,8 +338,10 @@ body {
    `thin`, so both engines get the same answer by their own route.
 */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  /* 6, not 8. Two panes can be scrollable at once — the conversation and the information
+     column — and at 8px the pair read as furniture down the right-hand side of the page. */
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
@@ -318,9 +351,9 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--scroll-thumb);
   border-radius: var(--radius-pill);
-  /* A transparent border with `background-clip` is how a 8px track carries a 4px thumb
+  /* A transparent border with `background-clip` is how a 6px track carries a 4px thumb
      without the thumb touching the content beside it. */
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   background-clip: content-box;
 }
 
@@ -2308,7 +2341,22 @@ input[type='search']::-webkit-search-cancel-button {
      min-content, so every message rendered one character per line.
   */
   max-width: 100%;
-  padding: 12px 16px;
+  /*
+     A row ending at the bottom: the words, then the time and the ticks.
+
+     `align-items: flex-end` is what puts the meta on the baseline of the LAST line rather
+     than the first, so a one-line message has its time beside the words and a paragraph has
+     it tucked under the right-hand end — the shape a phone messenger uses, which is why it
+     needs no label.
+
+     The body takes `min-width: 0` and the meta `flex: none`, so a long unbroken word wraps
+     instead of squeezing the timestamp to nothing.
+  */
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 2px 10px;
+  padding: 8px 12px;
   border-radius: var(--radius-bubble);
   border-bottom-left-radius: var(--radius-tail);
   background: var(--bubble-them);
@@ -2328,11 +2376,10 @@ input[type='search']::-webkit-search-cancel-button {
   border-bottom-right-radius: var(--radius-tail);
 }
 
-/* The stamp sits OUTSIDE the bubble now, on the page, so both sides take the page's own
-   secondary ink rather than the bubble's. */
-.message-row.mine .message-stamp,
+/* Inside the near-black bubble, "edited" takes the bubble's ink like everything else
+   there — see `.bubble-meta`, which sets the same relationship for the time and the tick. */
 .message-row.mine .message-edited {
-  color: var(--text-muted);
+  color: color-mix(in srgb, var(--bubble-mine-ink) 55%, transparent);
 }
 
 /* Grouping. A run of messages from one author within a few minutes reads as one turn of
@@ -2378,10 +2425,37 @@ input[type='search']::-webkit-search-cancel-button {
 /* 15/1.55 — the kit's body size, and the one size in this interface that is read rather
    than scanned. */
 .message-body {
+  font-family: var(--font-with-emoji);
+  /*
+     `flex: 0 1 auto` and NO `min-width: 0`.
+
+     `min-width: 0` let the body's min-content contribution fall to zero, so the bubble —
+     which shrink-wraps — resolved to the width of the timestamp and every message rendered
+     one character per line. The body's minimum is its longest word, which is what
+     `overflow-wrap: anywhere` then keeps from overflowing on a URL.
+  */
+  flex: 0 1 auto;
   white-space: pre-wrap;
   word-break: break-word;
+  overflow-wrap: anywhere;
   line-height: var(--lh);
   font-size: var(--text-md);
+}
+
+/*
+   Everything in the bubble that is NOT the body takes a row of its own.
+
+   The bubble is a wrapping flex row, so without this a quote or an attachment list sits
+   shoulder to shoulder with the message text and gets squeezed by it — which is exactly
+   what happened: a reply quote rendered as a narrow column beside the word it was
+   answering. `flex-basis: 100%` in a wrapping row is what forces the line break.
+*/
+.message-main > .quoted,
+.message-main > .attachments,
+.message-main > .message-meta,
+.message-main > .message-deleted {
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 /* A deleted message keeps its place in the thread and says why it is empty. */
@@ -2407,20 +2481,39 @@ input[type='search']::-webkit-search-cancel-button {
    screen in the reference puts the stamp on its own line beneath, left-aligned under
    theirs and right-aligned under yours.
 */
-.message-stamp {
+/*
+   The time and the receipt, in the bubble's bottom corner.
+
+   `translateY` earns its place: the meta's line box is taller than its 10px glyphs, so
+   sitting it on the body's baseline leaves it looking a pixel high. Two pixels down puts
+   it on the optical bottom of the bubble rather than the mathematical one.
+*/
+.bubble-meta {
+  flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  padding: 0 4px;
-  font-size: 11px;
+  gap: 4px;
+  transform: translateY(2px);
+  font-size: 10px;
   line-height: 1;
-  color: var(--text-muted);
+  white-space: nowrap;
+  color: var(--text-subtle);
   user-select: none;
 }
 
-.message-stamp time {
+.bubble-meta time {
   font-variant-numeric: tabular-nums;
+}
+
+/*
+   On the near-black bubble, the meta is a translucent white rather than the page's grey.
+
+   The page's `--text-subtle` is a light grey chosen against white; on CY Grey it is almost
+   the same value as the surface and the time disappears. This is the same RELATIONSHIP to
+   its ground, not the same colour.
+*/
+.message-row.mine .bubble-meta {
+  color: color-mix(in srgb, var(--bubble-mine-ink) 62%, transparent);
 }
 
 /* "edited" beside the time, not instead of it — quieter than the timestamp, because it is
@@ -2432,36 +2525,29 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
-   One tick for sent, two for read by everybody.
+   One tick for delivered, two for read by everybody.
 
-   The read state is carried by the SHAPE — a second check — before it is carried by the
-   colour, which is what keeps it legible in greyscale and to a reader who cannot separate
-   the two hues (NFR-ACC-3). The colour is a reinforcement: sent is the quiet ink of the
-   surrounding stamp, read is the accent at full strength.
-*/
-/*
-   The receipt: a tick, and once everybody has read it, the word.
+   The state is carried by the SHAPE first — one check or two — which is what keeps it
+   legible in greyscale and to a reader who cannot separate the hues (NFR-ACC-3). The
+   colour reinforces it: delivered takes the meta's own ink, read goes green.
 
    Green rather than the signal orange. The kit pairs presence and "has been seen" in the
-   same success colour, and rule 1 keeps orange for the things that want attention — a
-   read receipt is the opposite of that, it is the absence of anything left to do.
+   same success colour, and rule 1 keeps orange for the things that want attention — a read
+   receipt is the opposite of that, it is the absence of anything left to do.
 */
 .message-tick {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
   color: inherit;
-  font-size: 11px;
 }
 
-/* Only the glyph is coloured — see the comment on the component. */
-.message-tick-glyph {
-  display: inline-flex;
-  color: var(--text-subtle);
-}
-
-.message-tick.read .message-tick-glyph {
+/* Bright enough to read on the near-black bubble, where most sent messages live. */
+.message-tick.read {
   color: var(--success);
+}
+
+.message-row.mine .message-tick.read {
+  color: color-mix(in srgb, var(--success) 80%, #fff);
 }
 
 /* The same pair on a conversation row, sized down: the list is scanned, not read. */
@@ -2500,8 +2586,17 @@ input[type='search']::-webkit-search-cancel-button {
   align-items: flex-start;
   gap: 6px;
   min-width: 0;
-  /* The measure, in one place. 56px is the avatar gutter the row reserves beside it. */
-  max-width: min(620px, calc(100% - 56px));
+  /*
+     The measure, in one place.
+
+     56px is the avatar gutter the row reserves; the other 104 is the hover action bar,
+     which is absolutely positioned just OUTSIDE the bubble and is therefore part of how
+     wide a message row really is. Without the reservation it simply hung past the right
+     edge of the column and gave the conversation a horizontal scrollbar — 39px of one at
+     1040px wide, sitting above the composer. Measured, not guessed: see
+     `.local/overflow-probe.mjs`.
+  */
+  max-width: min(620px, calc(100% - 56px - 104px));
 }
 
 /*
@@ -2562,12 +2657,9 @@ input[type='search']::-webkit-search-cancel-button {
 
 .message-row.mine .message-stack {
   align-items: flex-end;
-  /* No avatar gutter on this side, so the stack may use the full measure. */
-  max-width: min(620px, 100%);
-}
-
-.message-row.mine .message-stamp {
-  flex-direction: row;
+  /* No avatar gutter on this side, but the action bar flips to the left and needs the
+     same room. */
+  max-width: min(620px, calc(100% - 104px));
 }
 
 /* A quoted reply is context, not content: inset, muted, and clamped so it can never
@@ -2689,7 +2781,7 @@ input[type='search']::-webkit-search-cancel-button {
 .message-row.internal .message-meta,
 .message-row.internal .author,
 .message-row.internal time,
-.message-row.internal .message-stamp,
+.message-row.internal .bubble-meta,
 .message-row.internal .message-tick {
   color: var(--warn-text);
 }
@@ -2930,6 +3022,81 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
+   The reactions, behind the smiley.
+
+   Anchored to the bar rather than to the message, and ABOVE it: a strip that dropped down
+   would cover the message being reacted to, which is the one thing you are looking at
+   while you choose.
+*/
+.reaction-strip {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+/*
+   The strip is wider than the bar it hangs from, so at the edges of the column it would
+   otherwise be clipped. `translateX(-50%)` centres it; these pull it back inside on the
+   side where there is no room.
+*/
+.message-row:not(.mine) .reaction-strip {
+  left: 0;
+  transform: none;
+}
+
+.message-row.mine .reaction-strip {
+  left: auto;
+  right: 0;
+  transform: none;
+}
+
+.reaction-choice {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  transition:
+    background var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+
+.reaction-choice:hover {
+  background: var(--surface-2);
+  /* The lift is what says "this one" without a border appearing under the pointer. */
+  transform: scale(1.15);
+}
+
+/* Already yours: pressing it again takes it off, so it reads as selected rather than
+   as merely hovered. */
+.reaction-choice.mine {
+  background: var(--accent-soft);
+}
+
+.reaction-choice .emoji-glyph {
+  font-size: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reaction-choice:hover {
+    transform: none;
+  }
+}
+
+/*
    No gutter, so the bar goes INSIDE the bubble's top-right.
 
    Two cases have no free horizontal space beside the message: an internal note, which is
@@ -3032,26 +3199,12 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
-   The stamp follows the chips on that row.
+   Nothing shares the reaction row any more.
 
-   `order` rather than reordering the markup: the stamp is after the reactions in the DOM for
-   a reading order that makes sense without styles, and this is purely where they sit.
+   The stamp used to sit beside the chips, because both were under the bubble and one line
+   for the pair was tidier than two. The stamp is inside the bubble now, so the chips have
+   the row to themselves and the stack stays a plain column.
 */
-.message-stack:has(.reactions) {
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: baseline;
-  column-gap: 10px;
-}
-
-.message-stack:has(.reactions) > .message-main,
-.message-stack:has(.reactions) > .message-head {
-  flex-basis: 100%;
-}
-
-.message-stack:has(.reactions) .message-stamp {
-  order: 2;
-}
 
 .reaction {
   display: inline-flex;
@@ -3566,20 +3719,23 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
-   The glyph, in a font stack that is ONLY colour-emoji fonts.
+   The glyph, in the bundled emoji face and nothing else.
 
-   Inherited, the body face is matched first for anything it happens to contain, and several
-   of these — ⚠ ✅ ❗ ▶ among them — exist as flat monochrome outlines in a text font. Half
-   the grid rendered as line art beside the other half's colour artwork, which is what
-   "graphically they don't look right" was describing.
+   The stack used to start with whatever the platform had, which is what made the picker
+   look different on every machine and made a third of it render as empty boxes on Windows
+   10. `Noto Color Emoji` is shipped with the application (see `emoji-font.css`), so the
+   first name in the list is always present and always the same artwork.
+
+   Declared rather than inherited: the body face is matched first for anything it happens
+   to contain, and several characters — ⚠ ✅ ❗ ▶ among them — exist as flat monochrome
+   outlines in a text font. Half the grid drew as line art beside the other half's colour.
 
    `font-variant-emoji: emoji` asks for the colour presentation of the characters that have
    both; browsers that do not know the property ignore it and the VS16 in the data carries
    the same request.
 */
 .emoji-glyph {
-  font-family: 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', 'Twemoji Mozilla',
-    'Segoe UI Symbol', 'EmojiOne Color', 'Android Emoji', sans-serif;
+  font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
   font-size: 22px;
   line-height: 1;
   font-variant-emoji: emoji;

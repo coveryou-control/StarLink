@@ -13,224 +13,26 @@ import type { ReactNode } from 'react';
  * that results is an ordinary message. Nothing here implies a reaction, a status or a
  * notification — those would all be claims the API cannot support.
  *
- * ## Why a fixed list rather than a library
+ * ## Where the list comes from
  *
- * The full Unicode set is about 1,900 characters plus skin-tone and gender variants, and
- * the data files that ship with the popular pickers run to 200KB before the component. This
- * is roughly two hundred, grouped and searchable, chosen for a workplace — which covers
- * what people actually send and adds no dependency.
+ * `emoji-data.generated.ts` — 1,644 emoji built from emojibase's CLDR data by
+ * `scripts/generate-emoji.mjs`, with the annotations people actually search by, so the
+ * field finds 🙏 for "thanks".
  *
- * It was twenty-four in one undifferentiated grid, which is where the "not enough variety"
- * came from. The grouping is as much of the fix as the count: two hundred in one grid is
- * worse than twenty-four, and the row of category buttons is what makes the difference.
+ * It was a hand-written list of about 130 before, and that failed in both directions. It
+ * was incomplete in ways nobody can predict — the emoji you want is the one somebody did
+ * not think of — and it contained characters the platform could not draw: 🫡 🫠 🫶 rendered
+ * as empty boxes on Windows 10, whose Segoe UI Emoji stops at Emoji 12.0.
  *
  * ## What renders them
  *
- * The glyphs come from the platform's colour emoji font — Segoe UI Emoji on Windows, Apple
- * Color Emoji on macOS and iOS, Noto Color Emoji on Android and most Linux. The stack is
- * declared explicitly in `.emoji-glyph` rather than inherited, because the body font is
- * matched first for anything it happens to contain and several of these resolve to a flat
- * monochrome outline that way.
- *
- * Shipping ONE set that looks identical everywhere means bundling an emoji font, and the
- * options are worth stating: Apple's artwork (which is what a phone messenger looks like)
- * is licensed and cannot be redistributed; Noto Color Emoji is open but about 10MB; Twemoji
- * is open, ~400KB as SVGs, and needs a CC-BY attribution. That is a licensing and
- * asset-budget decision, not a styling one.
- *
- * ## Which characters are in the list, and why not the obvious ones
- *
- * Every glyph below is one that Windows 10's Segoe UI Emoji can actually DRAW, verified by
- * measuring it rather than by reading a Unicode version table. That font stops at Emoji
- * 12.0, so 🫡 🫠 🫶 🥲 render as an empty box, and it has no gender-neutral ZWJ professions,
- * so 🧑‍💻 falls apart into a person and a laptop side by side. All eight were in the first
- * draft of this list and all eight looked broken on the machine this is developed on.
- *
- * The gendered professions (👩‍💻 👨‍⚖️) DO render there, which is why they are the ones
- * present. Re-run `.local/emoji-probe.mjs` after adding anything: it reports tofu and split
- * sequences by measuring the advance against a known-missing codepoint.
+ * Noto Color Emoji, bundled with the application — see `app/emoji-font.css`. Not the
+ * platform's font: the platforms disagree wildly about what an emoji looks like and
+ * Windows 10 cannot draw a large part of the set at all. One bundled font means the
+ * picker, the reaction strip and the message bodies all show the same artwork, on every
+ * machine, offline.
  */
-
-interface EmojiGroup {
-  readonly id: string;
-  /** The category button's glyph — one of the group's own members. */
-  readonly tab: string;
-  readonly label: string;
-  readonly emoji: readonly (readonly [string, string])[];
-}
-
-/**
- * `[glyph, keywords]`. The keywords are what search matches on, so the field finds "thanks"
- * for 🙏 — nobody searches an emoji by its Unicode name.
- */
-const GROUPS: readonly EmojiGroup[] = [
-  {
-    id: 'reactions',
-    tab: '👍',
-    label: 'Reactions',
-    emoji: [
-      ['👍', 'yes ok agree approve thumbs up good'],
-      ['👎', 'no disagree thumbs down bad'],
-      ['🙏', 'thanks please grateful namaste'],
-      ['👏', 'clap well done bravo congratulations'],
-      ['🙌', 'celebrate hooray praise'],
-      ['🤝', 'deal agreed handshake partner'],
-      ['✅', 'done complete tick check yes'],
-      ['❌', 'no wrong cancel remove'],
-      ['❤️', 'love heart'],
-      ['🔥', 'fire great hot excellent'],
-      ['💯', 'hundred perfect agree'],
-      ['🎉', 'party celebrate launch congrats'],
-      ['👌', 'ok perfect fine'],
-      ['🤞', 'fingers crossed hope luck'],
-      ['💪', 'strong effort push'],
-      ['👊', 'on it fist bump acknowledged'],
-      ['👀', 'looking eyes watching review'],
-      ['🙋', 'volunteer raise hand me'],
-    ],
-  },
-  {
-    id: 'smileys',
-    tab: '🙂',
-    label: 'Smileys',
-    emoji: [
-      ['🙂', 'smile happy'],
-      ['😄', 'grin happy laugh'],
-      ['😁', 'beam grin teeth'],
-      ['😅', 'sweat nervous laugh phew'],
-      ['😂', 'laughing tears funny lol'],
-      ['🤣', 'rofl hilarious'],
-      ['😊', 'blush pleased warm'],
-      ['😉', 'wink joking'],
-      ['😍', 'love heart eyes'],
-      ['😎', 'cool sunglasses'],
-      ['🤔', 'thinking hmm consider'],
-      ['🤨', 'suspicious doubt raised eyebrow'],
-      ['😐', 'neutral flat no comment'],
-      ['😬', 'grimace awkward yikes'],
-      ['😴', 'sleep tired zzz'],
-      ['😌', 'relieved calm fine'],
-      ['😢', 'sad cry'],
-      ['😞', 'disappointed down'],
-      ['😤', 'frustrated steam annoyed'],
-      ['🤯', 'mind blown shocked'],
-      ['😱', 'scream shock panic'],
-      ['🥳', 'party face celebrate'],
-      ['😇', 'innocent halo'],
-      ['😫', 'overwhelmed exhausted too much'],
-    ],
-  },
-  {
-    id: 'people',
-    tab: '👥',
-    label: 'People',
-    emoji: [
-      ['👩‍💻', 'working coding developer laptop'],
-      ['👩‍💼', 'manager office professional'],
-      ['👨‍💼', 'manager office professional'],
-      ['👩‍🏫', 'training teaching explain'],
-      ['🕵️', 'investigating looking into detective'],
-      ['👨‍⚖️', 'legal compliance judge'],
-      ['👮', 'police enforcement'],
-      ['👨‍🔧', 'fixing engineer repair'],
-      ['🤦', 'facepalm oh no'],
-      ['🤷', 'shrug dont know unsure'],
-      ['🙇', 'apology sorry bow'],
-      ['🚶', 'walking heading out'],
-      ['🏃', 'running rushing urgent'],
-      ['👋', 'hello hi bye wave'],
-      ['🤗', 'appreciate thanks hug'],
-      ['🧠', 'brain idea smart think'],
-      ['👥', 'team people group'],
-      ['🗣️', 'speaking talking discuss'],
-    ],
-  },
-  {
-    id: 'work',
-    tab: '📊',
-    label: 'Work',
-    emoji: [
-      ['📊', 'chart report numbers data'],
-      ['📈', 'up growth increase trend'],
-      ['📉', 'down decrease drop loss'],
-      ['📋', 'clipboard list tasks'],
-      ['📝', 'note write memo'],
-      ['📄', 'document file page'],
-      ['📁', 'folder files'],
-      ['📎', 'attachment clip file'],
-      ['🗂️', 'files organise records'],
-      ['📌', 'pin important pinned'],
-      ['🗓️', 'calendar date schedule'],
-      ['⏰', 'time deadline alarm reminder'],
-      ['⏳', 'waiting pending time'],
-      ['🔔', 'notify alert reminder bell'],
-      ['📞', 'call phone ring'],
-      ['✉️', 'email mail message'],
-      ['🧾', 'receipt invoice claim bill'],
-      ['🛡️', 'policy cover protection insurance'],
-      ['🏦', 'bank branch office'],
-      ['💰', 'money premium payment'],
-      ['💳', 'card payment'],
-      ['✍️', 'sign signature approve'],
-      ['🔍', 'search find look up'],
-      ['🗒️', 'notepad minutes'],
-    ],
-  },
-  {
-    id: 'status',
-    tab: '🚦',
-    label: 'Status',
-    emoji: [
-      ['🚦', 'status blocked go'],
-      ['🟢', 'green good open available'],
-      ['🟡', 'amber warning caution'],
-      ['🔴', 'red blocked stopped critical'],
-      ['⚠️', 'warning careful risk'],
-      ['🚨', 'urgent escalate alarm critical'],
-      ['🆗', 'ok fine approved'],
-      ['🆕', 'new'],
-      ['🔒', 'locked private confidential'],
-      ['🔓', 'unlocked open'],
-      ['⏸️', 'paused on hold'],
-      ['▶️', 'resume start go'],
-      ['🔁', 'repeat again retry'],
-      ['⏭️', 'skip next'],
-      ['❓', 'question unclear'],
-      ['❗', 'important attention'],
-      ['💤', 'idle away inactive'],
-      ['🏁', 'finished done complete'],
-    ],
-  },
-  {
-    id: 'objects',
-    tab: '💡',
-    label: 'Objects',
-    emoji: [
-      ['💡', 'idea suggestion lightbulb'],
-      ['⚡', 'fast quick power urgent'],
-      ['⭐', 'star favourite important'],
-      ['🚀', 'launch ship release fast'],
-      ['🛠️', 'tools fixing work in progress'],
-      ['🧩', 'piece part integration'],
-      ['🔗', 'link url reference'],
-      ['💻', 'laptop computer'],
-      ['📱', 'phone mobile'],
-      ['🖨️', 'print printer'],
-      ['🗑️', 'delete bin remove'],
-      ['📦', 'package delivery box'],
-      ['☕', 'coffee break'],
-      ['🍵', 'tea break chai'],
-      ['🍽️', 'lunch food break'],
-      ['🎯', 'target goal accurate'],
-      ['🧭', 'direction guidance plan'],
-      ['🏆', 'win award best'],
-      ['🎁', 'gift bonus'],
-      ['💬', 'comment chat message'],
-      ['📢', 'announce broadcast notice'],
-      ['🔖', 'bookmark tag label'],
-    ],
-  },
-];
+import { EMOJI_GROUPS as GROUPS } from './emoji-data.generated';
 
 const RECENT_KEY = 'starlink.emoji-recent';
 const RECENT_MAX = 16;

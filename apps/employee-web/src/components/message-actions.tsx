@@ -6,14 +6,18 @@ import type { ReactNode } from 'react';
 import type { MessageView } from '../lib/api-client';
 
 /**
- * The quick reactions offered on the hover bar.
+ * The reactions the picker opens with, before search.
  *
- * Three, not a picker. The bar appears on hover over a message and its job is one tap;
- * a grid of twenty-four there would be a second decision on top of the first, and the full
- * set already exists in the composer. These are the three that carry the meanings people
- * actually need from a reaction at work — agreed, appreciated, amused.
+ * These used to be rendered directly on the hover bar — three emoji, always visible the
+ * moment the pointer crossed a message. Three bright glyphs appearing beside every message
+ * you hover is a lot of movement for an action people take occasionally, and it made the
+ * bar read as a toolbar rather than as something summoned.
+ *
+ * A single smiley opens them instead, which is the interaction everybody already has from
+ * a phone messenger: hover, one face, click it, choose. The set is longer than three now
+ * because the picker has room for a row of them.
  */
-const QUICK = ['👍', '❤️', '😂'] as const;
+const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🎉'] as const;
 
 /**
  * What you can do to a message.
@@ -48,16 +52,29 @@ export function MessageActions({
   readonly onDelete?: ((message: MessageView) => void) | undefined;
 }): ReactNode {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [reactOpen, setReactOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
+  /*
+     One dismissal for both popovers.
+
+     Two `useEffect`s listening for the same outside click was the alternative, and the two
+     would race: whichever bound last would close first, and clicking from the reaction
+     strip straight onto the kebab closed the strip and then reopened nothing.
+  */
+  const anyOpen = menuOpen || reactOpen;
   useEffect(() => {
-    if (!menuOpen) return;
+    if (!anyOpen) return;
+    const close = (): void => {
+      setMenuOpen(false);
+      setReactOpen(false);
+    };
     const onDown = (event: MouseEvent): void => {
-      if (ref.current !== null && !ref.current.contains(event.target as Node)) setMenuOpen(false);
+      if (ref.current !== null && !ref.current.contains(event.target as Node)) close();
     };
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setMenuOpen(false);
+      if (event.key === 'Escape') close();
     };
     document.addEventListener('mousedown', onDown);
     document.addEventListener('keydown', onKey);
@@ -65,7 +82,7 @@ export function MessageActions({
       document.removeEventListener('mousedown', onDown);
       document.removeEventListener('keydown', onKey);
     };
-  }, [menuOpen]);
+  }, [anyOpen]);
 
   /** Cleared on a timer so the confirmation does not become part of the menu. */
   useEffect(() => {
@@ -102,24 +119,67 @@ export function MessageActions({
 
   return (
     <div className="message-actions" ref={ref}>
-      {onReact !== undefined
-        ? QUICK.map((emoji) => {
-            const mine = message.reactions?.some((r) => r.emoji === emoji && r.mine) ?? false;
-            return (
-              <button
-                key={emoji}
-                type="button"
-                className="message-action"
-                onClick={() => onReact(message.messageId, emoji, !mine)}
-                aria-pressed={mine}
-                aria-label={`React ${emoji}`}
-                title={`React ${emoji}`}
-              >
-                <span aria-hidden="true">{emoji}</span>
-              </button>
-            );
-          })
-        : null}
+      {/*
+        One smiley, and the reactions behind it.
+
+        `aria-expanded` rather than a bare button: this opens something, and a screen
+        reader has to be told that before the strip appears rather than after.
+      */}
+      {onReact !== undefined ? (
+        <>
+          <button
+            type="button"
+            className="message-action"
+            onClick={() => {
+              setReactOpen((was) => !was);
+              setMenuOpen(false);
+            }}
+            aria-expanded={reactOpen}
+            aria-label="React to this message"
+            title="React"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="8.6" fill="none" stroke="currentColor" strokeWidth="1.7" />
+              <circle cx="9.2" cy="10" r="1.1" fill="currentColor" />
+              <circle cx="14.8" cy="10" r="1.1" fill="currentColor" />
+              <path
+                d="M8.4 14.4a4.3 4.3 0 0 0 7.2 0"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+
+          {reactOpen ? (
+            <div className="reaction-strip" role="menu" aria-label="React">
+              {QUICK.map((emoji) => {
+                const mine = message.reactions?.some((r) => r.emoji === emoji && r.mine) ?? false;
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    role="menuitem"
+                    className={`reaction-choice${mine ? ' mine' : ''}`}
+                    onClick={() => {
+                      onReact(message.messageId, emoji, !mine);
+                      setReactOpen(false);
+                    }}
+                    aria-pressed={mine}
+                    aria-label={`React ${emoji}`}
+                    title={emoji}
+                  >
+                    <span className="emoji-glyph" aria-hidden="true">
+                      {emoji}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </>
+      ) : null}
 
       {onReply !== undefined ? (
         <button
@@ -144,7 +204,10 @@ export function MessageActions({
       <button
         type="button"
         className="message-action"
-        onClick={() => setMenuOpen((was) => !was)}
+        onClick={() => {
+          setMenuOpen((was) => !was);
+          setReactOpen(false);
+        }}
         aria-expanded={menuOpen}
         aria-haspopup="menu"
         aria-label="More actions"
