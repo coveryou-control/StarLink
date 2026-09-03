@@ -239,6 +239,28 @@
   --shadow-float: 0 8px 20px rgb(240 93 73 / 35%);
 
   --hover: var(--base-surface-secondary);
+  /*
+     What a focused text field looks like.
+
+     `--input-border-focus` resolves to `--neutral-1000` — near-black — and six places drew
+     it as a 2px inset. On a white field that is a hard black rule appearing under the
+     pointer the moment somebody goes to type, which is what "it gets highlighted with a
+     black line" was describing. The generic `input:focus-visible` used a full-strength
+     accent border instead, so the same act looked different depending on which field you
+     were in.
+
+     One treatment, in one place: a 1px brand-tinted edge and a soft halo outside it. The
+     halo is what carries the change — it is a shape appearing around the field rather than
+     a line drawn on it, so the field's own geometry does not seem to move.
+
+     Still a real indicator. NFR-ACC-1 needs focus to be visible, and WCAG 2.2's focus
+     appearance is about the CHANGE being perceptible, not about it being black: the halo is
+     3px on all four sides where there was nothing at all.
+  */
+  --focus-field:
+    inset 0 0 0 1px var(--accent-line),
+    0 0 0 3px var(--accent-soft);
+
   --scroll-thumb: rgb(0 0 0 / 12%);
   --scroll-thumb-hover: rgb(0 0 0 / 28%);
 
@@ -449,12 +471,19 @@ button:disabled {
   cursor: not-allowed;
 }
 
-/* The one primary treatment. `.search button` is deliberately absent: the conversation
+/*
+   The one primary treatment. `.search button` is deliberately absent: the conversation
    search submits as you type and has no submit button, so the selector's only remaining
-   matches were the RESULT rows, which rendered as a column of filled accent pills. */
+   matches were the RESULT rows, which rendered as a column of filled accent pills.
+
+   `.start-panel-buttons` asks for the class rather than `:first-child`. Position-based
+   styling breaks the moment the markup changes, and it did: the new-conversation dialog's
+   chat mode has only a Back button, so "first child" made *Back* the full-width accent
+   call to action.
+*/
 .actions-form-buttons button:first-child,
 .picker-search button,
-.start-panel-buttons button:first-child {
+.start-panel-buttons button.primary {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-contrast);
@@ -463,12 +492,12 @@ button:disabled {
 
 .actions-form-buttons button:first-child:hover:not(:disabled),
 .picker-search button:hover:not(:disabled),
-.start-panel-buttons button:first-child:hover:not(:disabled) {
+.start-panel-buttons button.primary:hover:not(:disabled) {
   background: var(--accent-hover);
   border-color: var(--accent-hover);
 }
 
-.start-panel-buttons button:first-child:disabled {
+.start-panel-buttons button.primary:disabled {
   background: var(--surface-2);
   border-color: var(--border);
   color: var(--text-subtle);
@@ -501,8 +530,11 @@ input:focus-visible,
 textarea:focus-visible,
 select:focus-visible {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  /* The same treatment the boxed fields get — see `--focus-field`. A full-strength accent
+     border here and a near-black inset there meant the same act looked like two different
+     states depending on which field you were in. */
+  border-color: var(--accent-line);
+  box-shadow: var(--focus-field);
 }
 
 input::placeholder,
@@ -1104,16 +1136,17 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
-   A focused field takes the design system's own dark 2px ring, not an orange glow.
+   A focused field takes `--focus-field`, like every other field.
 
-   Screens 02 and 04 both draw it as `inset 0 0 0 2px var(--input-border-focus)`, which is
-   CY Grey — and rule 1 is the reason: orange is a signal about the CONTENT, and "the caret
-   is here" is not one. An orange ring on the search box also put the brand colour on the
-   first thing every screenshot shows, which is exactly the surface use the rule forbids.
+   It had the design system's dark 2px ring, which screens 02 and 04 both draw, on the
+   reasoning that rule 1 keeps orange for signals about the CONTENT and "the caret is here"
+   is not one. That reasoning holds for a SURFACE and this is a hairline: a near-black rule
+   snapping in under the pointer is the thing people notice and dislike, and the brand-tinted
+   edge with a soft halo says the same thing without drawing a line on the field.
 */
 .field-with-clear input:focus-visible {
   background: var(--surface);
-  box-shadow: inset 0 0 0 2px var(--input-border-focus);
+  box-shadow: var(--focus-field);
   border-color: transparent;
   outline: none;
 }
@@ -3440,7 +3473,7 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .composer:focus-within .composer-actions {
-  box-shadow: inset 0 0 0 2px var(--input-border-focus);
+  box-shadow: var(--focus-field);
 }
 
 .composer-actions .attach-control {
@@ -3639,7 +3672,7 @@ input[type='search']::-webkit-search-cancel-button {
 
 .emoji-search input:focus-visible {
   outline: none;
-  box-shadow: inset 0 0 0 2px var(--input-border-focus);
+  box-shadow: var(--focus-field);
 }
 
 /* The category row. A hairline under it separates the chooser from what it chose. */
@@ -5713,18 +5746,89 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--text);
 }
 
-.start-panel form {
+/*
+   The fork: one colleague, or several.
+
+   Two rows rather than a segmented control. Each is a destination with a sentence saying
+   what you get, and a segmented control would make them read as a setting on a form that
+   has not appeared yet.
+*/
+.start-modes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.start-mode {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin: 0;
+  gap: var(--space-3);
+  width: 100%;
+  height: auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+}
+
+.start-mode:hover {
+  background: var(--surface-2);
+  border-color: var(--border-strong);
+}
+
+.start-mode-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.start-mode-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
-.start-panel form label {
-  flex: 1;
+.start-mode-text strong {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.start-mode-text .muted {
+  font-size: var(--text-base);
+  font-weight: 400;
+}
+
+/*
+   The search field, with no button beside it.
+
+   It was a `form` and a Find button, so the field shared a flex row with a control that no
+   longer exists — leaving the rule in place would have left the input sized for a
+   companion it lost.
+*/
+.start-search {
+  min-width: 0;
+}
+
+.start-search label,
+.member-add-field {
+  display: block;
   min-width: 0;
   margin: 0;
+}
+
+.start-search input,
+.member-add-field input {
+  width: 100%;
 }
 
 .start-panel form input {
@@ -6172,7 +6276,7 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .signin-input:focus-within {
-  box-shadow: inset 0 0 0 2px var(--input-border-focus);
+  box-shadow: var(--focus-field);
 }
 
 /*
@@ -7035,7 +7139,7 @@ input[type='search']::-webkit-search-cancel-button {
   }
 
   .composer:focus-within .composer-field {
-    box-shadow: inset 0 0 0 2px var(--input-border-focus);
+    box-shadow: var(--focus-field);
   }
 
   /* Both controls become circles. The attach one is neutral; send keeps the accent and the

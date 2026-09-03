@@ -29,6 +29,7 @@ import { initialsFor } from './conversation-naming';
 import { PresenceDot, useOnlineSet } from './presence';
 import { useActiveConversation } from './active-conversation';
 import { useSession } from './session-provider';
+import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
 import { api, ApiError, type DirectoryEntry } from '../lib/api-client';
 
 export function Participants({
@@ -117,16 +118,44 @@ export function Participants({
     }
   };
 
-  const search = async (): Promise<void> => {
-    if (term.trim() === '') return;
-    try {
-      const { entries } = await api.directory(term.trim());
-      setFound(entries);
-      setMessage(undefined);
-    } catch {
-      setMessage('The directory is unavailable.');
+  /**
+   * The directory, searched as you type.
+   *
+   * There was a Find button beside this field and one beside the new-conversation dialog's,
+   * and both are gone for the same reason: pressing a button to make a list appear is a
+   * step the person has already asked for by typing. Debounced at 250ms, because §27.5
+   * rate-limits the endpoint and a request per keystroke spends the allowance in a second.
+   *
+   * `cancelled` is the part that matters. A slow answer for "ra" must not land after a
+   * fast one for "rahul" and overwrite it — that is the classic search-as-you-type defect,
+   * and it shows up as the list flickering back to a stale result.
+   */
+  useEffect(() => {
+    const query = term.trim();
+    if (query.length < SEARCH_MINIMUM_TERM_LENGTH) {
+      setFound([]);
+      return;
     }
-  };
+
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      void api
+        .directory(query)
+        .then(({ entries }) => {
+          if (cancelled) return;
+          setFound(entries);
+          setMessage(undefined);
+        })
+        .catch(() => {
+          if (!cancelled) setMessage('The directory is unavailable.');
+        });
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [term]);
 
   const confirmAdd = async (): Promise<void> => {
     if (pending === undefined) return;
@@ -283,23 +312,16 @@ export function Participants({
         to a screen reader the moment somebody typed into it.
       */}
       <h3 className="member-add-title">Add a colleague</h3>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void search();
-        }}
-      >
-        <label>
-          <span className="sr-only">Add a colleague</span>
-          <input
-            type="search"
-            value={term}
-            onChange={(e) => setTerm(e.target.value)}
-            placeholder="name, department or ID"
-          />
-        </label>
-        <button type="submit">Find</button>
-      </form>
+      <label className="member-add-field">
+        <span className="sr-only">Add a colleague</span>
+        <input
+          type="search"
+          value={term}
+          onChange={(e) => setTerm(e.target.value)}
+          placeholder="name, department or ID"
+          autoComplete="off"
+        />
+      </label>
 
       {/*
         Results are a popover over the thread, not a strip pushing it down: the header is
