@@ -35,7 +35,16 @@ import { err, ok } from '@starlink/shared-contracts';
 
 /** Search is expensive and is the natural bulk-extraction surface (§27.5, FR-SRCH-3). */
 const MAX_RESULTS = 50;
-const FTS_CONFIG = 'english';
+/*
+   `simple`, not `english`, and the two must agree with migration 0019's generated column.
+
+   `english` deletes stopwords and stems what is left, so "what happended" indexed as
+   `'happend'` — findable by "happ" and not by "what", because `plainto_tsquery('english',
+   'what')` is the EMPTY query. About 130 of the commonest words in the language were
+   silently unsearchable. `simple` keeps every token as typed; the `:*` below recovers the
+   part of stemming that was worth having.
+*/
+const FTS_CONFIG = 'simple';
 
 /**
  * The query, with the LAST lexeme treated as a prefix.
@@ -104,8 +113,27 @@ export class PgSearchProvider implements SearchProvider {
     const term = query.trim();
     if (term === '') return ok({ items: [] });
 
-    const params: unknown[] = [scope.principalId, term];
-    const conditions: string[] = [`m.search_vector @@ ${PREFIX_QUERY}`];
+    /*
+       The substring pattern, escaped HERE rather than in SQL.
+
+       `%` and `_` are wildcards to ILIKE, so somebody searching for "100%" or "q1_report"
+       would otherwise get a broader match than they asked for — and the SQL to escape them
+       inline is three nested `replace` calls that nobody can read. A parameter built in
+       TypeScript says what it means.
+    */
+    const like = `%${term.replace(/[\\%_]/g, (ch) => `\\${ch}`)}%`;
+    const params: unknown[] = [scope.principalId, term, like];
+
+    /*
+       Two ways to match, ORed.
+
+       The tsquery is anchored to token starts by construction — `:*` is a PREFIX operator,
+       so "pend" can never reach "happended" however the configuration is set. People and
+       files have always been `ILIKE '%term%'`, so one search box answered two different
+       ways depending on which facet you were looking at. The `ILIKE` puts messages on the
+       same footing; migration 0019's trigram index is what stops it being a scan.
+    */
+    const conditions: string[] = [`(m.search_vector @@ ${PREFIX_QUERY} OR m.body ILIKE $3)`];
 
     if (!scope.includeInternal) {
       // Customer paths never even query internal rows (ADR-021). Excluded here rather

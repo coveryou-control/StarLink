@@ -80,8 +80,39 @@ const MIN_LENGTH = SEARCH_MINIMUM_TERM_LENGTH;
  * Split rather than `dangerouslySetInnerHTML`: the snippet is message text, and handing
  * message text to the HTML parser is how a search result becomes an injection point.
  */
-function highlight(snippet: string): React.ReactNode[] {
-  return snippet.split(/(<<[^>]*>>)/g).map((part, index) =>
+function highlight(snippet: string, term: string): React.ReactNode[] {
+  const marked = snippet.split(/(<<[^>]*>>)/g);
+
+  /*
+     A hit the server could not mark.
+
+     `ts_headline` marks LEXEMES, so it highlights a whole-word or prefix match and has
+     nothing to say about one found in the middle of a word — the provider ORs an
+     `ILIKE '%term%'` alongside the tsquery, so "pend" legitimately returns "what
+     happended" with no `<<` anywhere in the snippet. Rendering that as a result with
+     nothing marked leaves the person to find their own term in the line, which is the one
+     job a highlight has.
+
+     Marked here, over the plain text, and only in that case: when the server HAS marked
+     something, its marks win — they know which lexeme actually matched.
+  */
+  if (marked.length === 1 && term.trim() !== '') {
+    const needle = term.trim().toLowerCase();
+    const haystack = snippet.toLowerCase();
+    const parts: React.ReactNode[] = [];
+    let from = 0;
+    for (let at = haystack.indexOf(needle); at !== -1; at = haystack.indexOf(needle, from)) {
+      if (at > from) parts.push(<span key={`t${from}`}>{snippet.slice(from, at)}</span>);
+      parts.push(<mark key={`m${at}`}>{snippet.slice(at, at + needle.length)}</mark>);
+      from = at + needle.length;
+    }
+    if (parts.length > 0) {
+      if (from < snippet.length) parts.push(<span key={`t${from}`}>{snippet.slice(from)}</span>);
+      return parts;
+    }
+  }
+
+  return marked.map((part, index) =>
     // The index IS the identity here: the array is a positional split of one string and
     // its entries have no other stable key.
     part.startsWith('<<') && part.endsWith('>>') ? (
@@ -402,7 +433,7 @@ export function ConversationSearch({
                               </time>
                             ) : null}
                           </span>
-                          <span className="search-snippet">{highlight(hit.snippet)}</span>
+                          <span className="search-snippet">{highlight(hit.snippet, query)}</span>
                         </span>
                       </button>
                     </li>

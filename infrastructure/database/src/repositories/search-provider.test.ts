@@ -78,7 +78,7 @@ beforeAll(async () => {
   await probe.query(
     `INSERT INTO conversation.conversations
        (conversation_id, conversation_type, case_id, state, customer_ref, last_seq)
-     VALUES ($1,'CUSTOMER_SERVICE',$2,'ACTIVE','CCS:customer:search',2)`,
+     VALUES ($1,'CUSTOMER_SERVICE',$2,'ACTIVE','CCS:customer:search',3)`,
     [conversationId, caseId],
   );
   // Only the insider participates. The outsider is a valid employee with no seat here.
@@ -95,7 +95,12 @@ beforeAll(async () => {
        (gen_random_uuid(), $1, 1, 'CUSTOMER_VISIBLE', 'EMPLOYEE', 'Search Insider',
         'Your renewal premium has been recalculated for the policy'),
        (gen_random_uuid(), $1, 2, 'INTERNAL', 'EMPLOYEE', 'Search Insider',
-        'Internal note: escalate this renewal to the retention desk')`,
+        'Internal note: escalate this renewal to the retention desk'),
+       -- The message from the bug report, verbatim. It reads as nonsense because it IS the
+       -- message somebody typed: "what" is an english-config stopword and "happended" stems
+       -- to "happend", so the line was findable by "happ" and not by "what".
+       (gen_random_uuid(), $1, 3, 'CUSTOMER_VISIBLE', 'EMPLOYEE', 'Search Insider',
+        'what happended bro?')`,
     [conversationId],
   );
 });
@@ -240,6 +245,140 @@ describe('narrowing and results', () => {
     expect(hit!.conversationId).toBe(conversationId);
   });
 
+  /**
+   * Every word that is on the screen is a word that can be found.
+   *
+   * `search_vector` was built with the `english` configuration, which deletes stopwords and
+   * stems the rest. `to_tsvector('english', 'what happended')` is `'happend':2` — the word
+   * "what" is not in the index at all, and `plainto_tsquery('english','what')` is the EMPTY
+   * query. A message reading "what happended" was findable by "happ" and not by "what",
+   * along with everything else containing one of English's ~130 stopwords.
+   *
+   * That is the whole class this block guards, and it is guarded by ASSERTING THE WORDS
+   * rather than by asserting the configuration name: a future change that keeps `simple`
+   * in the migration and reverts it in the provider would pass a configuration check and
+   * fail these.
+   */
+  describe('nothing a person can read is unsearchable', () => {
+    // Each one appears in a fixture message above, and each is in the english
+    // configuration's stopword list — so each returned nothing before 0019.
+    const STOPWORDS = ['what', 'your', 'the', 'this', 'has', 'been', 'for', 'to'];
+
+    for (const word of STOPWORDS) {
+      withDb(`finds the stopword "${word}"`, async () => {
+        // Every one of these appears in a fixture message above.
+        const result = await provider.search(
+          { principalId: INSIDER, includeInternal: true },
+          word,
+        );
+        expect(result.ok).toBe(true);
+        if (!result.ok) return;
+        expect(
+          result.value.items.length,
+          `"${word}" is in a fixture message and must be findable; the english FTS ` +
+            'configuration silently drops it',
+        ).toBeGreaterThan(0);
+      });
+    }
+
+    withDb('the INDEX itself keeps every word (migration 0019)', async () => {
+      /*
+         The tests above would survive a regression, and that is the point of this one.
+
+         They assert that a stopword can be FOUND, and the provider has two ways to find
+         one — the tsquery and the `ILIKE` substring. Put `english` back in either the
+         migration or the provider and the ILIKE half still returns the row, so every
+         stopword case above would pass over a broken index.
+
+         This reads the stored vector. There is nowhere for a dropped word to hide in it.
+      */
+      const row = await pool!.query(
+        `SELECT search_vector::text AS v
+           FROM conversation.messages
+          WHERE conversation_id = $1 AND body = 'what happended bro?'`,
+        [conversationId],
+      );
+
+      const vector = row.rows[0]?.v as string | undefined;
+      expect(vector, 'the fixture message is missing').toBeDefined();
+      expect(
+        vector,
+        "the stored tsvector has dropped 'what' — the generated column is back on the " +
+          'english configuration, which deletes stopwords',
+      ).toContain("'what'");
+      expect(
+        vector,
+        "the stored tsvector holds a STEM rather than the word as typed — 'happended' " +
+          "became 'happend', so searching the word somebody wrote does not match it",
+      ).toContain("'happended'");
+    });
+
+    withDb('finds a term in the MIDDLE of a word, not only at its start', async () => {
+      /*
+         A tsquery match is anchored to token starts — `:*` is a prefix operator — so this
+         can only pass through the `ILIKE` half of the condition. "calculat" is inside
+         "recalculated" and reachable no other way.
+      */
+      const result = await provider.search(
+        { principalId: INSIDER, includeInternal: true },
+        'calculat',
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.items.length).toBeGreaterThan(0);
+    });
+
+    withDb('does not stem the term into something the person did not type', async () => {
+      /*
+         `english` stemmed "recalculated" to "recalcul", so the word as typed did not match
+         the word as stored. Under `simple` it does.
+      */
+      const result = await provider.search(
+        { principalId: INSIDER, includeInternal: true },
+        'recalculated',
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.value.items.length).toBeGreaterThan(0);
+    });
+
+    withDb('a substring match is still SCOPED — it is not a way around §30.2', async () => {
+      /*
+         The important one. The ILIKE half is a second way to match, and a second way to
+         match is a second chance to forget the scope. The outsider is a valid employee who
+         is not a participant here; "calculat" is certainly in the corpus.
+      */
+      const result = await provider.search(
+        { principalId: OUTSIDER, includeInternal: true },
+        'calculat',
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.items).toHaveLength(0);
+    });
+
+    withDb('a substring match still respects visibility (ADR-021)', async () => {
+      // "escalate" is in the INTERNAL note only. A customer-shaped scope must not reach it
+      // through the substring half any more than through the tsquery half.
+      const result = await provider.search(
+        { principalId: INSIDER, includeInternal: false },
+        'escalat',
+      );
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.items).toHaveLength(0);
+    });
+
+    withDb('a wildcard character is matched, not interpreted', async () => {
+      /*
+         `%` and `_` are ILIKE wildcards. Unescaped, a search for "%" would match every
+         message the caller can read — a one-character corpus dump through the facet that
+         was added to make search more forgiving.
+      */
+      const result = await provider.search({ principalId: INSIDER, includeInternal: true }, '%');
+      expect(result.ok).toBe(true);
+      if (result.ok) expect(result.value.items).toHaveLength(0);
+    });
+  });
+
   withDb('an unmatched term is an empty success, not an error', async () => {
     const result = await provider.search(
       { principalId: INSIDER, includeInternal: true },
@@ -265,7 +404,7 @@ describe('narrowing and results', () => {
       const plan = await client.query(
         `EXPLAIN (FORMAT JSON)
          SELECT m.message_id FROM conversation.messages m
-          WHERE m.search_vector @@ plainto_tsquery('english', 'renewal')`,
+          WHERE m.search_vector @@ plainto_tsquery('simple', 'renewal')`,
       );
       expect(JSON.stringify(plan.rows[0]['QUERY PLAN'])).toContain('messages_search_idx');
     } finally {
