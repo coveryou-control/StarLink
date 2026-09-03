@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@starlink/shared-contracts": "workspace:*",
-    "pino": "^9.5.0"
+    "pino": "^10.3.1"
   },
   "devDependencies": {
     "typescript": "^5.7.0",
