@@ -687,3 +687,181 @@ describe('muting a conversation', () => {
     );
   }, 120_000);
 });
+
+/**
+ * Pinning a message, forwarding one, and asking who has read one.
+ *
+ * The interesting assertions are the authorization ones, not the happy paths:
+ *
+ *  - A pin is a WRITE to the shared thread even though it adds no text, so it is
+ *    authorized with the send action. Somebody who may only read must not be able to
+ *    reorder what the participants see.
+ *  - Forwarding is two decisions about two objects. A caller who cannot write to the
+ *    destination must be refused even when they can read the source perfectly well.
+ *  - "Message info" must not report the sender as having read their own message, which is
+ *    the shape that makes a one-to-one claim 1-of-2 while nobody has opened it.
+ */
+describe('pinning, forwarding and message info', () => {
+  it('pins for everybody, forwards with both sides authorized, and reports readers', async (ctx) => {
+    if (skipUnlessReady(ctx, 'pins, forwards and message info are unproven.')) return;
+
+    const alice = await signIn('alice');
+    const bob = await signIn('bob');
+
+    const group = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_GROUP',
+      participantIds: [BOB, CARA],
+      title: `Pins ${crypto.randomUUID().slice(0, 8)}`,
+    });
+    expect(group.status).toBe(201);
+    const { conversationId } = (await group.json()) as { conversationId: string };
+    created.push(conversationId);
+
+    const sent = await post(employeeRoutes.conversations.messages(conversationId), alice, {
+      body: 'The office address is 4th floor, Tower B.',
+      visibility: 'INTERNAL',
+    });
+    expect(sent.status).toBe(201);
+    const { messageId } = (await sent.json()) as { messageId: string };
+
+    /* --- pinning ------------------------------------------------------------------ */
+
+    const pinned = await fetch(
+      `${BASE}${employeeRoutes.conversations.pin(conversationId, messageId)}`,
+      { method: 'PUT', headers: { cookie: alice } },
+    );
+    expect(pinned.status, 'a participant could not pin in their own conversation').toBe(200);
+
+    const listed = await get(employeeRoutes.conversations.pins(conversationId), bob);
+    expect(listed.status).toBe(200);
+    const { pins } = (await listed.json()) as {
+      pins: { messageId: string; pinnedByName: string; body: string; redacted: boolean }[];
+    };
+    /* Shared, which is the whole difference from a pinned CONVERSATION: Bob sees a pin
+       Alice set, and sees who set it. */
+    expect(pins).toHaveLength(1);
+    expect(pins[0]!.messageId).toBe(messageId);
+    expect(pins[0]!.pinnedByName).toBe('Alice Adams');
+    expect(pins[0]!.body).toContain('4th floor');
+
+    /* Pinning twice is not an error, and the first pin keeps its attribution. */
+    const again = await fetch(
+      `${BASE}${employeeRoutes.conversations.pin(conversationId, messageId)}`,
+      { method: 'PUT', headers: { cookie: bob } },
+    );
+    expect(again.status).toBe(200);
+    expect((await again.json()) as { changed: boolean }).toMatchObject({ changed: false });
+
+    /*
+       A message from ANOTHER conversation cannot be pinned here, even by somebody who
+       belongs to both. Without this check the object test passes against a conversation
+       the caller is in while the write lands in one they may not touch.
+    */
+    const other = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_GROUP',
+      participantIds: [BOB],
+      title: `Elsewhere ${crypto.randomUUID().slice(0, 8)}`,
+    });
+    const { conversationId: otherId } = (await other.json()) as { conversationId: string };
+    created.push(otherId);
+    const crossed = await fetch(
+      `${BASE}${employeeRoutes.conversations.pin(otherId, messageId)}`,
+      { method: 'PUT', headers: { cookie: alice } },
+    );
+    expect(crossed.status, 'a message was pinned into a conversation it is not in').toBe(404);
+
+    /* --- message info -------------------------------------------------------------- */
+
+    const info = await get(
+      employeeRoutes.conversations.messageInfo(conversationId, messageId),
+      alice,
+    );
+    expect(info.status).toBe(200);
+    const readers = (await info.json()) as {
+      deliveredAt: string;
+      readers: { principalId: string; displayName: string; hasRead: boolean }[];
+    };
+    expect(readers.deliveredAt).toBeTruthy();
+    /* Bob and Cara, and NOT Alice: "you have read your own message" is not information,
+       and counting it would make this report 1 of 3 before anybody opened anything. */
+    expect(readers.readers.map((r) => r.principalId).sort()).toEqual([BOB, CARA].sort());
+    expect(readers.readers.every((r) => !r.hasRead)).toBe(true);
+
+    /* Bob reads, and only Bob turns over. */
+    const page = await get(employeeRoutes.conversations.messages(conversationId), bob);
+    const { messages } = (await page.json()) as { messages: { seq: number }[] };
+    const newest = Math.max(...messages.map((m) => m.seq));
+    expect(
+      (await post(employeeRoutes.conversations.read(conversationId), bob, { upToSeq: newest }))
+        .status,
+    ).toBeLessThan(400);
+
+    const after = (await (
+      await get(employeeRoutes.conversations.messageInfo(conversationId, messageId), alice)
+    ).json()) as { readers: { principalId: string; hasRead: boolean; readAt?: string }[] };
+    expect(after.readers.find((r) => r.principalId === BOB)?.hasRead).toBe(true);
+    expect(after.readers.find((r) => r.principalId === BOB)?.readAt).toBeTruthy();
+    expect(after.readers.find((r) => r.principalId === CARA)?.hasRead).toBe(false);
+    /* No time beside "not read": a marker instant there would contradict the word. */
+    expect(after.readers.find((r) => r.principalId === CARA)?.readAt).toBeUndefined();
+
+    /* --- forwarding ---------------------------------------------------------------- */
+
+    const forwarded = await post(
+      employeeRoutes.conversations.forward(conversationId, messageId),
+      alice,
+      { toConversationId: otherId },
+    );
+    expect(forwarded.status, 'a forward between two of her own conversations failed').toBe(201);
+
+    const destination = await get(employeeRoutes.conversations.messages(otherId), alice);
+    const { messages: copied } = (await destination.json()) as {
+      messages: { body: string; senderPrincipalId?: string }[];
+    };
+    const copy = copied.find((m) => m.body.includes('4th floor'));
+    expect(copy, 'the forwarded text did not arrive').toBeDefined();
+    /* Authored by whoever forwarded it. Attributing it to the original sender would put
+       words in their mouth in a thread they are not in. */
+    expect(copy!.senderPrincipalId).toBe(ALICE);
+
+    /* Forwarding into a conversation the caller is NOT in is refused, even though they
+       can plainly read the source. */
+    const cara = await signIn('cara');
+    const caraOnly = await post(employeeRoutes.conversations.create, cara, {
+      type: 'INTERNAL_DIRECT',
+      participantIds: [BOB],
+    });
+    const { conversationId: caraId } = (await caraOnly.json()) as { conversationId: string };
+    created.push(caraId);
+
+    const intruder = await post(
+      employeeRoutes.conversations.forward(conversationId, messageId),
+      alice,
+      { toConversationId: caraId },
+    );
+    expect(
+      intruder.status,
+      'a message was forwarded into a conversation the sender is not in',
+    ).toBeGreaterThanOrEqual(400);
+
+    /* Forwarding to the thread it is already in is a no-op dressed as a feature. */
+    const samePlace = await post(
+      employeeRoutes.conversations.forward(conversationId, messageId),
+      alice,
+      { toConversationId: conversationId },
+    );
+    expect(samePlace.status).toBeGreaterThanOrEqual(400);
+
+    /* --- unpinning ------------------------------------------------------------------ */
+
+    const unpinned = await fetch(
+      `${BASE}${employeeRoutes.conversations.pin(conversationId, messageId)}`,
+      { method: 'DELETE', headers: { cookie: bob } },
+    );
+    expect(unpinned.status, 'somebody other than the pinner could not unpin').toBe(200);
+    const empty = (await (
+      await get(employeeRoutes.conversations.pins(conversationId), alice)
+    ).json()) as { pins: unknown[] };
+    expect(empty.pins).toHaveLength(0);
+  }, 180_000);
+});

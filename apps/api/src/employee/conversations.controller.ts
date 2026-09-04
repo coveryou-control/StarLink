@@ -21,7 +21,7 @@ import {
   type ConversationStore,
   type ReadStateStore,
 } from '@starlink/conversation-domain';
-import type { ConversationAuthzReader } from '@starlink/database';
+import type { ConversationAuthzReader, PgPinStore } from '@starlink/database';
 import {
   MAX_PINNED_CONVERSATIONS as MAX_PINNED,
   MUTE_DURATIONS_MINUTES,
@@ -44,6 +44,7 @@ import {
   EMPLOYEE_DIRECTORY,
   IDENTITY_CLIENT,
   LOGGER,
+  PIN_STORE,
   READ_STATE_STORE,
 } from '../tokens.js';
 import type { AuditWriter } from '../audit/audit-writer.js';
@@ -159,6 +160,7 @@ export class EmployeeConversationsController {
        mean a domain command for an upsert that carries no rule beyond the pin ceiling,
        and that ceiling is expressed in the statement itself. */
     @Inject(DATABASE) private readonly pool: pg.Pool,
+    @Inject(PIN_STORE) private readonly pins: PgPinStore,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {}
 
@@ -791,6 +793,109 @@ export class EmployeeConversationsController {
     }
 
     return { pinned: parsed.data.pinned };
+  }
+
+  /**
+   * What is pinned in this conversation.
+   *
+   * Authorized with `conversation.read`, the same action the message list uses: a pin is a
+   * message, and being allowed to see it is being allowed to see the thread. The object
+   * check happens before the pins are loaded, not after — rule 2, and the reason this
+   * route reads its own `mayActOn` rather than delegating to a shared tail.
+   */
+  @Get(':conversationId/pins')
+  async listPins(
+    @Param('conversationId') conversationIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    if (!conversationId.success) return refuse();
+
+    const session = request.session!;
+    if (!(await this.mayActOn(session.principalId, conversationId.data, 'conversation.read'))) {
+      return refuse();
+    }
+
+    return { pins: await this.pins.list(conversationId.data) };
+  }
+
+  /**
+   * Pins one message for everybody in the conversation.
+   *
+   * ## Why `conversation.message.send` and not `conversation.read`
+   *
+   * A pin is visible to every participant, so it is a WRITE to the shared thread even
+   * though it adds no text. Authorizing it with the read action would let somebody with
+   * oversight access — a team lead reading a conversation they are not in, rung 5 of the
+   * ladder — reorder what its participants see. Whoever may speak here may pin here;
+   * whoever may only look may only look.
+   *
+   * ## The message must be IN this conversation
+   *
+   * Checked before anything else. Without it a caller could authorize against a
+   * conversation they are in and pin a message belonging to one they are not — the object
+   * check would pass and the write would land somewhere else entirely. An unknown message
+   * and a message in another thread give the same refusal (§27.3).
+   */
+  @Put(':conversationId/pins/:messageId')
+  async pinMessage(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    if (!conversationId.success || !messageId.success) return refuse();
+
+    const owner = await this.pins.conversationOf(messageId.data);
+    if (owner === undefined || owner !== conversationId.data) return refuse();
+
+    const session = request.session!;
+    if (
+      !(await this.mayActOn(session.principalId, conversationId.data, 'conversation.message.send'))
+    ) {
+      return refuse();
+    }
+
+    const pinned = await this.pins.pin(
+      conversationId.data,
+      messageId.data,
+      session.principalId,
+      this.now().toISOString(),
+    );
+
+    /* `false` means somebody else pinned it first, which is not a failure — the message is
+       pinned either way, which is what the caller asked for. */
+    return { pinned: true, changed: pinned };
+  }
+
+  /**
+   * Unpins.
+   *
+   * Anybody who may pin may unpin, including a message somebody else pinned. A pin is a
+   * property of the conversation rather than of the person who set it, and a rule that
+   * only the pinner may remove it leaves a group stuck with a stale pin the moment that
+   * person is on leave.
+   */
+  @Delete(':conversationId/pins/:messageId')
+  async unpinMessage(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    if (!conversationId.success || !messageId.success) return refuse();
+
+    const session = request.session!;
+    if (
+      !(await this.mayActOn(session.principalId, conversationId.data, 'conversation.message.send'))
+    ) {
+      return refuse();
+    }
+
+    const changed = await this.pins.unpin(conversationId.data, messageId.data);
+    return { pinned: false, changed };
   }
 
   @Post(':conversationId/read')

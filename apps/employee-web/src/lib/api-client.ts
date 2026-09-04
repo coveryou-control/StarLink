@@ -134,6 +134,32 @@ export interface ConversationSummary {
   readonly readWatermark?: number;
 }
 
+/** A message held at the top of a conversation, for everybody in it. */
+export interface PinnedMessage {
+  readonly messageId: string;
+  readonly pinnedBy: string;
+  readonly pinnedByName: string;
+  readonly pinnedAt: string;
+  /** Empty when the message has been deleted since it was pinned. */
+  readonly body: string;
+  readonly senderPrincipalId?: string;
+  readonly senderDisplayName?: string;
+  readonly redacted: boolean;
+}
+
+/** Who has read one message — the "Message info" panel. The sender is not listed. */
+export interface MessageInfo {
+  readonly deliveredAt: string;
+  readonly senderPrincipalId?: string;
+  readonly readers: readonly {
+    readonly principalId: string;
+    readonly displayName: string;
+    /** Only present when they have actually read past this message. */
+    readonly readAt?: string;
+    readonly hasRead: boolean;
+  }[];
+}
+
 /** One file shared in a conversation, for the information panel. Metadata only. */
 export interface SharedFile {
   readonly attachmentId: string;
@@ -746,6 +772,44 @@ export const api = {
         method: 'PUT',
         body: JSON.stringify(preferences),
       },
+    ),
+
+  /**
+   * What is pinned in this conversation, newest first.
+   *
+   * A redacted pin comes back with `redacted: true` and an empty body rather than being
+   * omitted — see the store. The panel renders it as "this message was deleted", which is
+   * the only thing that gives somebody a reason to unpin it.
+   */
+  pins: (conversationId: string) =>
+    request<{ pins: readonly PinnedMessage[] }>(employeeRoutes.conversations.pins(conversationId)),
+
+  pinMessage: (conversationId: string, messageId: string) =>
+    request<{ pinned: boolean; changed: boolean }>(
+      employeeRoutes.conversations.pin(conversationId, messageId),
+      { method: 'PUT' },
+    ),
+
+  unpinMessage: (conversationId: string, messageId: string) =>
+    request<{ pinned: boolean; changed: boolean }>(
+      employeeRoutes.conversations.pin(conversationId, messageId),
+      { method: 'DELETE' },
+    ),
+
+  /** Who has read one message, and when it was delivered. */
+  messageInfo: (conversationId: string, messageId: string) =>
+    request<MessageInfo>(employeeRoutes.conversations.messageInfo(conversationId, messageId)),
+
+  /**
+   * Sends this message on to another conversation.
+   *
+   * One destination per call. A list would force a partial-success answer nobody can act
+   * on; four requests can each be reported on.
+   */
+  forwardMessage: (conversationId: string, messageId: string, toConversationId: string) =>
+    request<{ messageId: string; conversationId: string }>(
+      employeeRoutes.conversations.forward(conversationId, messageId),
+      { method: 'POST', body: JSON.stringify({ toConversationId }) },
     ),
 
   /** Ends every session this account holds, including this browser's. */

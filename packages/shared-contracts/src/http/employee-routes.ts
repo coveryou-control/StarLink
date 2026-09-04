@@ -175,6 +175,36 @@ export const employeeRoutes = {
     /** Add (POST) or remove (DELETE) one of the caller's own reactions on a message. */
     reactions: (conversationId: string, messageId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages/${messageId}/reactions`,
+    /**
+     * What is pinned in this conversation (GET).
+     *
+     * A collection under the conversation rather than a flag on each message: a pin is
+     * shared by everybody in the thread, and the one read anybody performs is "what is
+     * pinned here", not "is this particular message pinned".
+     */
+    pins: (conversationId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/pins`,
+    /** Pin (PUT) or unpin (DELETE) one message for everybody in the conversation. */
+    pin: (conversationId: string, messageId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/pins/${messageId}`,
+    /**
+     * Who has read one message, and when it was delivered (GET) — the "Message info" panel.
+     *
+     * Under the message because that is what it is about. It is deliberately not part of
+     * the message projection: reading it is a per-participant join nobody wants on every
+     * row of a page of fifty.
+     */
+    messageInfo: (conversationId: string, messageId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages/${messageId}/info`,
+    /**
+     * Send an existing message on to another conversation (POST).
+     *
+     * The target is in the BODY, not the path, because the authorization is two-sided —
+     * the caller must be able to read the source and write to the destination — and a
+     * path that names only one of them invites a handler that checks only one of them.
+     */
+    forward: (conversationId: string, messageId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages/${messageId}/forward`,
     participants: (conversationId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/participants`,
     participant: (conversationId: string, principalId: string) =>
@@ -326,6 +356,11 @@ export const EMPLOYEE_ROUTE_INVENTORY: readonly { method: string; path: string }
   { method: 'GET', path: employeeRoutes.conversations.messages(':id') },
   { method: 'POST', path: employeeRoutes.conversations.messages(':id') },
   { method: 'POST', path: employeeRoutes.conversations.read(':id') },
+  { method: 'GET', path: employeeRoutes.conversations.pins(':id') },
+  { method: 'PUT', path: employeeRoutes.conversations.pin(':id', ':mid') },
+  { method: 'DELETE', path: employeeRoutes.conversations.pin(':id', ':mid') },
+  { method: 'GET', path: employeeRoutes.conversations.messageInfo(':id', ':mid') },
+  { method: 'POST', path: employeeRoutes.conversations.forward(':id', ':mid') },
   { method: 'PUT', path: employeeRoutes.conversations.preferences(':id') },
   { method: 'POST', path: employeeRoutes.conversations.participants(':id') },
   { method: 'DELETE', path: employeeRoutes.conversations.participant(':id', ':pid') },

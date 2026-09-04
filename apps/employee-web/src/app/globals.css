@@ -7660,3 +7660,203 @@ input[type='search']::-webkit-search-cancel-button {
   text-transform: uppercase;
   color: var(--text-subtle);
 }
+
+/* =====================================================================================
+   Pinned messages, above the thread.
+
+   Outside `.thread-scroll` on purpose: a pin that scrolls away with the conversation is
+   not pinned to anything. It sits between the header and the messages, where the thing it
+   is held above actually begins.
+   ===================================================================================== */
+.pinned-bar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px var(--space-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.pinned-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.pinned-icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--text-subtle);
+}
+
+/*
+   One line, clipped. A pinned paragraph would give the header an unpredictable height
+   that changes as people pin things — and the full text is one click away in the thread.
+*/
+.pinned-text {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pinned-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.pinned-unpin {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-subtle);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pinned-more,
+.pinned-note {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-subtle);
+  height: auto;
+}
+
+/*
+   Where a jump landed.
+
+   A smooth scroll that stops mid-thread leaves the eye with no idea which of the visible
+   messages it was aiming at. The tint fades on its own after a moment — it marks the
+   arrival, it is not a state.
+*/
+.message-jumped .message-main {
+  animation: message-jumped 1.6s ease-out;
+}
+
+@keyframes message-jumped {
+  0%,
+  55% {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  100% {
+    box-shadow: var(--hairline);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-jumped .message-main {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+}
+
+/* =====================================================================================
+   Forward, and message info. Two dialogs with the same bones as the confirmation.
+   ===================================================================================== */
+.forward-dialog,
+.message-info-dialog {
+  width: min(440px, 100%);
+  max-height: min(560px, 82vh);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.forward-dialog h2,
+.message-info-dialog h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+/*
+   The text being acted on.
+
+   Forwarding is the action most often performed on the wrong message: the menu was opened
+   from a row, and by the time the dialog is up that row is behind it. Three lines is
+   enough to recognise a message and not enough to push the destination list off screen.
+*/
+.forward-preview {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.forward-list,
+.message-info-readers {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.forward-list button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: auto;
+  min-height: 52px;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.forward-list .muted {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.message-info-delivered,
+.message-info-count {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.message-info-count {
+  color: var(--text-muted);
+}
+
+.message-info-readers li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 40px;
+  font-size: var(--text-sm);
+}

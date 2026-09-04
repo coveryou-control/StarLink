@@ -71,6 +71,11 @@ interface MessageListProps {
   readonly onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
   readonly onEdit?: ((message: MessageView) => void) | undefined;
   readonly onDelete?: ((message: MessageView) => void) | undefined;
+  /** Message ids currently pinned for everybody in the conversation. */
+  readonly pinnedIds?: ReadonlySet<string> | undefined;
+  readonly onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
+  readonly onForward?: ((message: MessageView) => void) | undefined;
+  readonly onMessageInfo?: ((message: MessageView) => void) | undefined;
   /**
    * How far every OTHER participant has read. Zero means nobody, or somebody has not.
    *
@@ -101,6 +106,10 @@ export function MessageList({
   onReact,
   onEdit,
   onDelete,
+  pinnedIds,
+  onTogglePin,
+  onForward,
+  onMessageInfo,
   readWatermark = 0,
 }: MessageListProps): ReactNode {
   if (messages.length === 0 && pending.length === 0) {
@@ -159,6 +168,10 @@ export function MessageList({
               : messages.find((m) => m.messageId === message.replyToMessageId)
           }
           onReply={onReply}
+          pinnedIds={pinnedIds}
+          onTogglePin={onTogglePin}
+          onForward={onForward}
+          onMessageInfo={onMessageInfo}
           conversationIsInternal={conversationIsInternal}
           isGroup={isGroup}
           currentPrincipalId={currentPrincipalId}
@@ -217,6 +230,10 @@ function MessageRow({
   onReact,
   onEdit,
   onDelete,
+  pinnedIds,
+  onTogglePin,
+  onForward,
+  onMessageInfo,
   readWatermark,
 }: {
   message: MessageView;
@@ -232,6 +249,10 @@ function MessageRow({
   onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
   onEdit?: ((message: MessageView) => void) | undefined;
   onDelete?: ((message: MessageView) => void) | undefined;
+  pinnedIds?: ReadonlySet<string> | undefined;
+  onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
+  onForward?: ((message: MessageView) => void) | undefined;
+  onMessageInfo?: ((message: MessageView) => void) | undefined;
   readWatermark: number;
 }): ReactNode {
   /**
@@ -281,6 +302,10 @@ function MessageRow({
       className={`message-row${isCustomerNote ? ' internal' : ''}${isMine ? ' mine' : ''}${
         grouped ? ' grouped' : ''
       }${showHead ? ' with-head' : ''}`}
+      /* The anchor the pinned bar scrolls to. An id attribute rather than a ref map: the
+         list is virtualised by nothing and remounts freely, and a map of refs would need
+         clearing on every page load to avoid pointing at detached nodes. */
+      data-message-id={message.messageId}
       /*
         Right-click opens the message's actions — see `message-context-menu.tsx`.
 
@@ -532,6 +557,10 @@ function MessageRow({
              offering them would be offering a refusal. */
           canEdit={isMine}
           canDelete={isMine}
+          pinned={pinnedIds?.has(message.messageId) === true}
+          {...(onTogglePin !== undefined ? { onTogglePin } : {})}
+          {...(onForward !== undefined ? { onForward } : {})}
+          {...(onMessageInfo !== undefined ? { onMessageInfo } : {})}
           {...(onReply !== undefined ? { onReply } : {})}
           {...(onEdit !== undefined ? { onEdit } : {})}
           {...(onDelete !== undefined ? { onDelete } : {})}

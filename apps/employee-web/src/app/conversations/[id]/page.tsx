@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { TypingFrame } from '@starlink/shared-contracts/realtime';
 
@@ -10,7 +10,12 @@ import { ConversationActions } from '../../../components/conversation-actions';
 import { Participants } from '../../../components/participants';
 import { MessageList } from '../../../components/message-list';
 import { useSession } from '../../../components/session-provider';
-import { ApiError, api, type MessageView } from '../../../lib/api-client';
+import {
+  ApiError,
+  api,
+  type MessageView,
+  type PinnedMessage,
+} from '../../../lib/api-client';
 import { useRealtime } from '../../../lib/use-realtime';
 import { ChatHeader } from '../../../components/chat-header';
 import {
@@ -26,9 +31,13 @@ import {
 import { ConversationSearch } from '../../../components/conversation-search';
 import { ConfirmDialog } from '../../../components/confirm-dialog';
 import { GroupGlyph } from '../../../components/group-glyph';
+import { PinnedBar } from '../../../components/pinned-bar';
+import { ForwardDialog } from '../../../components/forward-dialog';
+import { MessageInfoDialog } from '../../../components/message-info-dialog';
 import { useMediaQuery } from '../../../lib/use-media-query';
 import {
   useActiveConversation,
+  useLoadedConversations,
   useRefreshConversations,
 } from '../../../components/active-conversation';
 import { customerWorkspaceEnabled } from '../../../lib/runtime-origins';
@@ -75,6 +84,8 @@ export default function ThreadPage(): ReactNode {
   /** Supplied by the shell, which already loaded it for the sidebar. */
   const activeConversation = useActiveConversation();
   const refreshConversations = useRefreshConversations();
+  /* For the forward dialog: somewhere to forward TO, from the list the shell already has. */
+  const conversations = useLoadedConversations();
   /**
    * Closed by default, and closed again whenever the conversation changes.
    *
@@ -249,6 +260,66 @@ export default function ThreadPage(): ReactNode {
    * about to destroy without the callback having to close over it.
    */
   const [deleting, setDeleting] = useState<MessageView | undefined>();
+  /** The message a forward has been started for, and the one an info panel is open on. */
+  const [forwarding, setForwarding] = useState<MessageView | undefined>();
+  const [inspecting, setInspecting] = useState<MessageView | undefined>();
+
+  /**
+   * What is pinned here, for everybody.
+   *
+   * Loaded once per conversation and re-read after a pin moves rather than kept in sync
+   * optimistically: a pin is shared, so the local guess is wrong the moment somebody else
+   * sets one, and the list is at most a handful of rows.
+   */
+  const [pins, setPins] = useState<readonly PinnedMessage[]>([]);
+
+  const refreshPins = useCallback(() => {
+    void api
+      .pins(conversationId)
+      .then((result) => setPins(result.pins))
+      /* A conversation whose pins cannot be read is still a conversation you can use.
+         An empty bar is the right degradation; an error banner above the thread is not. */
+      .catch(() => setPins([]));
+  }, [conversationId]);
+
+  useEffect(() => refreshPins(), [refreshPins]);
+
+  const togglePin = useCallback(
+    (message: MessageView, next: boolean) => {
+      void (next
+        ? api.pinMessage(conversationId, message.messageId)
+        : api.unpinMessage(conversationId, message.messageId)
+      )
+        .then(() => refreshPins())
+        .catch(() => undefined);
+    },
+    [conversationId, refreshPins],
+  );
+
+  /**
+   * Scrolls to a pinned message, and says so when it cannot.
+   *
+   * Only the loaded page can be jumped to — a pin older than the oldest message in hand
+   * has no element to scroll to. Returning false lets the bar explain that instead of
+   * appearing broken.
+   */
+  /* A Set, so the row's "is this pinned" is a hash lookup rather than a scan of the pin
+     list once per message on a page of fifty. */
+  const pinnedIds = useMemo(
+    () => new Set(pins.map((pin) => pin.messageId)),
+    [pins],
+  );
+
+  const jumpToMessage = useCallback((messageId: string): boolean => {
+    const element = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (element === null) return false;
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    /* A brief highlight, because a smooth scroll that lands mid-thread leaves the eye
+       with no idea which of the visible messages it was aiming at. */
+    element.classList.add('message-jumped');
+    setTimeout(() => element.classList.remove('message-jumped'), 1_600);
+    return true;
+  }, []);
 
   const deleteMessage = useCallback(
     (message: MessageView) => {
@@ -665,6 +736,10 @@ export default function ThreadPage(): ReactNode {
               onReact={react}
               onEdit={editMessage}
               onDelete={setDeleting}
+              pinnedIds={pinnedIds}
+              onTogglePin={togglePin}
+              onForward={setForwarding}
+              onMessageInfo={setInspecting}
             />
           </>
         ) : null}
@@ -684,6 +759,50 @@ export default function ThreadPage(): ReactNode {
         A "delete for me" needs a per-principal suppression the schema does not have, and
         an item that silently did the other thing would be worse than an absent one.
       */}
+      {/*
+        Pinned messages, above the thread and below the header — where the thing they are
+        "held above" actually is. Inside the scroller they would scroll away, which is the
+        one thing a pin must not do.
+      */}
+      <PinnedBar
+        pins={pins}
+        onJump={jumpToMessage}
+        onUnpin={(messageId) => {
+          void api
+            .unpinMessage(conversationId, messageId)
+            .then(() => refreshPins())
+            .catch(() => undefined);
+        }}
+      />
+
+      {forwarding !== undefined ? (
+        <ForwardDialog
+          message={forwarding}
+          conversations={conversations}
+          excludeConversationId={conversationId}
+          onForward={(toConversationId) => {
+            void api
+              .forwardMessage(conversationId, forwarding.messageId, toConversationId)
+              .then(() => {
+                setForwarding(undefined);
+                /* The destination's row needs its preview and its ordering re-read; the
+                   thread we are looking at is unchanged. */
+                refreshConversations();
+              })
+              .catch(() => setForwarding(undefined));
+          }}
+          onCancel={() => setForwarding(undefined)}
+        />
+      ) : null}
+
+      {inspecting !== undefined ? (
+        <MessageInfoDialog
+          message={inspecting}
+          conversationId={conversationId}
+          onClose={() => setInspecting(undefined)}
+        />
+      ) : null}
+
       {deleting !== undefined ? (
         <ConfirmDialog
           title="Delete message?"

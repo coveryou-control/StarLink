@@ -1,6 +1,12 @@
 export { PgMessageStore, PgMessageReader } from './message-store.js';
 export { PgReactionStore, type ReactionRow } from './reaction-store.js';
 export {
+  PgPinStore,
+  PgMessageInfoStore,
+  type PinnedMessageRow,
+  type MessageReaderRow,
+} from './pin-store.js';
+export {
   PgConversationStore,
   PgConversationReader,
   PgReadStateStore,

@@ -570,6 +570,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
         <main key={params.id ?? 'none'} className="thread-column">
           <ActiveConversationProvider
             conversation={activeConversation}
+            conversations={conversations}
             refreshConversations={() => void refresh()}
           >
             {children}
