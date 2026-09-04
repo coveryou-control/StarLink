@@ -66,7 +66,22 @@ describe('paths match the shared route contract', () => {
     expect(call.method).toBe('POST');
     // The API authenticates by username. Sending `email` produced a schema failure that
     // rendered as a generic "those details did not match".
-    expect(call.body).toEqual({ username: 'someone', password: 'secret' });
+    //
+    // `rememberMe` is sent EXPLICITLY as false rather than omitted. The server defaults it
+    // to false too, so both give a short session — but a caller that leaves it out is
+    // relying on that default staying put, and this is the one request in the product
+    // where the difference between the two answers is twelve hours and a fortnight.
+    expect(call.body).toEqual({ username: 'someone', password: 'secret', rememberMe: false });
+  });
+
+  it('signIn asks for a longer session only when told to', async () => {
+    /*
+       The half that matters. Without this, a refactor that dropped the argument would
+       silently give everybody the short session and the checkbox would go quiet — which is
+       exactly the failure mode a control with no visible result has.
+    */
+    await api.signIn('someone', 'secret', true);
+    expect(only().body).toEqual({ username: 'someone', password: 'secret', rememberMe: true });
   });
 
   it('signOut', async () => {

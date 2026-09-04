@@ -6156,20 +6156,51 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /* =====================================================================================
-   Sign in — screen 01
+   Sign in
 
-   One 460px card centred on the raised plane. The design's own proportions: 44px of
-   padding, 28px between blocks, 56px fields and buttons.
+   A 340px card floating on the product's own sky, with the lockup above it rather than
+   inside it. One column, no second route in: SSO is not built, and a disabled button for
+   it was honest furniture on a screen that has no room for furniture.
    ===================================================================================== */
 
 .signin {
+  position: relative;
   display: grid;
   place-items: center;
   align-content: center;
-  gap: 28px;
+  gap: 22px;
   min-height: 100vh;
   padding: var(--space-5);
-  background: var(--surface-2);
+  /*
+     The constellation, in the brand's own ink rather than the thread's cool indigo.
+
+     The thread's wallpaper has to sit under text all day, so it is nearly colourless. This
+     screen holds one card and nothing else, so the pattern can carry the product's colour
+     — which is the one moment in the whole application where the name and the picture are
+     allowed to be the point.
+
+     Two radial washes over it: warm at the top-left, cool at the bottom-right. They are
+     what stops a tiled pattern reading as tiled — the eye follows the gradient rather than
+     hunting for the repeat.
+  */
+  background-color: #fbfbfc;
+  background-image:
+    radial-gradient(60rem 40rem at 12% -10%, rgb(240 90 60 / 9%), transparent 60%),
+    radial-gradient(50rem 36rem at 100% 108%, rgb(140 150 200 / 10%), transparent 62%),
+    var(--signin-sky);
+  background-repeat: no-repeat, no-repeat, repeat;
+  /*
+     The sky, drawn finer than the thread draws it.
+
+     Same 340px tile, painted at 250. Behind a conversation the pattern competes with
+     nothing and can be itself; behind a single card on an empty page it is the only thing
+     on screen, and at full size the sparkles grew large enough to read as illustration
+     rather than as texture. A quarter smaller puts more of the constellation in view and
+     each star back below the threshold where the eye stops to look at it.
+
+     Only the third layer is sized: the two washes stay `auto`, or they would tile too.
+  */
+  background-size: auto, auto, 250px 250px;
 }
 
 @supports (min-height: 100dvh) {
@@ -6178,43 +6209,49 @@ input[type='search']::-webkit-search-cancel-button {
   }
 }
 
+/* The lockup above the card. Small: it identifies the page, it is not the hero. */
+.signin .brand-lockup {
+  gap: 10px;
+}
+
 .signin-card {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 18px;
   width: 100%;
-  max-width: 460px;
-  padding: 44px 44px 36px;
+  max-width: 340px;
+  padding: 30px 30px 28px;
   border: 0;
-  border-radius: var(--radius-card);
+  border-radius: 16px;
   background: var(--surface);
-  box-shadow: var(--hairline), var(--shadow-2);
-}
-
-.signin-head {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
+  /*
+     A wide, soft shadow rather than the elevation the rest of the product uses. The card
+     is floating over a picture instead of sitting on a plane, and the tight shadow that
+     lifts a panel off a flat ground reads as a sticker on top of a photograph.
+  */
+  box-shadow:
+    0 1px 2px rgb(16 24 40 / 4%),
+    0 18px 40px -12px rgb(16 24 40 / 12%);
 }
 
 .signin-title {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 6px;
 }
 
 .signin-title h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: 25px;
   font-weight: 700;
-  line-height: 1.2;
-  letter-spacing: var(--track-tight);
+  letter-spacing: -0.02em;
+  line-height: 1.15;
 }
 
 .signin-title p {
   margin: 0;
-  font-size: var(--text-md);
-  line-height: 1.6;
+  font-size: 13px;
+  line-height: 1.45;
   color: var(--text-muted);
 }
 
@@ -6227,108 +6264,62 @@ input[type='search']::-webkit-search-cancel-button {
 .signin-field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  margin: 0;
+  gap: 6px;
 }
 
-.signin-field > span {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text);
+.signin-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 /*
-   The field is the box; the input inside it is bare.
+   The label and "Forgot password?" on one line.
 
-   A 56px bordered input with an icon absolutely positioned over it puts the caret at a
-   different inset from the placeholder the moment the font falls back. A flex row with the
-   glyph as a real sibling cannot drift.
+   `baseline` rather than `center`: the two have different sizes and weights, and centring
+   them leaves the smaller one looking as though it has slipped.
 */
+.signin-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.signin-forgot {
+  padding: 0;
+  border: 0;
+  height: auto;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 500;
+}
+
 .signin-input {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 56px;
-  padding: 0 16px;
-  border-radius: var(--radius);
-  background: var(--input-bg);
-  box-shadow: inset 0 0 0 1px var(--input-border);
-  color: var(--text-muted);
-  transition: box-shadow var(--dur) var(--ease);
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text-subtle);
+  transition: border-color var(--dur) var(--ease);
 }
 
+/*
+   The focused field takes the brand's colour, and this is the one ring the product keeps.
+
+   `data-pointer` suppresses focus rings elsewhere because `:focus-visible` matches a
+   MOUSE click on a text input (see `input-modality.ts`) and a ring flashing onto every box
+   somebody reaches for is noise. A sign-in form is the exception: two fields, both of them
+   the point of the screen, and knowing which one the caret is in is the entire job of the
+   affordance here.
+*/
 .signin-input:focus-within {
-  box-shadow: var(--focus-field);
-}
-
-/*
-   "Forgot password?" — the design's own placement and treatment: right-aligned under the
-   password field, 13/500, in the informational blue rather than the brand.
-*/
-.signin-forgot {
-  align-self: flex-end;
-  height: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--info-label);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.signin-forgot:hover:not(:disabled) {
-  text-decoration: underline;
-}
-
-.signin-help {
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  background: var(--info-bg);
-  color: var(--info-label);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-/* Sign in, the divider, and SSO — one block at the reference's 14px rhythm. */
-.signin-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.signin-or {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.signin-or span {
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-
-/*
-   The secondary route in. Disabled, and it looks it — see the markup for why it is on the
-   screen at all rather than removed.
-*/
-.signin-sso {
-  height: 56px;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--btn-secondary-bg);
-  box-shadow: var(--hairline);
-  color: var(--text);
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.signin-sso:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
+  border-color: var(--accent);
 }
 
 .signin-input input {
@@ -6337,51 +6328,122 @@ input[type='search']::-webkit-search-cancel-button {
   height: 100%;
   padding: 0;
   border: 0;
-  border-radius: 0;
   background: transparent;
   color: var(--text);
-  font-size: var(--text-lg);
+  font-size: 14px;
 }
 
 .signin-input input:focus-visible {
+  /* The BOX shows focus, so the input inside it must not draw a second ring inside the
+     first — two rings on one control read as two controls. */
   outline: none;
-  box-shadow: none;
+}
+
+.signin-input input::placeholder {
+  color: var(--text-subtle);
+}
+
+.signin-reveal {
+  flex: none;
+  padding: 0;
+  border: 0;
+  height: auto;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.signin-help {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+/*
+   "Keep me signed in on this device."
+
+   The native checkbox is kept and hidden rather than replaced by a div: it carries the
+   label association, the keyboard behaviour and the form value for free, and every
+   hand-rolled checkbox eventually rediscovers one of the three. `.signin-check` is drawn
+   from its state with a sibling selector.
+*/
+.signin-remember {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.signin-remember input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.signin-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: transparent;
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+
+.signin-remember input:checked + .signin-check {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* The hidden input cannot show focus, so the drawn box shows it instead — otherwise this
+   control is invisible to a keyboard. */
+.signin-remember input:focus-visible + .signin-check {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .signin-error {
   margin: 0;
-  padding: var(--space-3);
-  border-radius: var(--radius);
-  background: var(--danger-soft);
-  color: var(--danger);
-  font-size: 14px;
-  font-weight: 500;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--critical-label, var(--danger));
+  font-size: 12.5px;
 }
 
 .signin-submit {
-  height: 56px;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--btn-primary-bg);
-  color: var(--btn-primary-label);
-  font-weight: 600;
-  font-size: var(--text-lg);
-}
-
-.signin-note,
-.signin-footer {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--text-muted);
-  text-align: center;
-}
-
-.signin-footer {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  font-size: 13px;
+  justify-content: center;
+  gap: 8px;
+  height: 46px;
+  margin-top: 2px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14.5px;
+}
+
+.signin-submit:disabled {
+  opacity: 0.7;
 }
 
 /* =====================================================================================

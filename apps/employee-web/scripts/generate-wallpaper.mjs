@@ -163,8 +163,9 @@ writeFileSync(
  * The conversation wallpaper: ${starCount} stars and ${LINKS.length} links on a ${TILE}px
  * tile. Named after the product, and texture rather than pictures — see the generator.
  *
- * Two inks, because the pattern has to sit on a light ground and a dark one. Regenerate
- * with \`node scripts/generate-wallpaper.mjs\`.
+ * Three inks: the pattern sits on a light ground, a dark one, and the sign-in screen —
+ * where it carries the brand's colour instead of the thread's near-colourless indigo.
+ * Regenerate with \`node scripts/generate-wallpaper.mjs\`.
  */
 :root {
   /*
@@ -176,6 +177,20 @@ writeFileSync(
   */
   --thread-ground: #f7f8fa;
   --thread-wallpaper: ${dataUri(svgFor('#2b3a63', '0.09', '0.16'))};
+
+  /*
+     The same sky, in the brand's ink, for the sign-in screen.
+
+     The thread's wallpaper is nearly colourless because it sits under text all day. The
+     sign-in page holds one card and nothing else, so the pattern can carry the product's
+     own colour — it is the one moment in the application where the name and the picture
+     are allowed to be the point.
+
+     Stronger too: 14% and 26% against the thread's 9% and 16%. There is no text over it
+     to protect, and at the thread's strength the pattern simply vanished on a page with no
+     bubbles to give it scale.
+  */
+  --signin-sky: ${dataUri(svgFor('#e2513a', '0.14', '0.26'))};
 }
 
 :root[data-theme='dark'] {

@@ -398,11 +398,17 @@ const query = (params: Record<string, string | number | undefined>): string => {
 export const api = {
   me: () => request<MeResponse>(employeeRoutes.auth.me),
 
-  /** Sign-in returns only the id; the shell then loads the full profile via `me()`. */
-  signIn: (username: string, password: string) =>
+  /**
+   * Sign-in returns only the id; the shell then loads the full profile via `me()`.
+   *
+   * `rememberMe` asks for a fourteen-day session instead of twelve hours. The server
+   * decides both numbers and sets the cookie to match — the client asks a question, it
+   * does not set a duration.
+   */
+  signIn: (username: string, password: string, rememberMe = false) =>
     request<{ principalId: string }>(employeeRoutes.auth.signIn, {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, rememberMe }),
     }),
 
   signOut: () => request<void>(employeeRoutes.auth.signOut, { method: 'POST' }),

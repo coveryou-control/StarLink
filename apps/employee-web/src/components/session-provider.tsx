@@ -13,7 +13,7 @@ type SessionState =
 
 interface SessionContextValue {
   readonly state: SessionState;
-  signIn: (username: string, password: string) => Promise<void>;
+  signIn: (username: string, password: string, rememberMe?: boolean) => Promise<void>;
   signOut: () => Promise<void>;
   /**
    * Called when any request comes back 401 — the session was revoked server-side
@@ -57,10 +57,10 @@ export function SessionProvider({ children }: { children: ReactNode }): ReactNod
   const value = useMemo<SessionContextValue>(
     () => ({
       state,
-      async signIn(username, password) {
+      async signIn(username, password, rememberMe) {
         // Sign-in returns only the id. The profile comes from `me()`, so there is
         // exactly one shape for "who am I" rather than two that could drift.
-        await api.signIn(username, password);
+        await api.signIn(username, password, rememberMe ?? false);
         setState({ status: 'SIGNED_IN', me: await api.me() });
       },
       async signOut() {

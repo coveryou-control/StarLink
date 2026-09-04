@@ -19,6 +19,14 @@ import { Public, REFUSAL, RequireSurface, type AuthenticatedRequest } from '../e
 const signInSchema = z.object({
   username: z.string().min(1).max(200),
   password: z.string().min(1).max(400),
+  /**
+   * "Keep me signed in on this device."
+   *
+   * Optional and defaulting to false, so a client that does not send it gets the short
+   * session — the safe answer rather than the convenient one, which is the direction a
+   * default about session length should always fall.
+   */
+  rememberMe: z.boolean().optional(),
 });
 
 @Controller('v1/employee/auth')
@@ -52,12 +60,30 @@ export class EmployeeAuthController {
     const claims = await this.identity.resolvePrincipal(verified.value.principalId);
     if (!claims.ok) return this.refuse(request, response, 'principal');
 
+    /**
+     * Twelve hours, or fourteen days if they asked to stay signed in on this device.
+     *
+     * ONE number, used for both the token and the cookie below. They must agree: a cookie
+     * outliving its token leaves a dead credential on the machine, and a token outliving
+     * its cookie signs somebody out while the session is still valid. Computing it here and
+     * passing it to both is what makes disagreement impossible rather than unlikely.
+     *
+     * It does not weaken revocation. Every verification re-reads `sessionVersion`, so "sign
+     * out everywhere" ends a fourteen-day session on its next request exactly as it ends a
+     * twelve-hour one (FR-AUTH-2).
+     */
+    const ttlSeconds =
+      parsed.data.rememberMe === true
+        ? this.config.SL_SESSION_REMEMBER_TTL_SECONDS
+        : this.config.SL_SESSION_TTL_SECONDS;
+
     const { token, payload } = this.sessions.issue({
       principalId: claims.value.principalId,
       kind: 'EMPLOYEE',
       surface: 'EMPLOYEE',
       // Baked in so that a later bump invalidates this cookie on the next request.
       sessionVersion: claims.value.sessionVersion,
+      ttlSeconds,
     });
 
     /**
@@ -81,7 +107,7 @@ export class EmployeeAuthController {
      * Spreading is the fix that also removes the opportunity: there is now no place to
      * convert a unit, and both surfaces set the cookie the same way.
      */
-    const cookie = cookieOptionsFor('EMPLOYEE', this.config.tls, this.config.SL_SESSION_TTL_SECONDS);
+    const cookie = cookieOptionsFor('EMPLOYEE', this.config.tls, ttlSeconds);
     response.cookie(cookie.name, token, { ...cookie });
 
     await this.audit.record({
@@ -92,6 +118,10 @@ export class EmployeeAuthController {
       targetId: claims.value.principalId,
       outcome: 'SUCCEEDED',
       correlationId: request.correlationId,
+      /* How long the session they just got will last. An audit entry saying somebody
+         signed in, without saying whether the credential on that machine lives for half a
+         day or a fortnight, omits the part an investigation would ask about. */
+      detail: { sessionTtlSeconds: ttlSeconds },
     });
 
     this.logger.info('sign-in succeeded', {
