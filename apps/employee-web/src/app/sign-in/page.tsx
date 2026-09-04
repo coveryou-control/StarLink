@@ -4,10 +4,39 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { BrandLockup } from '../../components/brand';
+import { BrandMark } from '../../components/brand';
 import { useSession } from '../../components/session-provider';
 import { ApiError } from '../../lib/api-client';
 
+/**
+ * Sign in.
+ *
+ * ## The composition
+ *
+ * One column, centred, no card. The card was the thing making this read as a template: a
+ * bordered box floating on a patterned ground is the shape of every SaaS sign-in, and it
+ * puts a frame around a form that is already the only thing on the page. Without it the
+ * form IS the page — which is what "integrated" means here, and what Linear, Vercel and
+ * Stripe all do on this screen.
+ *
+ * What replaces the card's job of grouping is spacing. The mark, the heading, the fields
+ * and the action sit at deliberately different distances from each other, so the eye reads
+ * four groups without a border telling it to.
+ *
+ * ## The mark alone
+ *
+ * No wordmark. The heading says "Sign in to StarLink" one line below it, so a lockup would
+ * print the product's name twice in forty pixels. A mark on its own also behaves like a
+ * mark rather than a masthead — it identifies without announcing, which is the register an
+ * internal tool wants.
+ *
+ * ## Restraint over decoration
+ *
+ * No icons in the fields: a mail glyph beside a box labelled "Work email" is a second
+ * statement of the same fact, and two of them make the form look busier than it is. No
+ * gradient, no glass. The one saturated thing on the screen is the button, which is the
+ * one thing to press.
+ */
 export default function SignInPage(): ReactNode {
   const { state, signIn } = useSession();
   const router = useRouter();
@@ -15,22 +44,12 @@ export default function SignInPage(): ReactNode {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   /**
-   * Defaults to OFF, even though the reference draws it ticked.
+   * Defaults to OFF, even where a reference draws it ticked.
    *
-   * The mock shows a checked box; a mock is showing what the control looks like, not
-   * legislating the default for a session that lasts a fortnight. Ticked by default, every
-   * sign-in on every machine — including the shared branch terminal — silently gets
-   * fourteen days unless somebody notices and unticks it, which is the wrong direction for
-   * a default nobody reads to fall.
-   *
-   * The server already takes this position: `rememberMe` is optional there and absent
-   * means short, "the safe answer rather than the convenient one". Defaulting the box the
-   * other way would have made the client disagree with the reasoning written into the
-   * route it calls.
-   *
-   * `security-baseline.spec.ts` asserts both halves — an ordinary sign-in gets twelve
-   * hours, and ticking the box gets fourteen days — so neither the default nor the
-   * capability can drift without a test saying so. It caught this one.
+   * Ticked by default, every sign-in on every machine — including a shared branch terminal
+   * — silently gets fourteen days unless somebody notices and unticks it. That is the
+   * wrong direction for a default nobody reads to fall, the server route says as much in
+   * its own comment, and `security-baseline.spec.ts` fails if it drifts.
    */
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
@@ -63,93 +82,61 @@ export default function SignInPage(): ReactNode {
 
   return (
     <main className="signin">
-      {/*
-        The lockup sits ABOVE the card, not inside it.
+      <div className="signin-column">
+        <header className="signin-masthead">
+          <BrandMark size={36} />
+          <h1>Sign in to StarLink</h1>
+          <p>CoverYou&rsquo;s internal workspace. Conversations stay inside the company.</p>
+        </header>
 
-        Two things follow from that. The card becomes one thing — a form — instead of a
-        form with a masthead glued to the top of it, and the product's name reads as the
-        name of the PAGE rather than as the title of the box. It is also what lets the card
-        be as short as it is: the heading inside can be "Welcome back" rather than having
-        to repeat the product's name to identify the screen.
-      */}
-      <BrandLockup size={34} />
-
-      <form onSubmit={(event) => void submit(event)} className="signin-card">
-        <div className="signin-title">
-          <h1>Welcome back</h1>
-          <p>Sign in with your CoverYou work account to pick up where you left off.</p>
-        </div>
-
-        <div className="signin-fields">
+        <form onSubmit={(event) => void submit(event)} className="signin-form">
           {/*
-            "Work email", as the design labels it — and it is now true.
+            "Work email", as the directory will label it — and it is already true.
 
             It said "Username", because that is what `SL_ADAPTER_IAM=local` authenticates
             against and an address would simply not have matched. The adapter takes the
             LOCAL PART of an address now (see `verifyCredential`), so both forms sign the
-            same person in: the label matches the design, matches what HRMS will take when
-            it lands, and matches what the box accepts.
+            same person in: the label matches what HRMS will take when it lands, and
+            matches what the box accepts today.
           */}
           <label className="signin-field">
             <span className="signin-label">Work email</span>
-            <div className="signin-input">
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-                <rect
-                  x="2.75"
-                  y="4.75"
-                  width="18.5"
-                  height="14.5"
-                  rx="2.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                />
-                <path
-                  d="m3.5 7 8.5 6 8.5-6"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-              <input
-                type="text"
-                inputMode="email"
-                autoComplete="username"
-                required
-                placeholder="name@coveryou.co.in"
-                value={username}
-                onChange={(event) => setUsername(event.target.value)}
-              />
-            </div>
+            <input
+              className="signin-control"
+              type="text"
+              inputMode="email"
+              autoComplete="username"
+              required
+              placeholder="name@coveryou.co.in"
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
           </label>
 
           <div className="signin-field">
             {/*
-              The label and "Forgot password?" share a row, as the design draws them.
+              The label and "Forgot password?" share a row.
 
               A `<label>` cannot wrap the link — a click anywhere inside a label focuses its
               control, so the link would both open the help and put the caret in the
-              password box. So this is a plain div with an explicit `htmlFor`, which is the
-              same association a wrapping label gives and the only one that survives having
-              a second interactive thing on the row.
+              password box. A plain div with an explicit `htmlFor` gives the same
+              association and survives having a second interactive thing on the row.
             */}
             <div className="signin-label-row">
               <label className="signin-label" htmlFor="signin-password">
                 Password
               </label>
               {/*
-                "Forgot password?", and it ANSWERS rather than navigates.
+                It ANSWERS rather than navigates.
 
                 There is no reset flow in StarLink and there will not be one: the credential
                 belongs to the directory, not to this product (rule 11). A link to a page
-                that would only say that is one click of nothing — so the answer appears on
-                the screen where the question is asked.
+                that would only say that is one click of nothing, so the answer appears
+                where the question is asked.
               */}
               <button
                 type="button"
-                className="signin-forgot"
+                className="signin-quiet"
                 aria-expanded={helpOpen}
                 onClick={() => setHelpOpen((was) => !was)}
               >
@@ -157,26 +144,7 @@ export default function SignInPage(): ReactNode {
               </button>
             </div>
 
-            <div className="signin-input">
-              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-                <rect
-                  x="4.75"
-                  y="10.75"
-                  width="14.5"
-                  height="9.5"
-                  rx="2.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                />
-                <path
-                  d="M8 10.5V8a4 4 0 0 1 8 0v2.5"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
+            <div className="signin-control signin-control-group">
               <input
                 id="signin-password"
                 type={showPassword ? 'text' : 'password'}
@@ -186,16 +154,14 @@ export default function SignInPage(): ReactNode {
                 onChange={(event) => setPassword(event.target.value)}
               />
               {/*
-                Show/hide, which is a security control rather than a convenience.
-
-                A password nobody can read is a password typed wrong twice and then pasted
-                from somewhere it should not have been written down. `aria-pressed` rather
-                than changing the label alone, so a screen reader hears the state instead of
-                inferring it from a word that means the opposite of what it does.
+                Show/hide is a security control, not a convenience: a password nobody can
+                read is one typed wrong twice and then pasted from somewhere it should not
+                have been written down. `aria-pressed` so a screen reader hears the state
+                rather than inferring it from a word that names the opposite.
               */}
               <button
                 type="button"
-                className="signin-reveal"
+                className="signin-quiet"
                 aria-pressed={showPassword}
                 aria-controls="signin-password"
                 onClick={() => setShowPassword((was) => !was)}
@@ -204,66 +170,63 @@ export default function SignInPage(): ReactNode {
               </button>
             </div>
           </div>
-        </div>
 
-        {helpOpen ? (
-          <p className="signin-help">
-            StarLink does not hold your password. Your account comes from the company
-            directory, and IT resets it there.
-          </p>
-        ) : null}
+          {helpOpen ? (
+            <p className="signin-help">
+              StarLink does not hold your password. Your account comes from the company
+              directory, and IT resets it there.
+            </p>
+          ) : null}
+
+          {/*
+            A real setting. Ticked, it asks the server for a fourteen-day session instead of
+            twelve hours — see `SL_SESSION_REMEMBER_TTL_SECONDS` for why fourteen and not
+            ninety. The server decides both numbers and sets the cookie to match.
+          */}
+          <label className="signin-remember">
+            <input
+              type="checkbox"
+              checked={remember}
+              onChange={(event) => setRemember(event.target.checked)}
+            />
+            <span className="signin-check" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="11" height="11" focusable="false">
+                <path
+                  d="m5 12.5 4.5 4.5L19 7"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="3.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </span>
+            Keep me signed in on this device
+          </label>
+
+          {error !== undefined ? (
+            <p role="alert" className="signin-error">
+              {error}
+            </p>
+          ) : null}
+
+          <button type="submit" disabled={busy} className="signin-submit">
+            {busy ? 'Signing in…' : 'Sign in'}
+          </button>
+        </form>
 
         {/*
-          A real setting, not decoration.
+          One quiet line, separated by a rule.
 
-          Ticked, this asks the server for a fourteen-day session instead of twelve hours —
-          see `SL_SESSION_REMEMBER_TTL_SECONDS`, which explains why fourteen and not ninety.
-          The server decides both numbers and sets the cookie to match; the box asks a
-          question, it does not set a duration.
+          It is the only place the page says anything about access, and it belongs at the
+          foot rather than under the button — a sentence between the CTA and the edge of the
+          form would compete with the thing somebody came here to press.
         */}
-        <label className="signin-remember">
-          <input
-            type="checkbox"
-            checked={remember}
-            onChange={(event) => setRemember(event.target.checked)}
-          />
-          <span className="signin-check" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="12" height="12" focusable="false">
-              <path
-                d="m5 12.5 4.5 4.5L19 7"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="3"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </span>
-          Keep me signed in on this device
-        </label>
-
-        {error !== undefined ? (
-          <p role="alert" className="signin-error">
-            {error}
-          </p>
-        ) : null}
-
-        <button type="submit" disabled={busy} className="signin-submit">
-          {busy ? 'Signing in…' : 'Sign in'}
-          {busy ? null : (
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
-              <path
-                d="m9.5 5.5 6.5 6.5-6.5 6.5"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
-          )}
-        </button>
-      </form>
+        <p className="signin-foot">
+          Access is limited to active employees. Single sign-on becomes available once
+          StarLink is connected to the company directory.
+        </p>
+      </div>
     </main>
   );
 }
