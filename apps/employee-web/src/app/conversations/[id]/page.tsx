@@ -693,6 +693,22 @@ export default function ThreadPage(): ReactNode {
         />
       ) : null}
 
+      {/*
+        Pinned messages, above the thread and below the header — where the thing they are
+        "held above" actually is. Inside the scroller they would scroll away, which is the
+        one thing a pin must not do.
+      */}
+      <PinnedBar
+        pins={pins}
+        onJump={jumpToMessage}
+        onUnpin={(messageId) => {
+          void api
+            .unpinMessage(conversationId, messageId)
+            .then(() => refreshPins())
+            .catch(() => undefined);
+        }}
+      />
+
       <div ref={scrollRef} className="thread-scroll">
         {/*
           A skeleton, not the word "Loading".
@@ -777,22 +793,6 @@ export default function ThreadPage(): ReactNode {
         A "delete for me" needs a per-principal suppression the schema does not have, and
         an item that silently did the other thing would be worse than an absent one.
       */}
-      {/*
-        Pinned messages, above the thread and below the header — where the thing they are
-        "held above" actually is. Inside the scroller they would scroll away, which is the
-        one thing a pin must not do.
-      */}
-      <PinnedBar
-        pins={pins}
-        onJump={jumpToMessage}
-        onUnpin={(messageId) => {
-          void api
-            .unpinMessage(conversationId, messageId)
-            .then(() => refreshPins())
-            .catch(() => undefined);
-        }}
-      />
-
       {forwarding !== undefined ? (
         <ForwardDialog
           message={forwarding}
