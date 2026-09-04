@@ -21,6 +21,7 @@ export const MESSAGE_READER = Symbol('SL_MESSAGE_READER');
 export const REACTION_STORE = Symbol('SL_REACTION_STORE');
 export const PIN_STORE = Symbol('SL_PIN_STORE');
 export const MESSAGE_INFO_STORE = Symbol('SL_MESSAGE_INFO_STORE');
+export const STATUS_STORE = Symbol('SL_STATUS_STORE');
 export const CONVERSATION_STORE = Symbol('SL_CONVERSATION_STORE');
 export const CONVERSATION_READER = Symbol('SL_CONVERSATION_READER');
 export const READ_STATE_STORE = Symbol('SL_READ_STATE_STORE');

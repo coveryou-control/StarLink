@@ -97,6 +97,47 @@ export const MAX_PINNED_CONVERSATIONS = 3;
  */
 export const MUTE_DURATIONS_MINUTES = [15, 30, 60, 240, 720, 1440] as const;
 
+/**
+ * What somebody may say they are doing.
+ *
+ * ## Not presence, and not availability
+ *
+ * Presence is a realtime lease and says only "connected" (§21.9 forbids inferring more
+ * from it). Availability is `agent_states`, which routing reads and which has consequences
+ * for who gets work. This is neither: it is a courtesy to the colleague about to message
+ * you, set by the person themselves, and nothing routes on it.
+ *
+ * `AVAILABLE` is the absence of a claim rather than a claim of its own, which is why it is
+ * the only one that does not expire.
+ */
+export const DECLARED_STATUSES = ['AVAILABLE', 'BUSY', 'IN_A_MEETING', 'AWAY'] as const;
+
+export type DeclaredStatus = (typeof DECLARED_STATUSES)[number];
+
+/**
+ * How long a status may be held for, in minutes.
+ *
+ * Every one of them ends, because people forget. The colleague who set "in a meeting" on
+ * Tuesday morning is not still in it on Friday, and a reader burned by that once stops
+ * believing any of them. Eight hours is the longest — a working day, after which the claim
+ * has to be made again deliberately.
+ */
+export const STATUS_DURATIONS_MINUTES = [30, 60, 240, 480] as const;
+
+/** "Busy", "In a meeting" — one spelling, used by the picker and by every reader. */
+export function declaredStatusLabel(status: string): string {
+  switch (status) {
+    case 'BUSY':
+      return 'Busy';
+    case 'IN_A_MEETING':
+      return 'In a meeting';
+    case 'AWAY':
+      return 'Away';
+    default:
+      return 'Available';
+  }
+}
+
 /** A duration the server will accept. */
 export type MuteDurationMinutes = (typeof MUTE_DURATIONS_MINUTES)[number];
 
@@ -146,9 +187,25 @@ export const employeeRoutes = {
      */
     signOutEverywhere: `${EMPLOYEE_API_BASE}/auth/sign-out-everywhere`,
     me: `${EMPLOYEE_API_BASE}/auth/me`,
-    /** What this account has stored, for Settings' "Storage & data". */
-    storage: `${EMPLOYEE_API_BASE}/auth/me/storage`,
+    /**
+     * What the caller says they are doing (PUT), and what everybody else says (GET).
+     *
+     * Under `/auth/me` for the write because it is a statement about yourself and nobody
+     * else may make it. The read is a separate route because it is about OTHER people and
+     * takes a list of ids — putting both on one path would have a GET that means something
+     * different from its own PUT.
+     */
+    status: `${EMPLOYEE_API_BASE}/auth/me/status`,
   },
+  /**
+   * Declared statuses for a set of colleagues, so the avatars on screen can show them.
+   *
+   * A separate tree from the directory on purpose: the directory is HRMS's, behind an
+   * adapter (rule 11), and StarLink owns this. Hanging it off the directory would put a
+   * StarLink-owned fact in the shape of an upstream one, which is exactly the confusion
+   * the adapter boundary exists to prevent.
+   */
+  statuses: `${EMPLOYEE_API_BASE}/statuses`,
   conversations: {
     list: `${EMPLOYEE_API_BASE}/conversations`,
     create: `${EMPLOYEE_API_BASE}/conversations`,
@@ -346,9 +403,11 @@ export const employeeRoutes = {
  */
 export const EMPLOYEE_ROUTE_INVENTORY: readonly { method: string; path: string }[] = [
   { method: 'GET', path: employeeRoutes.auth.me },
-  { method: 'GET', path: employeeRoutes.auth.storage },
   { method: 'POST', path: employeeRoutes.auth.signOut },
   { method: 'POST', path: employeeRoutes.auth.signOutEverywhere },
+  { method: 'GET', path: employeeRoutes.auth.status },
+  { method: 'PUT', path: employeeRoutes.auth.status },
+  { method: 'GET', path: employeeRoutes.statuses },
   { method: 'GET', path: employeeRoutes.conversations.list },
   { method: 'POST', path: employeeRoutes.conversations.create },
   { method: 'POST', path: employeeRoutes.conversations.announce },

@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { avatarFor, conversationLabel, initialsFor } from './conversation-naming';
 import { GroupGlyph } from './group-glyph';
 import { ChatHeaderMenu } from './chat-header-menu';
-import { PresenceDot, useIsOnline, useOnlineSet } from './presence';
+import { DeclaredStatusBadge, PresenceDot, useIsOnline, useOnlineSet } from './presence';
 import { useColleague } from './conversation-info';
 import type { ConversationSummary } from '../lib/api-client';
 
@@ -187,14 +187,14 @@ export function ChatHeader({
 
       <span className="chat-identity">
         {/*
-          "# Ops — Daily standup".
+          The name, and only the name.
 
-          The hash is the reference's marker for a channel and the fastest way to tell a
-          group from a person in a header that is otherwise identical. Outside the
-          accessible name, which is the conversation's actual title.
+          A group used to be prefixed with `#`, on the reasoning that it was the fastest
+          way to tell a group from a person in an otherwise identical header. It meant
+          CHANNEL, and StarLink has no channels — the avatar beside it is two figures now,
+          which says "more than one person" without borrowing a word from another product.
         */}
         <h1 className="chat-name" title={name}>
-          {isGroup ? <span aria-hidden="true">#&nbsp;</span> : null}
           {name}
         </h1>
         {subtitle !== undefined && subtitle !== '' ? (
@@ -206,6 +206,16 @@ export function ChatHeader({
               </>
             ) : null}
             {subtitle}
+            {/*
+              What they say they are doing, beside what the socket says.
+
+              Only for a one-to-one: a group has several people and one badge could not say
+              whose. This is the place it earns its keep — somebody about to type a question
+              can see "In a meeting" before they ask it rather than after.
+            */}
+            {!isGroup && others.length === 1 ? (
+              <DeclaredStatusBadge principalId={others[0]?.principalId} />
+            ) : null}
           </span>
         ) : null}
       </span>

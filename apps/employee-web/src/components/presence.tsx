@@ -3,6 +3,9 @@
 import { createContext, useContext } from 'react';
 import type { ReactNode } from 'react';
 
+import { declaredStatusLabel } from '@starlink/shared-contracts';
+import type { DeclaredStatusView } from '../lib/api-client';
+
 /**
  * The set of colleagues currently holding a realtime lease, shared down the tree.
  *
@@ -12,14 +15,43 @@ import type { ReactNode } from 'react';
  */
 const PresenceContext = createContext<ReadonlySet<string>>(new Set());
 
+/**
+ * What people SAY they are doing, alongside whether they are connected.
+ *
+ * A second context rather than a merged one, because they answer different questions and
+ * §21.9 turns on keeping them apart: presence is inferred from a socket and may say only
+ * "connected", while a declared status is a sentence the person typed. Somebody can be
+ * offline with "in a meeting" set, and online with it too. Merging them into one value
+ * would force a precedence rule between two facts that are both true.
+ */
+const DeclaredStatusContext = createContext<ReadonlyMap<string, DeclaredStatusView>>(new Map());
+
 export function PresenceProvider({
   online,
+  statuses,
   children,
 }: {
   readonly online: ReadonlySet<string>;
+  /** Absent for anybody available — see `useDeclaredStatuses`. */
+  readonly statuses?: ReadonlyMap<string, DeclaredStatusView>;
   readonly children: ReactNode;
 }): ReactNode {
-  return <PresenceContext.Provider value={online}>{children}</PresenceContext.Provider>;
+  return (
+    <PresenceContext.Provider value={online}>
+      <DeclaredStatusContext.Provider value={statuses ?? EMPTY_STATUSES}>
+        {children}
+      </DeclaredStatusContext.Provider>
+    </PresenceContext.Provider>
+  );
+}
+
+/* Module scope, so the default is one object rather than a new Map per render — a fresh
+   value would re-render every consumer of the context on every render of the shell. */
+const EMPTY_STATUSES: ReadonlyMap<string, DeclaredStatusView> = new Map();
+
+export function useDeclaredStatus(principalId: string | undefined): DeclaredStatusView | undefined {
+  const statuses = useContext(DeclaredStatusContext);
+  return principalId === undefined ? undefined : statuses.get(principalId);
 }
 
 export function useIsOnline(principalId: string | undefined): boolean {
@@ -56,6 +88,32 @@ export function PresenceDot({ principalId }: { readonly principalId: string | un
   return (
     <span className="presence-dot" title="Online">
       <span className="sr-only">Online</span>
+    </span>
+  );
+}
+
+/**
+ * The words beside a name: "Busy", "In a meeting", "Away".
+ *
+ * Rendered only when there is something to say. AVAILABLE never reaches here — the server
+ * omits it and omits anything lapsed — so an absent badge means the honest thing: nothing
+ * has been claimed.
+ *
+ * Text, not a coloured dot. The dot is already taken by presence, a second one beside it
+ * would be two dots meaning two different things, and the words survive greyscale
+ * (NFR-ACC-3) where a hue does not. The colour is a tint behind the words, so somebody who
+ * has learned it reads it faster and somebody who has not still reads it.
+ */
+export function DeclaredStatusBadge({
+  principalId,
+}: {
+  readonly principalId: string | undefined;
+}): ReactNode {
+  const status = useDeclaredStatus(principalId);
+  if (status === undefined) return null;
+  return (
+    <span className={`status-badge status-${status.status.toLowerCase()}`}>
+      {declaredStatusLabel(status.status)}
     </span>
   );
 }

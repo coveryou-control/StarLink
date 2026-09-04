@@ -36,6 +36,15 @@ export interface VerifiedSession {
   readonly kind: PrincipalKind;
   readonly surface: Surface;
   readonly sessionVersion: number;
+  /**
+   * When this session began.
+   *
+   * Already in the signed payload and simply not surfaced until now. Settings shows it as
+   * "signed in at", which is the closest thing to a device list that ADR-008's stateless
+   * sessions can honestly produce — there is no per-session record, so there is nothing to
+   * enumerate, but the session in front of you can say when it started.
+   */
+  readonly issuedAt: Timestamp;
   readonly expiresAt: Timestamp;
   readonly assurance?: Assurance;
 }
@@ -201,6 +210,7 @@ const toVerified = (payload: SessionPayload): VerifiedSession => ({
   kind: payload.kind,
   surface: payload.surface,
   sessionVersion: payload.sessionVersion,
+  issuedAt: payload.issuedAt,
   expiresAt: payload.expiresAt,
   ...(payload.assurance !== undefined ? { assurance: payload.assurance } : {}),
 });

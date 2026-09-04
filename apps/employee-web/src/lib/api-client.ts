@@ -78,6 +78,18 @@ export interface MeResponse {
   readonly roles: readonly { role: string; scope: unknown }[];
   /** `TEMPORARY_AUTHORITY` until HRMS/Central IAM take over — shown, never hidden. */
   readonly authority: string;
+  /**
+   * This session, as far as ADR-008 can honestly describe it.
+   *
+   * Optional because an older server does not send it, and the settings row then renders a
+   * dash rather than inventing a value. There is deliberately no location and no MAC
+   * address — see the route for why neither can be produced honestly.
+   */
+  readonly session?: {
+    readonly startedAt: string;
+    readonly expiresAt: string;
+    readonly ip: string | null;
+  };
 }
 
 /** Just enough of a participant to name a conversation. Never contact details. */
@@ -167,6 +179,20 @@ export interface MessageInfo {
     readonly readAt?: string;
     readonly hasRead: boolean;
   }[];
+}
+
+/**
+ * What somebody says they are doing — never inferred, and never routed on.
+ *
+ * `clearsAt` is absent only for AVAILABLE. Everything else expires, because a status that
+ * cannot go stale is one nobody remembers to clear, and a reader burned by that once stops
+ * believing any of them.
+ */
+export interface DeclaredStatusView {
+  readonly principalId: string;
+  readonly status: string;
+  readonly setAt: string;
+  readonly clearsAt?: string;
 }
 
 /** One file shared in a conversation, for the information panel. Metadata only. */
@@ -821,12 +847,43 @@ export const api = {
       { method: 'POST', body: JSON.stringify({ toConversationId }) },
     ),
 
+  /**
+   * What the caller says they are doing.
+   *
+   * Distinct from presence, which is a realtime lease and says only "connected" — see the
+   * status controller for why the two are shown together and never merged.
+   */
+  myStatus: () => request<DeclaredStatusView>(employeeRoutes.auth.status),
+
+  /**
+   * Sets it. `minutes` is a duration, and the server dates the expiry from its own clock.
+   *
+   * Required for everything except AVAILABLE and refused for AVAILABLE: that one is the
+   * absence of a claim, and giving it an expiry would mean "I stop being available in an
+   * hour", which is a different statement.
+   */
+  setMyStatus: (status: string, minutes?: number) =>
+    request<{ status: string; clearsAt: string | null }>(employeeRoutes.auth.status, {
+      method: 'PUT',
+      body: JSON.stringify(minutes === undefined ? { status } : { status, minutes }),
+    }),
+
+  /**
+   * Statuses for the colleagues currently on screen.
+   *
+   * AVAILABLE is omitted and a lapsed status is omitted, so an id missing from the answer
+   * means "nothing to say" — which is what lets the caller treat absence as the default
+   * rather than having to filter.
+   */
+  statusesFor: (principalIds: readonly string[]) =>
+    request<{ statuses: readonly DeclaredStatusView[] }>(
+      `${employeeRoutes.statuses}?ids=${principalIds.join(',')}`,
+    ),
+
   /** Ends every session this account holds, including this browser's. */
   signOutEverywhere: () =>
     request<void>(employeeRoutes.auth.signOutEverywhere, { method: 'POST' }),
 
-  /** What this account has uploaded that is still reachable. */
-  storage: () => request<{ files: number; bytes: number }>(employeeRoutes.auth.storage),
 
   /** Everything BOUND in a conversation, newest first. */
   sharedFiles: (conversationId: string) =>

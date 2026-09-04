@@ -165,30 +165,6 @@ export class EmployeeAuthController {
     });
   }
 
-  /**
-   * What this account has stored — Settings' "Storage & data".
-   *
-   * Only the caller's OWN uploads, and only BOUND ones: an unbound upload is reachable by
-   * nobody (§28.1) and counting it would report space that no longer exists to anyone. The
-   * figure is `declared_bytes`, which is what the uploader was charged against the size
-   * limit, so it agrees with the number they saw when they attached the file.
-   *
-   * No per-conversation breakdown. That would be a list of every thread this person has
-   * put a file in, which is a different and more sensitive object than a total.
-   */
-  @Get('me/storage')
-  async storage(@Req() request: AuthenticatedRequest): Promise<unknown> {
-    const session = request.session!;
-    const result = await this.pool.query(
-      `SELECT count(*)::int AS files, COALESCE(sum(declared_bytes), 0)::bigint AS bytes
-         FROM conversation.attachments
-        WHERE uploader_id = $1 AND state = 'BOUND' AND message_id IS NOT NULL`,
-      [session.principalId],
-    );
-    const row = result.rows[0];
-    return { files: Number(row?.files ?? 0), bytes: Number(row?.bytes ?? 0) };
-  }
-
   /** The one call the application shell depends on (doc §25.2). */
   @Get('me')
   async me(@Req() request: AuthenticatedRequest): Promise<unknown> {
@@ -205,6 +181,30 @@ export class EmployeeAuthController {
       // Surfaced deliberately: an interim identity source must be visible as such
       // wherever it is consumed (brief §48).
       authority: claims.value.authority,
+      /**
+       * This session, as far as ADR-008 can honestly describe it.
+       *
+       * There is no device list and there cannot be one: a session is a signed cookie
+       * carrying a version number, checked against the account on every request, and
+       * nothing records the individual sessions that exist. Settings used to say so and
+       * show nothing; it can at least describe the session in front of it.
+       *
+       * `ip` is the address this request arrived from, taken from Express's own `ip`
+       * (which respects `trust proxy`). It is shown back to the person it belongs to and
+       * to nobody else — this is the one place in the product that reads it, and it is
+       * not stored.
+       *
+       * There is deliberately no LOCATION. Deriving one means sending the address to a
+       * geo-IP service, which is a third party receiving employee network data and a
+       * data-residency question under the IRDAI record rules — not something to acquire
+       * as a side effect of a settings row. And no MAC address: a browser cannot obtain
+       * one, by any API, so a field for it could only ever be filled with a guess.
+       */
+      session: {
+        startedAt: session.issuedAt,
+        expiresAt: session.expiresAt,
+        ip: request.ip ?? null,
+      },
     };
   }
 

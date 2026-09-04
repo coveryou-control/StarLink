@@ -1,5 +1,6 @@
 export { PgMessageStore, PgMessageReader } from './message-store.js';
 export { PgReactionStore, type ReactionRow } from './reaction-store.js';
+export { PgStatusStore, type DeclaredStatusRow } from './status-store.js';
 export {
   PgPinStore,
   PgMessageInfoStore,

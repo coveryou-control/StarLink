@@ -5,6 +5,7 @@ import './globals.css';
 import { SessionProvider } from '../components/session-provider';
 import { RuntimeOriginsScript } from '../components/runtime-origins-script';
 import { themeBootScript } from '../lib/theme';
+import { chatBackgroundBootScript } from '../lib/chat-background';
 import { inputModalityBootScript } from '../lib/input-modality';
 
 /**
@@ -58,6 +59,10 @@ export default function RootLayout({ children }: { children: ReactNode }): React
           this script mutates `<html>` before React reaches it, which is the point.
         */}
         <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+        {/* Same reason as the theme's: read from an effect, the first paint would be the
+            default ground and the second the chosen one — a visible flash on the largest
+            surface on the screen, every load. */}
+        <script dangerouslySetInnerHTML={{ __html: chatBackgroundBootScript }} />
         {/* Pointer-or-keyboard, before the first paint — see `input-modality.ts`. */}
         <script dangerouslySetInnerHTML={{ __html: inputModalityBootScript }} />
       </head>

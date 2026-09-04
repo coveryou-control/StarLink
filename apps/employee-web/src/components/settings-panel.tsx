@@ -6,18 +6,21 @@ import type { ReactNode } from 'react';
 import { initialsFor } from './conversation-naming';
 import { useColleague } from './conversation-info';
 import { useSession } from './session-provider';
-import { customerWorkspaceEnabled } from '../lib/runtime-origins';
-import { readEnterToSend, writeEnterToSend } from '../lib/preferences';
 import { applyTheme, type Theme } from '../lib/theme';
-import { DraftStore } from '../lib/drafts';
-import { formatBytes } from './attachment-picker';
-import { api, ApiError } from '../lib/api-client';
 import {
-  DEVICE_NOTIFICATION_DEFAULTS,
-  readDeviceNotifications,
-  writeDeviceNotifications,
-  type DeviceNotifications,
-} from '../lib/device-notifications';
+  CHAT_BACKGROUNDS,
+  CHAT_BACKGROUND_LABELS,
+  applyChatBackground,
+  readChatBackground,
+  type ChatBackground,
+} from '../lib/chat-background';
+import { api, ApiError, type DeclaredStatusView } from '../lib/api-client';
+import {
+  DECLARED_STATUSES,
+  STATUS_DURATIONS_MINUTES,
+  declaredStatusLabel,
+  muteDurationLabel,
+} from '@starlink/shared-contracts';
 
 const THEME_KEY = 'starlink.theme';
 
@@ -55,45 +58,41 @@ const THEME_KEY = 'starlink.theme';
  * changes behaviour or states a fact.
  */
 
-type SectionId =
-  | 'notifications'
-  | 'profile'
-  | 'appearance'
-  | 'chat'
-  | 'privacy'
-  | 'storage'
-  | 'devices'
-  | 'about';
+/**
+ * The settings this product has, after the 2026-09-04 cull.
+ *
+ * Five pages, down from eight. What went, and why each one was not simply hidden:
+ *
+ *  - **Notifications** — the four device switches are gone. Being told a conversation
+ *    needs you is not a preference (§29.6), and per-conversation quietening is now mute,
+ *    which is where somebody actually reaches for it: on the conversation.
+ *  - **Chat preferences** — held one switch. A page for one switch is a page.
+ *  - **Storage & data** — a read-only number nobody acted on.
+ *  - **Devices** — folded into Privacy & security, where "what has my account been doing"
+ *    is the question somebody is already asking.
+ *  - **About** — a product name and a stage label, neither of which anybody navigates to.
+ *
+ * `status` is new: what you say you are doing, which was previously not sayable at all.
+ */
+type SectionId = 'profile' | 'status' | 'appearance' | 'privacy';
 
 const SECTIONS: readonly { readonly id: SectionId; readonly label: string }[] = [
-  { id: 'notifications', label: 'Notifications' },
   { id: 'profile', label: 'Profile' },
+  { id: 'status', label: 'Status' },
   { id: 'appearance', label: 'Appearance' },
-  { id: 'chat', label: 'Chat preferences' },
   { id: 'privacy', label: 'Privacy & security' },
-  { id: 'storage', label: 'Storage & data' },
-  { id: 'devices', label: 'Devices' },
-  { id: 'about', label: 'About' },
 ];
 
 function descriptionOf(section: SectionId): string {
   switch (section) {
-    case 'notifications':
-      return 'Applies to this device. Mobile has its own settings.';
     case 'profile':
-      return 'What the company directory holds about you.';
+      return 'Your picture, and what the company directory holds about you.';
+    case 'status':
+      return 'What colleagues see beside your name. You set it; nothing is guessed.';
     case 'appearance':
       return 'Applies to this device. Other devices keep their own choice.';
-    case 'chat':
-      return 'How the composer behaves while you are writing.';
     case 'privacy':
-      return 'Your session, and how to end it everywhere at once.';
-    case 'storage':
-      return 'What this account has uploaded, and what this browser is holding.';
-    case 'devices':
-      return 'Where you are signed in, and what StarLink can tell you about it.';
-    case 'about':
-      return 'What this build is.';
+      return 'Your session, where it is signed in, and how to end it everywhere at once.';
   }
 }
 
@@ -113,8 +112,30 @@ export function SettingsPanel({
   readonly compact?: boolean;
 }): ReactNode {
   const [theme, setTheme] = useState<Theme>('system');
-  const [enterToSend, setEnterToSend] = useState(true);
-  const [section, setSection] = useState<SectionId>('notifications');
+  const [chatBackground, setChatBackground] = useState<ChatBackground>('constellation');
+  const [section, setSection] = useState<SectionId>('profile');
+  /**
+   * The caller's own declared status.
+   *
+   * Held on the panel rather than inside the section so the index can show it in the value
+   * column — "Status · In a meeting" is the one line worth reading before opening anything.
+   */
+  const [myStatus, setMyStatus] = useState<DeclaredStatusView | undefined>();
+
+  useEffect(() => {
+    let live = true;
+    void api
+      .myStatus()
+      .then((result) => {
+        if (live) setMyStatus(result);
+      })
+      /* No status is AVAILABLE, which is also what a failed read should look like: the
+         section renders its default and setting one still works. */
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
   /* On a phone the list is the landing screen; on the rail a section is always open. */
   const [showIndex, setShowIndex] = useState(true);
 
@@ -128,7 +149,7 @@ export function SettingsPanel({
     } catch {
       // A browser with site data blocked is not an error state; the default is correct.
     }
-    setEnterToSend(readEnterToSend());
+    setChatBackground(readChatBackground());
   }, []);
 
   const apply = (next: Theme): void => {
@@ -141,7 +162,6 @@ export function SettingsPanel({
     }
   };
 
-  const stage2 = customerWorkspaceEnabled();
   const heading = SECTIONS.find((entry) => entry.id === section)?.label ?? 'Settings';
 
   if (compact && showIndex) {
@@ -200,9 +220,11 @@ export function SettingsPanel({
           <p>{descriptionOf(section)}</p>
         </header>
 
-        {section === 'notifications' ? <DeviceNotificationSettings /> : null}
-
         {section === 'profile' ? <Profile principalId={principalId} displayName={displayName} /> : null}
+
+        {section === 'status' ? (
+          <DeclaredStatusSettings current={myStatus} onChanged={setMyStatus} />
+        ) : null}
 
         {section === 'appearance' ? (
           <div className="settings-rows">
@@ -225,207 +247,49 @@ export function SettingsPanel({
                 ))}
               </div>
             </div>
-          </div>
-        ) : null}
 
-        {section === 'chat' ? (
-          <div className="settings-rows">
             {/*
-              One switch, and it is real: it changes a keydown branch in the composer, and it
-              does so in an already-open composer without a reload.
+              The thread's own ground, separate from light/dark.
 
-              It applies to colleague threads only. A customer reply keeps its Ctrl+Enter
-              chord whatever this says — that chord is a safety property rather than a habit,
-              because a half-written reply landing in front of a CUSTOMER is a different kind
-              of mistake from one landing in front of a colleague.
+              They compose rather than multiplying: each background works in both themes,
+              so this is four choices beside three rather than twelve to pick from. The
+              accent is untouched by all of them — see `chat-background.ts`.
             */}
-            <Toggle
-              label="Enter sends the message"
-              description={
-                enterToSend
-                  ? 'Shift + Enter starts a new line. Customer replies always need Ctrl + Enter.'
-                  : 'Enter starts a new line; Ctrl + Enter sends.'
-              }
-              checked={enterToSend}
-              onToggle={() => {
-                const next = !enterToSend;
-                setEnterToSend(next);
-                writeEnterToSend(next);
-              }}
-            />
+            <div className="settings-row-block">
+              <span className="settings-row-label">
+                <strong>Chat background</strong>
+                Applies to the conversation area. Your orange stays put.
+              </span>
+              <div
+                className="settings-choice chat-bg-choice"
+                role="radiogroup"
+                aria-label="Chat background"
+              >
+                {CHAT_BACKGROUNDS.map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    role="radio"
+                    aria-checked={chatBackground === option}
+                    className={`chat-bg-option chat-bg-${option}`}
+                    onClick={() => {
+                      setChatBackground(option);
+                      applyChatBackground(option);
+                    }}
+                  >
+                    <span className="chat-bg-swatch" aria-hidden="true" />
+                    {CHAT_BACKGROUND_LABELS[option]}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         ) : null}
 
         {section === 'privacy' ? <Privacy /> : null}
 
-        {section === 'storage' ? <Storage principalId={principalId} /> : null}
-
-        {section === 'devices' ? <Devices /> : null}
-
-        {section === 'about' ? (
-          <div className="settings-rows">
-            <p className="settings-row">
-              <span>Product</span>
-              <strong>StarLink</strong>
-            </p>
-            <p className="settings-row">
-              <span>Stage</span>
-              <strong>{stage2 ? 'Customer workspace enabled' : 'Internal communication'}</strong>
-            </p>
-            <p className="settings-note">
-              Stage 1 is employee-to-employee messaging. Customer conversations are a later
-              stage and are not part of this workspace.
-            </p>
-          </div>
-        ) : null}
       </div>
     </section>
-  );
-}
-
-/**
- * Screen 07's Notifications page, and every switch on it does something.
- *
- * ## What these govern, and what they cannot
- *
- * The bell, its count and the unread badges are §29.6's unread MECHANISM: a fact, not a
- * preference, and nothing on this page reaches them. These four govern the layer above —
- * whether this browser raises a desktop notification and whether it makes a noise — which is
- * exactly what the design's own subtitle says ("Applies to this device").
- *
- * ## Save and Cancel are real, which is why they are here
- *
- * The reference draws a form with two buttons, and a form is what this is: the switches move
- * pending state and nothing is written until Save. Every other settings page in this product
- * applies immediately and has no buttons, because those are single choices — this one is four
- * related decisions about the same thing, which is the case a form is for.
- *
- * Permission is requested at Save, and only when something that needs it was turned on. A
- * browser prompt that appears while somebody is reading a settings page is the prompt they
- * dismiss.
- */
-function DeviceNotificationSettings(): ReactNode {
-  const [saved, setSaved] = useState<DeviceNotifications>(DEVICE_NOTIFICATION_DEFAULTS);
-  const [draft, setDraft] = useState<DeviceNotifications>(DEVICE_NOTIFICATION_DEFAULTS);
-  const [note, setNote] = useState<string | undefined>();
-
-  useEffect(() => {
-    const current = readDeviceNotifications();
-    setSaved(current);
-    setDraft(current);
-  }, []);
-
-  const dirty = JSON.stringify(saved) !== JSON.stringify(draft);
-  const wantsDesktop = draft.direct || draft.groups;
-
-  const save = async (): Promise<void> => {
-    writeDeviceNotifications(draft);
-    setSaved(draft);
-
-    if (!wantsDesktop || typeof Notification === 'undefined') {
-      setNote('Saved.');
-      return;
-    }
-    if (Notification.permission === 'granted') {
-      setNote('Saved.');
-      return;
-    }
-    /*
-       Asked once, here, because this is the moment it makes sense. A refusal is reported
-       rather than swallowed: the switches stay on and would silently do nothing, and being
-       told why is the difference between a broken feature and a browser setting.
-    */
-    const outcome = await Notification.requestPermission().catch(() => 'denied' as const);
-    setNote(
-      outcome === 'granted'
-        ? 'Saved.'
-        : 'Saved — but this browser is blocking notifications, so nothing will appear until you allow them in its site settings.',
-    );
-  };
-
-  return (
-    <div className="settings-rows">
-      <Toggle
-        label="Direct messages"
-        description="Notify for every message"
-        checked={draft.direct}
-        onToggle={() => setDraft({ ...draft, direct: !draft.direct })}
-      />
-      <Toggle
-        label="Group messages"
-        description="Only mentions and replies"
-        checked={draft.groups}
-        onToggle={() => setDraft({ ...draft, groups: !draft.groups })}
-      />
-      <Toggle
-        label="Sound"
-        description="Play a tone on new messages"
-        checked={draft.sound}
-        onToggle={() => setDraft({ ...draft, sound: !draft.sound })}
-      />
-      <Toggle
-        label="Working hours only"
-        description={`Mute between ${draft.quietFrom} and ${draft.quietTo}`}
-        checked={draft.quietHours}
-        onToggle={() => setDraft({ ...draft, quietHours: !draft.quietHours })}
-      />
-
-      {/*
-        The window itself, editable — which is what keeps this a personal preference rather
-        than an invented working day. Rule 10 is about company facts awaiting sign-off (SLA
-        targets, the business's hours, categories, capacity); when THIS laptop should stay
-        quiet is none of them, and the numbers are the person's own the moment they change
-        one.
-
-        Shown only when the switch is on, because two time fields under an inactive switch
-        are two controls that do nothing.
-      */}
-      {draft.quietHours ? (
-        <div className="settings-row-block">
-          <span className="settings-row-label">
-            <strong>Quiet from</strong>
-            Nothing will appear on this device between these times.
-          </span>
-          <span className="settings-times">
-            <input
-              type="time"
-              aria-label="Quiet hours start"
-              value={draft.quietFrom}
-              onChange={(event) => setDraft({ ...draft, quietFrom: event.target.value })}
-            />
-            <span aria-hidden="true">to</span>
-            <input
-              type="time"
-              aria-label="Quiet hours end"
-              value={draft.quietTo}
-              onChange={(event) => setDraft({ ...draft, quietTo: event.target.value })}
-            />
-          </span>
-        </div>
-      ) : null}
-
-      <div className="settings-actions">
-        <button type="button" className="primary" disabled={!dirty} onClick={() => void save()}>
-          Save changes
-        </button>
-        <button type="button" disabled={!dirty} onClick={() => setDraft(saved)}>
-          Cancel
-        </button>
-      </div>
-
-      {note !== undefined ? (
-        <p className="settings-note" role="status">
-          {note}
-        </p>
-      ) : null}
-
-      <p className="settings-note">
-        These apply to this browser, and to every conversation equally. StarLink's own unread
-        counts and the bell are not a preference — they are how the product tells you a
-        conversation needs you (§29.6) — so nothing here can switch them off, and there is
-        deliberately no way to mute a single conversation.
-      </p>
-    </div>
   );
 }
 
@@ -508,6 +372,26 @@ function Privacy(): ReactNode {
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>();
+  const [agent, setAgent] = useState<string | undefined>();
+  const [session, setSession] = useState<
+    { startedAt: string; expiresAt: string; ip: string | null } | undefined
+  >();
+
+  useEffect(() => {
+    /* `navigator` does not exist while this renders on the server, and a guessed value
+       would be wrong on exactly the machines this row is about. */
+    setAgent(describeBrowser(window.navigator.userAgent));
+    let live = true;
+    void api
+      .me()
+      .then((me) => {
+        if (live && me.session !== undefined) setSession(me.session);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
 
   const run = async (): Promise<void> => {
     setBusy(true);
@@ -529,9 +413,43 @@ function Privacy(): ReactNode {
 
   return (
     <div className="settings-rows">
+      {/*
+        This session, which is the whole of what ADR-008 can honestly report.
+
+        The Devices page used to live here as its own section and say, at length, that
+        StarLink cannot list your devices. That is still true — a session is a signed
+        cookie carrying a version number, and nothing records the individual sessions that
+        exist — but a whole page explaining an absence is a page about nothing. What it
+        CAN say now sits in four rows beside the control that acts on it.
+
+        No location row: deriving one means sending the address to a geo-IP service, which
+        is a third party receiving employee network data and a data-residency question
+        under the IRDAI record rules. No MAC address: a browser cannot obtain one by any
+        API, so the field could only ever hold a guess.
+      */}
+      <p className="settings-row">
+        <span>This device</span>
+        <strong>{agent ?? '…'}</strong>
+      </p>
+      <p className="settings-row">
+        <span>Signed in</span>
+        <strong>{session === undefined ? '…' : whenSigned(session.startedAt)}</strong>
+      </p>
+      <p className="settings-row">
+        <span>Session ends</span>
+        <strong>{session === undefined ? '…' : whenSigned(session.expiresAt)}</strong>
+      </p>
+      <p className="settings-row">
+        <span>Address</span>
+        <strong>{session?.ip ?? '—'}</strong>
+      </p>
+
       <p className="settings-note">
-        StarLink has no password of its own to change — you sign in with the account the
-        company directory holds, and that is managed where the directory is.
+        StarLink cannot list your other devices, and would rather say so than show you a
+        made-up one: a session is a signed cookie checked against your account on every
+        request, so there is no per-device record to enumerate. What that gives you instead
+        is below, and it is stronger than a list — it takes effect on the next request
+        rather than whenever each device next checks in.
       </p>
 
       <div className="settings-row-block">
@@ -566,130 +484,6 @@ function Privacy(): ReactNode {
 }
 
 /**
- * Two different things called storage, kept apart.
- *
- * What the SERVER holds for this account — files you have attached that are still reachable
- * — and what THIS BROWSER holds: a theme, a keyboard preference and any unsent drafts. Only
- * the second can be cleared from here, and saying so is the point: a "clear storage" button
- * that quietly deleted colleagues' copies of a file would be a catastrophe wearing a
- * housekeeping label.
- */
-function Storage({ principalId }: { readonly principalId: string | undefined }): ReactNode {
-  const [usage, setUsage] = useState<{ files: number; bytes: number } | undefined>();
-  const [failed, setFailed] = useState(false);
-  const [cleared, setCleared] = useState<number | undefined>();
-
-  useEffect(() => {
-    let live = true;
-    void api
-      .storage()
-      .then((result) => {
-        if (live) setUsage(result);
-      })
-      .catch(() => {
-        if (live) setFailed(true);
-      });
-    return () => {
-      live = false;
-    };
-  }, []);
-
-  const clearDrafts = async (): Promise<void> => {
-    if (principalId === undefined) return;
-    const removed = await DraftStore.clearAllFor(principalId);
-    setCleared(removed);
-  };
-
-  return (
-    <div className="settings-rows">
-      <p className="settings-row">
-        <span>Files you have shared</span>
-        <strong>
-          {failed
-            ? 'Unavailable'
-            : usage === undefined
-              ? '…'
-              : `${usage.files} ${usage.files === 1 ? 'file' : 'files'}`}
-        </strong>
-      </p>
-      <p className="settings-row">
-        <span>Space they take</span>
-        <strong>{usage === undefined ? (failed ? '—' : '…') : formatBytes(usage.bytes)}</strong>
-      </p>
-      <p className="settings-note">
-        Counted across every conversation, and only files that are still reachable. A file
-        you shared belongs to the conversation as much as to you: deleting it here would take
-        it out from under the colleagues you sent it to, so this page reports and does not
-        remove.
-      </p>
-
-      <div className="settings-row-block">
-        <span className="settings-row-label">
-          <strong>Unsent drafts on this device</strong>
-          Messages you started and have not sent are kept in this browser so a reload does
-          not lose them. They never leave it.
-        </span>
-        <button type="button" onClick={() => void clearDrafts()} disabled={principalId === undefined}>
-          Clear drafts
-        </button>
-      </div>
-
-      {cleared !== undefined ? (
-        <p className="settings-note" role="status">
-          {cleared === 0
-            ? 'There were no saved drafts to clear.'
-            : `Cleared ${cleared} saved ${cleared === 1 ? 'draft' : 'drafts'}.`}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
-/**
- * Devices — what is true, not what a mock draws.
- *
- * A device list needs a record per session. ADR-008 deliberately does not keep one: a
- * StarLink session is a signed cookie carrying the principal's `sessionVersion`, and the
- * whole point of that design is that reading it costs no lookup. A row written on every
- * sign-in and read on every request is exactly the thing it exists to avoid, so a device
- * list is an architecture decision and not a screen.
- *
- * So this section says what it can: which browser is asking, and the one control that does
- * reach the others. Being told "we cannot list your devices, here is what we can do" is more
- * use than a list of two plausible rows nobody can verify.
- */
-function Devices(): ReactNode {
-  const [agent, setAgent] = useState<string | undefined>();
-
-  useEffect(() => {
-    // Read in an effect: `navigator` does not exist while this renders on the server, and a
-    // guessed value would be wrong on exactly the machines this section is about.
-    setAgent(describeBrowser(window.navigator.userAgent));
-  }, []);
-
-  return (
-    <div className="settings-rows">
-      <p className="settings-row">
-        <span>This device</span>
-        <strong>{agent ?? '…'}</strong>
-      </p>
-
-      <p className="settings-note">
-        StarLink cannot show you a list of your other devices, and would rather say so than
-        show you a made-up one. A session here is a signed cookie that carries a version
-        number and is checked against your account on every request — there is no record of
-        individual devices to list.
-      </p>
-      <p className="settings-note">
-        What that design does give you is stronger than a list: ending every session, on every
-        device, takes effect on the next request rather than whenever each device next checks
-        in. It is under <strong>Privacy &amp; security</strong>.
-      </p>
-    </div>
-  );
-}
-
-/**
  * A user-agent string, reduced to the two facts a person recognises.
  *
  * Deliberately coarse. The full string is a fingerprint, and the question this row answers
@@ -716,35 +510,6 @@ export function describeBrowser(userAgent: string): string {
   return platform === undefined ? browser : `${browser} on ${platform}`;
 }
 
-/** A label, a line of explanation, and a switch. The design's own settings row. */
-function Toggle({
-  label,
-  description,
-  checked,
-  onToggle,
-}: {
-  readonly label: string;
-  readonly description: string;
-  readonly checked: boolean;
-  readonly onToggle: () => void;
-}): ReactNode {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      className="settings-toggle"
-      onClick={onToggle}
-    >
-      <span className="settings-row-label">
-        <strong>{label}</strong>
-        {description}
-      </span>
-      <span className="settings-switch" aria-hidden="true" />
-    </button>
-  );
-}
-
 /**
  * The phone's "You" tab — screen 08's fourth device.
  *
@@ -764,15 +529,21 @@ function YouPage({
   readonly onOpen: (section: SectionId) => void;
 }): ReactNode {
   const entry = useColleague(principalId);
-  const [storage, setStorage] = useState<{ files: number; bytes: number } | undefined>();
+  /*
+     The storage read is gone with the section it fed. Its value column said "1.2 GB" and
+     nothing on the page could act on the number, so the request was a round trip per open
+     to render a fact nobody used.
+  */
+  const [myStatus, setMyStatus] = useState<DeclaredStatusView | undefined>();
 
   useEffect(() => {
     let live = true;
     void api
-      .storage()
+      .myStatus()
       .then((result) => {
-        if (live) setStorage(result);
+        if (live) setMyStatus(result);
       })
+      /* No answer reads as Available, which is both the default and the safe fallback. */
       .catch(() => undefined);
     return () => {
       live = false;
@@ -789,13 +560,7 @@ function YouPage({
     if (id === 'appearance') {
       return theme === 'system' ? 'Match system' : theme === 'dark' ? 'Dark' : 'Light';
     }
-    if (id === 'storage') return storage === undefined ? undefined : formatBytes(storage.bytes);
-    if (id === 'notifications') {
-      const settings = readDeviceNotifications();
-      if (settings.direct) return 'All messages';
-      if (settings.groups) return 'Mentions only';
-      return 'Off';
-    }
+    if (id === 'status') return declaredStatusLabel(myStatus?.status ?? 'AVAILABLE');
     return undefined;
   };
 
@@ -862,13 +627,12 @@ function Chevron(): ReactNode {
 function SectionGlyph({ section }: { readonly section: SectionId }): ReactNode {
   const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.6 } as const;
   const paths: Partial<Record<SectionId, ReactNode>> = {
-    notifications: (
-      <path
-        d="M12 4a5 5 0 0 1 5 5v3.2l1.5 2.8h-13L7 12.2V9a5 5 0 0 1 5-5ZM10.2 18a1.9 1.9 0 0 0 3.6 0"
-        {...stroke}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+    status: (
+      <>
+        {/* A speech bubble with a dot: what you are saying about yourself. */}
+        <path d="M4 5.5h16v10H8.5L4 19V5.5Z" {...stroke} strokeLinejoin="round" />
+        <circle cx="12" cy="10.5" r="1.6" fill="currentColor" stroke="none" />
+      </>
     ),
     appearance: (
       <>
@@ -876,30 +640,10 @@ function SectionGlyph({ section }: { readonly section: SectionId }): ReactNode {
         <path d="M12 3v2M12 19v2M21 12h-2M5 12H3M18 6l-1.5 1.5M7.5 16.5 6 18M18 18l-1.5-1.5M7.5 7.5 6 6" {...stroke} strokeLinecap="round" />
       </>
     ),
-    chat: <path d="M4 5.5h16v10H8.5L4 19V5.5Z" {...stroke} strokeLinejoin="round" />,
     privacy: (
       <>
         <rect x="5" y="10.5" width="14" height="9" rx="2.5" {...stroke} />
         <path d="M8.2 10.5V8a3.8 3.8 0 0 1 7.6 0v2.5" {...stroke} strokeLinecap="round" />
-      </>
-    ),
-    storage: (
-      <path
-        d="M3.5 8.5h17v9a1.5 1.5 0 0 1-1.5 1.5H5a1.5 1.5 0 0 1-1.5-1.5v-9Zm0 0 1.2-2.6A1.5 1.5 0 0 1 6.1 5h3.3l1.6 2"
-        {...stroke}
-        strokeLinejoin="round"
-      />
-    ),
-    devices: (
-      <>
-        <rect x="3.5" y="5.5" width="12" height="10" rx="1.5" {...stroke} />
-        <rect x="16.5" y="9.5" width="4" height="9" rx="1.2" {...stroke} />
-      </>
-    ),
-    about: (
-      <>
-        <circle cx="12" cy="12" r="8.2" {...stroke} />
-        <path d="M12 11v5M12 8.2v.6" {...stroke} strokeLinecap="round" />
       </>
     ),
   };
@@ -963,4 +707,156 @@ function InstallCard(): ReactNode {
       </span>
     </button>
   );
+}
+
+/**
+ * What you say you are doing.
+ *
+ * ## Set, never guessed
+ *
+ * Nothing here watches a keyboard or an idle timer. §21.9 forbids inferring availability
+ * from a socket, and this page is the other half of that rule: if the system may not
+ * guess, the person has to be able to say. Presence — the green dot — goes on doing its
+ * own job beside this and the two are never merged.
+ *
+ * ## Everything except Available expires
+ *
+ * Because people forget. The colleague who set "in a meeting" on Tuesday morning is not
+ * still in it on Friday, and a reader burned by that once stops believing any of them. The
+ * duration is required, and Available takes none because it is the absence of a claim
+ * rather than a claim of its own.
+ *
+ * ## Optimistic, and reverted on failure
+ *
+ * A control that waits for a round trip before moving reads as broken; one that moves and
+ * stays moved after a refusal is a lie.
+ */
+function DeclaredStatusSettings({
+  current,
+  onChanged,
+}: {
+  readonly current: DeclaredStatusView | undefined;
+  readonly onChanged: (next: DeclaredStatusView) => void;
+}): ReactNode {
+  const status = current?.status ?? 'AVAILABLE';
+  const [minutes, setMinutes] = useState<number>(STATUS_DURATIONS_MINUTES[1]);
+  const [problem, setProblem] = useState<string | undefined>();
+  const [busy, setBusy] = useState(false);
+
+  const choose = async (next: string): Promise<void> => {
+    setProblem(undefined);
+    setBusy(true);
+    const previous = current;
+    /* Moved immediately, with the expiry the server is about to compute mirrored locally
+       so the "until" line does not flicker in as a second step. */
+    onChanged({
+      principalId: current?.principalId ?? '',
+      status: next,
+      setAt: new Date().toISOString(),
+      ...(next === 'AVAILABLE'
+        ? {}
+        : { clearsAt: new Date(Date.now() + minutes * 60_000).toISOString() }),
+    });
+    try {
+      const saved = await api.setMyStatus(next, next === 'AVAILABLE' ? undefined : minutes);
+      onChanged({
+        principalId: current?.principalId ?? '',
+        status: saved.status,
+        setAt: new Date().toISOString(),
+        ...(saved.clearsAt !== null ? { clearsAt: saved.clearsAt } : {}),
+      });
+    } catch {
+      if (previous !== undefined) onChanged(previous);
+      setProblem('That could not be saved.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="settings-rows">
+      <div className="settings-row-block">
+        <span className="settings-row-label">
+          <strong>Your status</strong>
+          Colleagues see this beside your name. Nothing is guessed from how long you have
+          been idle.
+        </span>
+        <div className="settings-choice status-choice" role="radiogroup" aria-label="Status">
+          {DECLARED_STATUSES.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={status === option}
+              disabled={busy}
+              className={`status-option status-${option.toLowerCase()}`}
+              onClick={() => void choose(option)}
+            >
+              {declaredStatusLabel(option)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/*
+        The duration, offered BEFORE the status is chosen rather than after.
+
+        A second dialog asking "for how long?" turns one decision into two, and the answer
+        is almost always the same one. Choosing it first means pressing "Busy" is a single
+        act with a known end. Hidden while Available is selected, because that one takes no
+        expiry and a disabled control here would only invite the question of why.
+      */}
+      {status !== 'AVAILABLE' || busy ? (
+        <div className="settings-row-block">
+          <span className="settings-row-label">
+            <strong>For how long</strong>
+            Every status ends. The longest is a working day, after which you say it again.
+          </span>
+          <div className="settings-choice" role="radiogroup" aria-label="Duration">
+            {STATUS_DURATIONS_MINUTES.map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={minutes === option}
+                onClick={() => {
+                  setMinutes(option);
+                  if (status !== 'AVAILABLE') void choose(status);
+                }}
+              >
+                {muteDurationLabel(option)}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {current?.clearsAt !== undefined ? (
+        <p className="settings-note">
+          {declaredStatusLabel(status)} until{' '}
+          {new Date(current.clearsAt).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+          . After that, colleagues see nothing beside your name.
+        </p>
+      ) : null}
+
+      {problem !== undefined ? (
+        <p className="settings-note" role="alert">
+          {problem}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** "4 Sep, 14:03" — a session instant, short enough for a settings row. */
+function whenSigned(at: string): string {
+  return new Date(at).toLocaleString([], {
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
 }

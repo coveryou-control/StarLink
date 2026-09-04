@@ -7922,3 +7922,195 @@ input[type='search']::-webkit-search-cancel-button {
   text-transform: uppercase;
   vertical-align: 1px;
 }
+
+/* =====================================================================================
+   Chat backgrounds.
+
+   Four grounds for the thread, chosen in Settings › Appearance and stored per device. They
+   compose with light/dark rather than multiplying against it: each block below sets only
+   the tokens that differ, and the dark variants sit beside them.
+
+   What these may change is the thread's ground, the pattern on it, and the two bubble
+   colours. What they may NOT change is the accent — CY Orange identifies the send button,
+   the unread count and the active tab, and a background that repainted it would be a
+   different product wearing the same name.
+
+   `constellation` needs no block: it is what `chat-wallpaper.css` already defines on bare
+   `:root`, so the default is the absence of an attribute and a browser with site data
+   blocked lands on it rather than on nothing.
+   ===================================================================================== */
+
+/*
+   Plain — no pattern at all.
+
+   Not an oversight and not a lesser option. A texture behind text is a preference, and
+   offering a wallpaper with no way off it is the complaint every messenger with one
+   eventually receives.
+*/
+:root[data-chat-bg='plain'] {
+  --thread-ground: var(--surface-raised);
+  --thread-wallpaper: none;
+}
+
+:root[data-chat-bg='plain'][data-theme='dark'] {
+  --thread-ground: var(--surface-raised);
+}
+
+/*
+   Graph — a faint square grid, 24px.
+
+   The one that survives a screen share into a meeting: it reads as paper rather than as
+   decoration, and at 4% it is texture from a foot away and invisible from three.
+
+   Two gradients rather than an SVG: a repeating linear gradient is a handful of bytes
+   against the constellation's kilobyte, and a grid has no shape worth authoring.
+*/
+:root[data-chat-bg='graph'] {
+  --thread-ground: #f7f8fa;
+  --thread-wallpaper:
+    repeating-linear-gradient(
+      to right,
+      rgb(43 58 99 / 6%) 0 1px,
+      transparent 1px 24px
+    ),
+    repeating-linear-gradient(to bottom, rgb(43 58 99 / 6%) 0 1px, transparent 1px 24px);
+}
+
+:root[data-chat-bg='graph'][data-theme='dark'] {
+  --thread-ground: #12151c;
+  --thread-wallpaper:
+    repeating-linear-gradient(to right, rgb(255 255 255 / 5%) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(to bottom, rgb(255 255 255 / 5%) 0 1px, transparent 1px 24px);
+}
+
+/*
+   Dusk — the constellation on a deeper ground.
+
+   For running the machine light and the thread quieter than the panels around it, which is
+   how a lot of people actually work: bright chrome, dim reading surface. The wallpaper is
+   inherited from `:root`, so only the ground and the bubbles move.
+
+   The incoming bubble lifts rather than darkens. On a dim ground a bubble darker than the
+   ground disappears into it, and the thing that has to stay readable is the message.
+*/
+:root[data-chat-bg='dusk'] {
+  --thread-ground: #e7eaf1;
+  --bubble-them: #ffffff;
+}
+
+:root[data-chat-bg='dusk'][data-theme='dark'] {
+  --thread-ground: #0c0e14;
+  --bubble-them: #1b1f2a;
+}
+
+/*
+   The background picker's swatches.
+
+   A named button with a sample of the thing it selects, because "Graph" and "Dusk" mean
+   nothing until you have seen them once — and a row of four words would make somebody
+   choose blind and then undo it.
+
+   Each swatch paints the option's own ground and pattern LITERALLY, using the same
+   declarations the thread uses, so the sample cannot drift from what it is a sample of.
+*/
+.chat-bg-choice {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chat-bg-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-bg-swatch {
+  width: 22px;
+  height: 16px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background-color: #f7f8fa;
+  background-image: none;
+  background-size: 44px 44px;
+}
+
+.chat-bg-plain .chat-bg-swatch {
+  background-color: var(--surface-raised);
+}
+
+.chat-bg-graph .chat-bg-swatch {
+  background-image:
+    repeating-linear-gradient(to right, rgb(43 58 99 / 22%) 0 1px, transparent 1px 6px),
+    repeating-linear-gradient(to bottom, rgb(43 58 99 / 22%) 0 1px, transparent 1px 6px);
+}
+
+.chat-bg-constellation .chat-bg-swatch {
+  /* The pattern itself, scaled right down: the tile is 340px and the swatch is 22px, so
+     the sample shows a couple of stars rather than a fragment of one link. */
+  background-image: var(--thread-wallpaper);
+  background-size: 60px 60px;
+}
+
+.chat-bg-dusk .chat-bg-swatch {
+  background-color: #e7eaf1;
+  background-image: var(--thread-wallpaper);
+  background-size: 60px 60px;
+}
+
+/*
+   The status picker, tinted by what each option means.
+
+   Colour is never the only signal — every button carries its own word — but somebody who
+   has learned that amber is "away" should not have to read four labels to find it.
+*/
+.status-choice {
+  flex-wrap: wrap;
+}
+
+.status-option[aria-checked='true'].status-busy {
+  border-color: var(--critical-label, var(--danger));
+  color: var(--critical-label, var(--danger));
+}
+
+.status-option[aria-checked='true'].status-in_a_meeting {
+  border-color: var(--info-label, var(--info));
+  color: var(--info-label, var(--info));
+}
+
+.status-option[aria-checked='true'].status-away {
+  border-color: var(--warning-label, #a2670a);
+  color: var(--warning-label, #a2670a);
+}
+
+/*
+   The badge beside a name.
+
+   Words, not a dot: the dot is already taken by presence, and two dots meaning two
+   different things is worse than one dot and one word. The tint is behind the text so it
+   survives greyscale (NFR-ACC-3).
+*/
+.status-badge {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-badge.status-busy {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--critical-label, var(--danger));
+}
+
+.status-badge.status-in_a_meeting {
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  color: var(--info-label, var(--info));
+}
+
+.status-badge.status-away {
+  background: color-mix(in srgb, #a2670a 12%, transparent);
+  color: var(--warning-label, #a2670a);
+}

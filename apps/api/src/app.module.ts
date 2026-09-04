@@ -37,6 +37,7 @@ import {
   PgReactionStore,
   PgPinStore,
   PgMessageInfoStore,
+  PgStatusStore,
   PgMessageStore,
   PgNotificationOutbox,
   PgNotificationPreferences,
@@ -93,6 +94,7 @@ import {
   REACTION_STORE,
   PIN_STORE,
   MESSAGE_INFO_STORE,
+  STATUS_STORE,
   MESSAGE_STORE,
   NOTIFICATION_OUTBOX,
   NOTIFICATION_PREFERENCES,
@@ -119,6 +121,7 @@ import { EmployeeAdminController } from './employee/admin.controller.js';
 import { EmployeeConversationsController } from './employee/conversations.controller.js';
 import { EmployeeMessagesController } from './employee/messages.controller.js';
 import { EmployeeDirectoryController } from './employee/directory.controller.js';
+import { StatusController } from './employee/status.controller.js';
 import { EmployeeSearchController } from './employee/search.controller.js';
 import { EmployeeRoutingController } from './employee/routing.controller.js';
 import { EmployeeLifecycleController } from './employee/lifecycle.controller.js';
@@ -228,6 +231,7 @@ const providers: Provider[] = [
   { provide: REACTION_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgReactionStore(pool) },
   { provide: PIN_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgPinStore(pool) },
   { provide: MESSAGE_INFO_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgMessageInfoStore(pool) },
+  { provide: STATUS_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgStatusStore(pool) },
   {
     provide: CONVERSATION_STORE,
     inject: [DATABASE],
@@ -667,6 +671,7 @@ const providers: Provider[] = [
     EmployeeMessagesController,
     EmployeeSearchController,
     EmployeeDirectoryController,
+    StatusController,
     EmployeeRoutingController,
     EmployeeLifecycleController,
     EmployeeAttachmentsController,

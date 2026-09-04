@@ -22,6 +22,7 @@ import { watchSystemTheme } from '../../lib/theme';
 import { onShellAction, requestNewConversation } from '../../lib/shell-actions';
 import { useNotifications } from '../../lib/use-notifications';
 import { usePresence } from '../../lib/use-presence';
+import { useDeclaredStatuses } from '../../lib/use-declared-status';
 import { PresenceProvider } from '../../components/presence';
 import { ActiveConversationProvider } from '../../components/active-conversation';
 
@@ -119,6 +120,9 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
     [conversations],
   );
   const online = usePresence(listedPrincipals);
+  /* The same faces, asked a different question — see `use-declared-status.ts` for why
+     presence and a declared status are never merged. */
+  const declaredStatuses = useDeclaredStatuses(listedPrincipals);
 
   /**
    * The conversation the thread pane is showing, handed down so its header can name it.
@@ -240,7 +244,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   }
 
   return (
-    <PresenceProvider online={online}>
+    <PresenceProvider online={online} statuses={declaredStatuses}>
     <div
       className="app-shell"
       data-section={section}
