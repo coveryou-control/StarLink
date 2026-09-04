@@ -264,9 +264,20 @@ export function ConversationList({
           */
           const senderName =
             avatarFor(conversation).isGroup && conversation.lastMessageSenderId !== undefined
-              ? (conversation.participants ?? []).find(
-                  (person) => person.principalId === conversation.lastMessageSenderId,
-                )?.displayName
+              ? /*
+                   "You" when it was you.
+
+                   `participants` is the OTHER people in the conversation — the reader is
+                   not in their own summary — so looking the sender up there returns
+                   nothing for your own messages, and half the rows in a group-heavy list
+                   lost their prefix while the other half kept it. That reads as a bug in
+                   the prefix rather than as a fact about who spoke.
+                */
+                conversation.lastMessageSenderId === currentPrincipalId
+                ? 'You'
+                : (conversation.participants ?? []).find(
+                    (person) => person.principalId === conversation.lastMessageSenderId,
+                  )?.displayName
               : undefined;
 
           /*

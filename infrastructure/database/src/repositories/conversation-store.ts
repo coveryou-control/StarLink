@@ -440,10 +440,30 @@ export class PgConversationReader implements ConversationReader {
                 ) picked
                 JOIN identity.principals ip ON ip.principal_id = picked.principal_id
          ) others ON c.conversation_type::text LIKE 'INTERNAL%'
+         /*
+            Who wrote the message the PREVIEW is showing - the same one, not merely the
+            newest row.
+
+            No backticks in here: this SQL is a JS template literal, and one would end the
+            string. The symptom is a parse error on the line AFTER the comment, which
+            points at innocent code.
+
+            last_message_preview is derived from the newest NON-REDACTED message (see
+            refreshPreview), and this lateral had no such filter. Delete the last message
+            in a group and the row then showed the previous message's text under the
+            deleter's name: a sentence one person wrote, attributed to another. The
+            attribution draws the "Name: text" prefix on a group row, so a wrong name is a
+            visible lie rather than a missing detail.
+
+            A system note (a membership change) carries no sender, so this yields NULL and
+            the row falls back to the bare preview. That is the honest outcome: nobody
+            said it.
+         */
          LEFT JOIN LATERAL (
               SELECT lm.sender_principal_id
                 FROM conversation.messages lm
                WHERE lm.conversation_id = c.conversation_id
+                 AND lm.redacted_at IS NULL
                ORDER BY lm.seq DESC
                LIMIT 1
          ) newest ON true
