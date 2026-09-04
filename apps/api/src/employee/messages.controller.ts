@@ -47,13 +47,19 @@ import {
   REACTION_STORE,
   PIN_STORE,
   MESSAGE_INFO_STORE,
+  HIDDEN_MESSAGE_STORE,
   READ_STATE_STORE,
 } from '../tokens.js';
 import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
 import { AttachmentService } from '../attachments/attachment-service.js';
 import type { AuditWriter } from '../audit/audit-writer.js';
 import { ConversationNotifier } from '../notifications/conversation-notifier.js';
-import type { PgMessageInfoStore, PgPinStore, PgReactionStore } from '@starlink/database';
+import type {
+  PgHiddenMessageStore,
+  PgMessageInfoStore,
+  PgPinStore,
+  PgReactionStore,
+} from '@starlink/database';
 
 /** Structural, not the class: the controller needs the two methods, not the pool. */
 type ReactionStore = Pick<PgReactionStore, 'forMessages' | 'add' | 'remove' | 'conversationOf'>;
@@ -166,6 +172,7 @@ export class EmployeeMessagesController {
     @Inject(REACTION_STORE) private readonly reactions: ReactionStore,
     @Inject(PIN_STORE) private readonly pins: PgPinStore,
     @Inject(MESSAGE_INFO_STORE) private readonly messageInfoStore: PgMessageInfoStore,
+    @Inject(HIDDEN_MESSAGE_STORE) private readonly hidden: PgHiddenMessageStore,
     @Inject(ConversationNotifier) private readonly notifier: ConversationNotifier,
     @Inject(READ_STATE_STORE) private readonly readState: ReadStateStore,
   ) {}
@@ -451,6 +458,12 @@ export class EmployeeMessagesController {
      * gets the same shape, and `mine` is computed against the reader — the ids themselves
      * never leave the server.
      */
+    /* Which of this page's messages this reader has chosen not to see. */
+    const hiddenHere = await this.hidden.hiddenAmong(
+      messages.map((m) => m.messageId),
+      session.principalId,
+    );
+
     const reactionsByMessage = new Map<string, { emoji: string; count: number; mine: boolean }[]>();
     for (const row of await this.reactions.forMessages(messages.map((m) => m.messageId))) {
       const list = reactionsByMessage.get(row.messageId) ?? [];
@@ -501,7 +514,21 @@ export class EmployeeMessagesController {
        * BR-23 makes the kind the real fact; this returns it.
        */
       conversationType,
-      messages: messages.map((m) => ({
+      /*
+         "Delete for me", applied.
+
+         One indexed lookup with the page's own ids — almost always returning nothing,
+         because hiding a message is rare. Filtered HERE rather than in the reader's query
+         so the shared message reader does not grow a principal-scoped LEFT JOIN that every
+         caller pays for and most do not want.
+
+         The paging cursor is unaffected: it is keyed on `seq`, and a hidden message simply
+         is not in the array. A page can therefore come back shorter than the limit without
+         meaning the end of the conversation, which is already true of nothing else here —
+         and is why the cursor is computed from the reader's own page below rather than
+         from what survives this filter.
+      */
+      messages: messages.filter((m) => !hiddenHere.has(m.messageId)).map((m) => ({
         messageId: m.messageId,
         seq: m.seq,
         visibility: m.visibility,
@@ -820,6 +847,53 @@ export class EmployeeMessagesController {
     }
 
     return { messageId: result.message.messageId, conversationId: parsed.data.toConversationId };
+  }
+
+  /**
+   * Hides one message from the caller's own view — "delete for me".
+   *
+   * ## Why this is not the DELETE beside it
+   *
+   * `DELETE /messages/:id` is a redaction: it clears the body for every reader, it is
+   * recorded, and only the author may do it. This is the other question — "I do not want
+   * to see this any more" — and the two must not share a route, because getting the method
+   * wrong on a shared path would reach the destructive one.
+   *
+   * ## Anybody who can read it can hide it
+   *
+   * Including somebody else's message, which is the common case: the thing people want out
+   * of their timeline is usually not their own. Authorized with `conversation.read`,
+   * because that is exactly the right this acts on — your own view of what you may see.
+   *
+   * ## It changes nothing shared
+   *
+   * The message is untouched, every other reader still sees it, and the audit ledger does
+   * not move. Rule 8 and BR-09 are about the record, and this writes a row saying one
+   * person would rather not look at it.
+   */
+  @Post(':messageId/hide')
+  async hide(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    if (!conversationId.success || !messageId.success) return refuse();
+
+    /* The message must be in the conversation named in the path, or the read check below
+       authorizes against the wrong object. */
+    const owner = await this.pins.conversationOf(messageId.data);
+    if (owner === undefined || owner !== conversationId.data) return refuse();
+
+    if (!(await this.mayReadIn(conversationId.data, request))) return refuse();
+
+    await this.hidden.hide(
+      messageId.data,
+      request.session!.principalId,
+      new Date().toISOString(),
+    );
+    return { hidden: true };
   }
 
   /**

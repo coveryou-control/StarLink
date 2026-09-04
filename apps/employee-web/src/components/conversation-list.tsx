@@ -11,6 +11,7 @@ import {
 } from './conversation-naming';
 import { PresenceDot } from './presence';
 import { GroupGlyph } from './group-glyph';
+import { AvatarImage, ConversationAvatarImage } from './avatar-image';
 import { ConversationRowMenu } from './conversation-row-menu';
 import { api } from '../lib/api-client';
 import { MAX_PINNED_CONVERSATIONS } from '@starlink/shared-contracts';
@@ -38,6 +39,13 @@ interface ConversationListProps {
    * so a row that reordered itself locally would disagree with the next page fetched.
    */
   readonly onPinChanged?: (() => void) | undefined;
+  /**
+   * conversationId → the principal currently typing in it.
+   *
+   * Only for conversations you are NOT looking at: the open thread draws its own indicator
+   * above the composer, and two of them on one screen saying the same thing is noise.
+   */
+  readonly typing?: ReadonlyMap<string, string> | undefined;
 }
 
 /**
@@ -118,6 +126,7 @@ export function ConversationList({
   loadingMore = false,
   currentPrincipalId,
   onPinChanged,
+  typing,
 }: ConversationListProps): ReactNode {
   const [filter, setFilter] = useState<Filter>('all');
   /** The row a right-click opened a menu for, and where the pointer was. */
@@ -314,6 +323,29 @@ export function ConversationList({
              nothing said in it read "Group", a label the row's own avatar and name already
              carry. What is actually true of that row is that it is empty, so it says so.
           */
+          /*
+             Somebody typing replaces the preview, because it is newer than it.
+
+             Suppressed on the conversation you are already in: that one draws its own
+             indicator above the composer, and the same claim in two places on one screen
+             reads as two people typing.
+
+             The name is resolved from the participants the row already carries, and a
+             signal from somebody the summary does not list falls back to the preview
+             rather than to "Someone" — an unattributed "typing…" on a row is less useful
+             than the last thing that was actually said.
+          */
+          const typist =
+            conversation.conversationId === activeId
+              ? undefined
+              : typing?.get(conversation.conversationId);
+          const typistName =
+            typist === undefined
+              ? undefined
+              : (conversation.participants ?? []).find(
+                  (person) => person.principalId === typist,
+                )?.displayName;
+
           const secondary =
             preview !== undefined && preview !== ''
               ? senderName !== undefined
@@ -352,9 +384,21 @@ export function ConversationList({
                     aria-hidden="true"
                   >
                     {avatarFor(conversation).isGroup ? (
-                      <GroupGlyph />
+                      <>
+                        <GroupGlyph />
+                        <ConversationAvatarImage conversationId={conversation.conversationId} />
+                      </>
                     ) : (
-                      avatarFor(conversation).text
+                      <>
+                        {/* The picture sits OVER the initials rather than replacing them:
+                            if it fails to load, what shows through is the letters rather
+                            than an empty circle. */}
+                        {avatarFor(conversation).text}
+                        <AvatarImage
+                          principalId={conversation.participants?.[0]?.principalId}
+                          alt=""
+                        />
+                      </>
                     )}
                   </span>
                   {(conversation.participants ?? []).length === 1 ? (
@@ -387,7 +431,20 @@ export function ConversationList({
                   </span>
 
                   <span className="row-bottom">
-                    <span className="row-preview">{secondary}</span>
+                    {typistName !== undefined ? (
+                      <span className="row-preview row-typing">
+                        <span className="typing-dots" aria-hidden="true">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                        {avatarFor(conversation).isGroup
+                          ? `${typistName} is typing`
+                          : 'typing'}
+                      </span>
+                    ) : (
+                      <span className="row-preview">{secondary}</span>
+                    )}
                     {unread > 0 ? (
                       <span
                         // The visible badge is a numeral; the accessible name spells it

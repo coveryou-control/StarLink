@@ -2,8 +2,15 @@ export { PgMessageStore, PgMessageReader } from './message-store.js';
 export { PgReactionStore, type ReactionRow } from './reaction-store.js';
 export { PgStatusStore, type DeclaredStatusRow } from './status-store.js';
 export {
+  PgAvatarStore,
+  looksLikeImage,
+  type AvatarRow,
+  type AvatarStamp,
+} from './avatar-store.js';
+export {
   PgPinStore,
   PgMessageInfoStore,
+  PgHiddenMessageStore,
   type PinnedMessageRow,
   type MessageReaderRow,
 } from './pin-store.js';

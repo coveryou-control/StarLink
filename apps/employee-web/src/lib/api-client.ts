@@ -880,6 +880,52 @@ export const api = {
       `${employeeRoutes.statuses}?ids=${principalIds.join(',')}`,
     ),
 
+  /**
+   * Sets the caller's own picture.
+   *
+   * The bytes have already been through a canvas on the client — see `avatar-picker.tsx`,
+   * which is where the safety comes from. The server re-checks size, type and the bytes'
+   * own signature regardless, because a caller can skip the client.
+   */
+  setMyAvatar: (base64: string, contentType = 'image/png') =>
+    request<{ updatedAt: string }>(employeeRoutes.auth.avatar, {
+      method: 'PUT',
+      body: JSON.stringify({ base64, contentType }),
+    }),
+
+  removeMyAvatar: () =>
+    request<{ removed: boolean }>(employeeRoutes.auth.avatar, { method: 'DELETE' }),
+
+  setConversationAvatar: (conversationId: string, base64: string, contentType = 'image/png') =>
+    request<{ updatedAt: string }>(employeeRoutes.conversations.avatar(conversationId), {
+      method: 'PUT',
+      body: JSON.stringify({ base64, contentType }),
+    }),
+
+  /**
+   * Which of these people have a picture, and when each last changed.
+   *
+   * Stamps, not bytes: the list draws thirty avatars and needs to know which of them to
+   * point at an image and what to hang on the URL so a changed one is not served from
+   * cache. Fetching the images to decide whether to draw initials would move megabytes.
+   */
+  avatarStamps: (principalIds: readonly string[]) =>
+    request<{ avatars: readonly { id: string; updatedAt: string }[] }>(
+      `${employeeRoutes.avatarStamps}?ids=${principalIds.join(',')}`,
+    ),
+
+  /**
+   * Hides one message from your own view — "delete for me".
+   *
+   * Not `deleteMessage`, which is a redaction: that clears the body for every reader and
+   * only the author may do it. This changes one person's timeline and tells nobody.
+   */
+  hideMessage: (conversationId: string, messageId: string) =>
+    request<{ hidden: boolean }>(
+      employeeRoutes.conversations.hideMessage(conversationId, messageId),
+      { method: 'POST' },
+    ),
+
   /** Ends every session this account holds, including this browser's. */
   signOutEverywhere: () =>
     request<void>(employeeRoutes.auth.signOutEverywhere, { method: 'POST' }),

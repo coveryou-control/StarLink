@@ -262,6 +262,24 @@ export default function ThreadPage(): ReactNode {
   const [deleting, setDeleting] = useState<MessageView | undefined>();
   /** The message a forward has been started for, and the one an info panel is open on. */
   const [forwarding, setForwarding] = useState<MessageView | undefined>();
+
+  /**
+   * "Delete for me": removes the message from THIS reader's timeline and nobody else's.
+   *
+   * Dropped locally at once and confirmed by the next fetch, which is the same shape as
+   * the redaction path — a message that lingers for a round trip after you asked it to go
+   * reads as the control not having worked.
+   */
+  const hideMessage = useCallback(
+    (message: MessageView) => {
+      setMessages((current) => current.filter((m) => m.messageId !== message.messageId));
+      void api
+        .hideMessage(conversationId, message.messageId)
+        .catch(() => refetch())
+        .then(() => undefined);
+    },
+    [conversationId, refetch],
+  );
   const [inspecting, setInspecting] = useState<MessageView | undefined>();
 
   /**
@@ -803,16 +821,44 @@ export default function ThreadPage(): ReactNode {
         />
       ) : null}
 
+      {/*
+        Delete asks first, and asks the real question.
+
+        Two options, because "delete" is two different acts. "For everyone" is a redaction:
+        the body is cleared for every reader and the act is in the audit ledger. "For me"
+        writes one row saying this reader would rather not see it — nothing shared moves,
+        and nobody else is told.
+
+        Both are named side by side deliberately. The danger is somebody pressing "for me"
+        believing it reaches the other person, and the only defence against that is the two
+        sentences under the labels.
+
+        "For everyone" is offered only on your own messages, because the server refuses it
+        otherwise; "for me" is offered on anybody's, because the message you want out of
+        your timeline is usually not one you wrote.
+      */}
       {deleting !== undefined ? (
         <ConfirmDialog
           title="Delete message?"
-          body="The text is removed for everyone in this conversation. Who sent it, and when, stays in the record."
           choices={[
+            ...(deleting.senderPrincipalId === state.me.principalId
+              ? [
+                  {
+                    label: 'Delete for everyone',
+                    detail: 'The text goes for everybody here. Who sent it, and when, stays in the record.',
+                    tone: 'danger' as const,
+                    onChoose: () => {
+                      deleteMessage(deleting);
+                      setDeleting(undefined);
+                    },
+                  },
+                ]
+              : []),
             {
-              label: 'Delete for everyone',
-              tone: 'danger',
+              label: 'Delete for me',
+              detail: 'Hides it from your view only. Everybody else still sees it.',
               onChoose: () => {
-                deleteMessage(deleting);
+                hideMessage(deleting);
                 setDeleting(undefined);
               },
             },

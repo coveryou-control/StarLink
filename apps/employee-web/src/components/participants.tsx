@@ -27,6 +27,8 @@
 import { useEffect, useState } from 'react';
 import { initialsFor } from './conversation-naming';
 import { PresenceDot, useOnlineSet } from './presence';
+import { AvatarImage } from './avatar-image';
+import { AvatarPicker } from './avatar-picker';
 import { useActiveConversation } from './active-conversation';
 import { useSession } from './session-provider';
 import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
@@ -92,6 +94,10 @@ export function Participants({
   const [renaming, setRenaming] = useState(false);
   /** Whether the name is being edited. Closed by default — see the pencil below. */
   const [editingName, setEditingName] = useState(false);
+  /* Set once a picture has been uploaded in this session, so the button says "Change"
+     rather than "Upload" afterwards. The panel does not otherwise know whether a group has
+     one — the image either loads or 404s, and asking would be a request per panel open. */
+  const [groupPictureAt, setGroupPictureAt] = useState<string | undefined>();
 
   /**
    * The field follows the conversation when it changes underneath — somebody else renaming
@@ -236,6 +242,27 @@ export function Participants({
         able to revert, and Escape reverting to the current title is the behaviour somebody
         who opened it by accident expects.
       */}
+      {/*
+        The group's picture.
+
+        Anybody who may speak here may change it — the same rule as pinning, and for the
+        same reason: it is a change to what every participant sees rather than to your own
+        view. Removing it is deliberately absent; the default multi-person glyph is what a
+        group has before anybody sets one, and "remove" would need a second endpoint to
+        express something a new upload already expresses.
+      */}
+      {isGroup ? (
+        <AvatarPicker
+          label="Choose a picture for this group"
+          hasPicture={groupPictureAt !== undefined}
+          onChosen={async (base64) => {
+            const saved = await api.setConversationAvatar(conversationId, base64);
+            setGroupPictureAt(saved.updatedAt);
+            onChanged();
+          }}
+        />
+      ) : null}
+
       {isGroup ? (
         editingName ? (
           <form
@@ -327,6 +354,7 @@ export function Participants({
                 <span className="avatar-wrap">
                   <span className="row-avatar" aria-hidden="true">
                     {initialsFor(m.displayName)}
+                    <AvatarImage principalId={m.principalId} alt="" />
                   </span>
                   <PresenceDot principalId={m.principalId} />
                 </span>

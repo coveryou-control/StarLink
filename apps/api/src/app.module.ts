@@ -38,6 +38,8 @@ import {
   PgPinStore,
   PgMessageInfoStore,
   PgStatusStore,
+  PgAvatarStore,
+  PgHiddenMessageStore,
   PgMessageStore,
   PgNotificationOutbox,
   PgNotificationPreferences,
@@ -95,6 +97,8 @@ import {
   PIN_STORE,
   MESSAGE_INFO_STORE,
   STATUS_STORE,
+  AVATAR_STORE,
+  HIDDEN_MESSAGE_STORE,
   MESSAGE_STORE,
   NOTIFICATION_OUTBOX,
   NOTIFICATION_PREFERENCES,
@@ -122,6 +126,7 @@ import { EmployeeConversationsController } from './employee/conversations.contro
 import { EmployeeMessagesController } from './employee/messages.controller.js';
 import { EmployeeDirectoryController } from './employee/directory.controller.js';
 import { StatusController } from './employee/status.controller.js';
+import { AvatarController } from './employee/avatar.controller.js';
 import { EmployeeSearchController } from './employee/search.controller.js';
 import { EmployeeRoutingController } from './employee/routing.controller.js';
 import { EmployeeLifecycleController } from './employee/lifecycle.controller.js';
@@ -232,6 +237,8 @@ const providers: Provider[] = [
   { provide: PIN_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgPinStore(pool) },
   { provide: MESSAGE_INFO_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgMessageInfoStore(pool) },
   { provide: STATUS_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgStatusStore(pool) },
+  { provide: AVATAR_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgAvatarStore(pool) },
+  { provide: HIDDEN_MESSAGE_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgHiddenMessageStore(pool) },
   {
     provide: CONVERSATION_STORE,
     inject: [DATABASE],
@@ -672,6 +679,7 @@ const providers: Provider[] = [
     EmployeeSearchController,
     EmployeeDirectoryController,
     StatusController,
+    AvatarController,
     EmployeeRoutingController,
     EmployeeLifecycleController,
     EmployeeAttachmentsController,

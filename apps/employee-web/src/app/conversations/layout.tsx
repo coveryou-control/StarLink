@@ -23,6 +23,9 @@ import { onShellAction, requestNewConversation } from '../../lib/shell-actions';
 import { useNotifications } from '../../lib/use-notifications';
 import { usePresence } from '../../lib/use-presence';
 import { useDeclaredStatuses } from '../../lib/use-declared-status';
+import { useAvatarStamps } from '../../lib/use-avatar-stamps';
+import { useConversationTyping } from '../../lib/use-conversation-typing';
+import { AvatarStampProvider } from '../../components/avatar-image';
 import { PresenceProvider } from '../../components/presence';
 import { ActiveConversationProvider } from '../../components/active-conversation';
 
@@ -123,6 +126,22 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   /* The same faces, asked a different question — see `use-declared-status.ts` for why
      presence and a declared status are never merged. */
   const declaredStatuses = useDeclaredStatuses(listedPrincipals);
+  /*
+     Which of the faces on screen have a picture, asked once for all of them.
+
+     Thirty rows each firing a request to discover a 404 is thirty round trips to draw
+     initials. Same shape as presence: the shell asks, the tree reads.
+  */
+  const avatarStamps = useAvatarStamps(listedPrincipals);
+  /*
+     Typing in conversations the person is NOT looking at, so the list row can say so.
+
+     The open thread has always had this; the list never subscribed to anything, which is
+     why the signal existed and appeared in exactly one place.
+  */
+  const typingByConversation = useConversationTyping(
+    useMemo(() => conversations.map((c) => c.conversationId), [conversations]),
+  );
 
   /**
    * The conversation the thread pane is showing, handed down so its header can name it.
@@ -245,6 +264,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
 
   return (
     <PresenceProvider online={online} statuses={declaredStatuses}>
+      <AvatarStampProvider stamps={avatarStamps}>
     <div
       className="app-shell"
       data-section={section}
@@ -462,6 +482,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                     /* Pinned conversations sort first in the server's own ORDER BY, so a
                        pin is a re-read rather than a local reorder. */
                     onPinChanged={() => void refresh()}
+                    typing={typingByConversation}
                   />
                 )}
 
@@ -583,6 +604,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
       </div>
       )}
     </div>
+      </AvatarStampProvider>
     </PresenceProvider>
   );
 }

@@ -110,6 +110,18 @@ export const MUTE_DURATIONS_MINUTES = [15, 30, 60, 240, 720, 1440] as const;
  * `AVAILABLE` is the absence of a claim rather than a claim of its own, which is why it is
  * the only one that does not expire.
  */
+/**
+ * The largest picture the server will store, in bytes.
+ *
+ * 256 KB, which is roughly four times what a 256px PNG needs — so an honest client never
+ * reaches it and a dishonest one hits a wall. Shared so the picker can refuse a too-large
+ * file before spending the upload rather than after.
+ */
+export const MAX_AVATAR_BYTES = 262_144;
+
+/** The three the server accepts. Anything else is refused, never converted. */
+export const AVATAR_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+
 export const DECLARED_STATUSES = ['AVAILABLE', 'BUSY', 'IN_A_MEETING', 'AWAY'] as const;
 
 export type DeclaredStatus = (typeof DECLARED_STATUSES)[number];
@@ -196,7 +208,31 @@ export const employeeRoutes = {
      * different from its own PUT.
      */
     status: `${EMPLOYEE_API_BASE}/auth/me/status`,
+    /**
+     * The caller's own picture: PUT to set, DELETE to remove.
+     *
+     * The bytes go in the body as base64 rather than multipart. It is one small field, the
+     * client already holds it as a data URL from the canvas it re-encoded through, and
+     * multipart would mean a body parser on a route that otherwise takes JSON.
+     */
+    avatar: `${EMPLOYEE_API_BASE}/auth/me/avatar`,
   },
+  /**
+   * Somebody's picture, by principal id.
+   *
+   * A GET that returns image bytes rather than JSON — the only one in this contract. It is
+   * behind the session guard like everything else: an avatar is not secret, but it is not
+   * public either, and an unauthenticated image endpoint is an enumeration oracle for who
+   * works here.
+   *
+   * `v` is the picture's own `updatedAt`, hung on the URL so a changed picture is not
+   * served from a stale cache and an UNCHANGED one is served from cache forever.
+   */
+  avatar: (principalId: string, version?: string) =>
+    `${EMPLOYEE_API_BASE}/avatars/${principalId}` +
+    (version === undefined ? '' : `?v=${encodeURIComponent(version)}`),
+  /** Which of these people have a picture, and when each last changed. */
+  avatarStamps: `${EMPLOYEE_API_BASE}/avatars`,
   /**
    * Declared statuses for a set of colleagues, so the avatars on screen can show them.
    *
@@ -241,6 +277,15 @@ export const employeeRoutes = {
      */
     pins: (conversationId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/pins`,
+    /**
+     * A group's picture: PUT to set, GET for the bytes.
+     *
+     * Groups only. A one-to-one is already drawn with the other person's own avatar, and
+     * giving it a second would let one side change how the other appears in their list.
+     */
+    avatar: (conversationId: string, version?: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/avatar` +
+      (version === undefined ? '' : `?v=${encodeURIComponent(version)}`),
     /** Pin (PUT) or unpin (DELETE) one message for everybody in the conversation. */
     pin: (conversationId: string, messageId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/pins/${messageId}`,
@@ -262,6 +307,16 @@ export const employeeRoutes = {
      */
     forward: (conversationId: string, messageId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages/${messageId}/forward`,
+    /**
+     * Hide one message from the caller's own view (POST) — "delete for me".
+     *
+     * A different route from `message` (DELETE), which is a REDACTION: that clears the
+     * body for everyone and only the author may do it. This changes one person's timeline
+     * and says nothing to anybody else. Two verbs on one path would make the more
+     * dangerous of the two reachable by getting the method wrong.
+     */
+    hideMessage: (conversationId: string, messageId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages/${messageId}/hide`,
     participants: (conversationId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/participants`,
     participant: (conversationId: string, principalId: string) =>
@@ -408,6 +463,12 @@ export const EMPLOYEE_ROUTE_INVENTORY: readonly { method: string; path: string }
   { method: 'GET', path: employeeRoutes.auth.status },
   { method: 'PUT', path: employeeRoutes.auth.status },
   { method: 'GET', path: employeeRoutes.statuses },
+  { method: 'PUT', path: employeeRoutes.auth.avatar },
+  { method: 'DELETE', path: employeeRoutes.auth.avatar },
+  { method: 'GET', path: employeeRoutes.avatarStamps },
+  { method: 'GET', path: employeeRoutes.avatar(':pid') },
+  { method: 'GET', path: employeeRoutes.conversations.avatar(':id') },
+  { method: 'PUT', path: employeeRoutes.conversations.avatar(':id') },
   { method: 'GET', path: employeeRoutes.conversations.list },
   { method: 'POST', path: employeeRoutes.conversations.create },
   { method: 'POST', path: employeeRoutes.conversations.announce },
@@ -420,6 +481,7 @@ export const EMPLOYEE_ROUTE_INVENTORY: readonly { method: string; path: string }
   { method: 'DELETE', path: employeeRoutes.conversations.pin(':id', ':mid') },
   { method: 'GET', path: employeeRoutes.conversations.messageInfo(':id', ':mid') },
   { method: 'POST', path: employeeRoutes.conversations.forward(':id', ':mid') },
+  { method: 'POST', path: employeeRoutes.conversations.hideMessage(':id', ':mid') },
   { method: 'PUT', path: employeeRoutes.conversations.preferences(':id') },
   { method: 'POST', path: employeeRoutes.conversations.participants(':id') },
   { method: 'DELETE', path: employeeRoutes.conversations.participant(':id', ':pid') },

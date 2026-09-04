@@ -8,6 +8,7 @@ import type { ReactNode } from 'react';
 import { avatarFor, conversationLabel, initialsFor } from './conversation-naming';
 import { GroupGlyph } from './group-glyph';
 import { ChatHeaderMenu } from './chat-header-menu';
+import { AvatarImage, ConversationAvatarImage } from './avatar-image';
 import { DeclaredStatusBadge, PresenceDot, useIsOnline, useOnlineSet } from './presence';
 import { useColleague } from './conversation-info';
 import type { ConversationSummary } from '../lib/api-client';
@@ -171,11 +172,15 @@ export function ChatHeader({
         <span className="avatar-wrap">
           <span className={`chat-avatar${isGroup ? ' group' : ''}`} aria-hidden="true">
             {conversation !== undefined && avatarFor(conversation).isGroup ? (
-              <GroupGlyph />
-            ) : conversation !== undefined ? (
-              avatarFor(conversation).text
+              <>
+                <GroupGlyph />
+                <ConversationAvatarImage conversationId={conversation.conversationId} />
+              </>
             ) : (
-              initialsFor(name)
+              <>
+                {conversation !== undefined ? avatarFor(conversation).text : initialsFor(name)}
+                <AvatarImage principalId={others[0]?.principalId} alt="" />
+              </>
             )}
           </span>
           {/* One person, one dot — see `conversation-list.tsx` for why a group gets none. */}

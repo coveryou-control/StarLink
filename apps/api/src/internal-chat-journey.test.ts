@@ -969,3 +969,95 @@ describe('removing somebody from a group', () => {
     expect(undone.status, 'the creator could not undo their own addition').toBe(204);
   }, 180_000);
 });
+
+/**
+ * "Delete for me" hides a message from ONE person.
+ *
+ * The claim worth testing is not that it disappears — it is that it disappears for exactly
+ * one reader. A per-principal hide that leaked into everybody's page would be a redaction
+ * with a misleading label, and somebody would use it believing the opposite.
+ *
+ * The second claim is that the record does not move. Rule 8 makes the audit ledger
+ * append-only and BR-09 makes what a person COULD have read answerable afterwards; a hide
+ * writes a row about a reader and must leave conversation.messages exactly as it was.
+ */
+describe('deleting a message for yourself', () => {
+  it('hides it from one reader and from nobody else, and leaves the record alone', async (ctx) => {
+    if (skipUnlessReady(ctx, 'delete-for-me is unproven.')) return;
+
+    const alice = await signIn('alice');
+    const bob = await signIn('bob');
+
+    const started = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_GROUP',
+      participantIds: [BOB, CARA],
+      title: `Hide ${crypto.randomUUID().slice(0, 8)}`,
+    });
+    const { conversationId } = (await started.json()) as { conversationId: string };
+    created.push(conversationId);
+
+    const sent = await post(employeeRoutes.conversations.messages(conversationId), alice, {
+      body: 'Something Bob would rather not keep seeing.',
+      visibility: 'INTERNAL',
+    });
+    expect(sent.status).toBe(201);
+    const { messageId } = (await sent.json()) as { messageId: string };
+
+    const bodiesFor = async (cookie: string): Promise<string[]> => {
+      const page = await get(employeeRoutes.conversations.messages(conversationId), cookie);
+      expect(page.status).toBe(200);
+      const { messages } = (await page.json()) as { messages: { body: string }[] };
+      return messages.map((m) => m.body);
+    };
+
+    expect(await bodiesFor(bob)).toContain('Something Bob would rather not keep seeing.');
+
+    /* Bob hides somebody ELSE's message, which is the common case — the thing you want out
+       of your timeline is usually not one you wrote. */
+    const hidden = await post(
+      employeeRoutes.conversations.hideMessage(conversationId, messageId),
+      bob,
+      {},
+    );
+    expect(hidden.status, 'a reader could not hide a message from their own view').toBeLessThan(
+      400,
+    );
+
+    expect(
+      await bodiesFor(bob),
+      'the message was still in the page of the person who hid it',
+    ).not.toContain('Something Bob would rather not keep seeing.');
+
+    /* Alice wrote it and Cara is just another reader. Neither is affected. */
+    expect(
+      await bodiesFor(alice),
+      'one person hiding a message removed it from the author view',
+    ).toContain('Something Bob would rather not keep seeing.');
+
+    const cara = await signIn('cara');
+    expect(
+      await bodiesFor(cara),
+      'one person hiding a message removed it from a third party view',
+    ).toContain('Something Bob would rather not keep seeing.');
+
+    /*
+       And the message itself is untouched — not redacted, not emptied. This is the
+       assertion that separates a hide from a delete, and it is checked against the table
+       rather than the API so a projection change cannot make it pass wrongly.
+    */
+    const stored = await pool!.query(
+      `SELECT body, redacted_at FROM conversation.messages WHERE message_id = $1`,
+      [messageId],
+    );
+    expect(stored.rows[0].body).toBe('Something Bob would rather not keep seeing.');
+    expect(stored.rows[0].redacted_at, 'hiding redacted the message').toBeNull();
+
+    /* Hiding twice is not an error. A double-click must not produce a 500. */
+    const again = await post(
+      employeeRoutes.conversations.hideMessage(conversationId, messageId),
+      bob,
+      {},
+    );
+    expect(again.status).toBeLessThan(400);
+  }, 180_000);
+});

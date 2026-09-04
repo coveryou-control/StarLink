@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { initialsFor } from './conversation-naming';
+import { AvatarImage, useAvatarStamp } from './avatar-image';
+import { AvatarPicker } from './avatar-picker';
+import { employeeRoutes } from '@starlink/shared-contracts';
+import { runtimeOrigins } from '../lib/runtime-origins';
 import { useColleague } from './conversation-info';
 import { useSession } from './session-provider';
 import { applyTheme, type Theme } from '../lib/theme';
@@ -313,6 +317,20 @@ function Profile({
   readonly displayName: string;
 }): ReactNode {
   const entry = useColleague(principalId);
+  /**
+   * The uploaded picture's own timestamp, held locally so the tile above updates at once.
+   *
+   * The shell's stamp poll will discover it within two minutes, which is the right cadence
+   * for everybody ELSE's picture and much too slow for your own the instant after you set
+   * it. `undefined` means "ask the shared stamp map", which is the state on first render.
+   */
+  const [version, setVersion] = useState<string | undefined>();
+  const stamp = useAvatarStamp(principalId);
+  const [hasPicture, setHasPicture] = useState(false);
+
+  useEffect(() => {
+    if (stamp !== undefined) setHasPicture(true);
+  }, [stamp]);
 
   const rows: { label: string; value: string }[] = [];
   if (entry !== undefined) {
@@ -330,6 +348,18 @@ function Profile({
       <div className="settings-identity">
         <span className="row-avatar" aria-hidden="true">
           {initialsFor(displayName)}
+          {/* Keyed on `version`, so the tile re-renders the moment a new picture is
+              uploaded rather than after the shell's next stamp poll. */}
+          {version === undefined ? (
+            <AvatarImage principalId={principalId} alt="" />
+          ) : (
+            <img
+              className="avatar-photo"
+              src={`${runtimeOrigins().api}${employeeRoutes.avatar(principalId ?? '', version)}`}
+              alt=""
+              crossOrigin="use-credentials"
+            />
+          )}
         </span>
         <span className="settings-identity-text">
           <strong>{displayName}</strong>
@@ -340,6 +370,30 @@ function Profile({
           </span>
         </span>
       </div>
+
+      {/*
+        The one thing on this page somebody can change.
+        
+        Everything below it comes from the company directory and is read-only — rule 11
+        keeps StarLink from holding a second copy of who somebody is. A picture is not part
+        of that: HRMS does not supply one, so there is no upstream to disagree with.
+      */}
+      <AvatarPicker
+        label="Choose a profile picture"
+        hasPicture={hasPicture}
+        onChosen={async (base64) => {
+          const saved = await api.setMyAvatar(base64);
+          setVersion(saved.updatedAt);
+          setHasPicture(true);
+        }}
+        onRemove={async () => {
+          await api.removeMyAvatar();
+          setHasPicture(false);
+          /* A changed version with no picture is harmless — nothing renders it — and it
+             makes the tile re-render back to initials immediately. */
+          setVersion(new Date().toISOString());
+        }}
+      />
 
       {rows.map((row) => (
         <p className="settings-row" key={row.label}>

@@ -273,3 +273,50 @@ export class PgMessageInfoStore {
     };
   }
 }
+
+/**
+ * Messages one person has chosen not to see.
+ *
+ * "Delete for me", which is a different question from the delete beside it in the menu.
+ * That one is a REDACTION: it clears the body for every reader, is recorded in the audit
+ * ledger, and answers "I did not mean to send that". This answers "I do not want to see
+ * this any more", changes nothing anybody else sees, and leaves the record untouched —
+ * rule 8 and BR-09 are about the ledger, and the ledger does not move.
+ *
+ * There is no un-hide. Offering one needs a screen listing the messages somebody asked not
+ * to see, which is a strange thing to build before anybody has asked for it. Migration
+ * 0026 says so, and deleting the row is the whole implementation if that changes.
+ */
+export class PgHiddenMessageStore {
+  constructor(private readonly pool: pg.Pool) {}
+
+  /** Idempotent: hiding twice is not an error, and a double-click must not be one. */
+  async hide(messageId: UUID, principalId: UUID, at: string): Promise<void> {
+    await this.pool.query(
+      `INSERT INTO conversation.hidden_messages (message_id, principal_id, hidden_at)
+       VALUES ($1, $2, $3)
+       ON CONFLICT DO NOTHING`,
+      [messageId, principalId, at],
+    );
+  }
+
+  /**
+   * Which of these messages this reader has hidden.
+   *
+   * Asked with the page's own ids rather than as a join inside the message query, for two
+   * reasons. The message reader is shared by several call sites and adding a
+   * principal-scoped LEFT JOIN to it would make every one of them pay for a filter most of
+   * them do not want. And the answer is almost always empty — hiding a message is rare —
+   * so this is one indexed lookup returning nothing, against a join on every page forever.
+   */
+  async hiddenAmong(messageIds: readonly UUID[], principalId: UUID): Promise<ReadonlySet<string>> {
+    if (messageIds.length === 0) return new Set();
+    const result = await this.pool.query(
+      `SELECT message_id
+         FROM conversation.hidden_messages
+        WHERE principal_id = $1 AND message_id = ANY($2::uuid[])`,
+      [principalId, messageIds],
+    );
+    return new Set(result.rows.map((row) => row.message_id as string));
+  }
+}
