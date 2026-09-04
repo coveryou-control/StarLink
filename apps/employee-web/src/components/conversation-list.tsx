@@ -5,12 +5,12 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import {
-  CONVERSATION_KIND,
   avatarFor,
   conversationLabel,
   relativeTime,
 } from './conversation-naming';
 import { PresenceDot } from './presence';
+import { GroupGlyph } from './group-glyph';
 import { deliveryTick } from '@starlink/shared-contracts';
 import type { ConversationSummary } from '../lib/api-client';
 
@@ -213,11 +213,36 @@ export function ConversationList({
              blank under the name.
           */
           const preview = conversation.lastMessagePreview;
+          /*
+             In a group, WHO said it is half the glimpse.
+
+             "on my way" tells you nothing about whether to open a room of six people.
+             "Rahul: on my way" tells you whether it was aimed at you. A one-to-one needs
+             no prefix — the row's own name already answers it, and repeating it there
+             would cost the preview a third of its width for nothing.
+
+             The name comes from the participant summary the row already has, so this is a
+             map read rather than a lookup. Nothing is drawn when the sender is not in that
+             list (someone since removed): a bare preview is right, an invented name is not.
+          */
+          const senderName =
+            avatarFor(conversation).isGroup && conversation.lastMessageSenderId !== undefined
+              ? (conversation.participants ?? []).find(
+                  (person) => person.principalId === conversation.lastMessageSenderId,
+                )?.displayName
+              : undefined;
+
+          /*
+             With no preview, the kind used to be the fallback — so every group with
+             nothing said in it read "Group", a label the row's own avatar and name already
+             carry. What is actually true of that row is that it is empty, so it says so.
+          */
           const secondary =
             preview !== undefined && preview !== ''
-              ? preview
-              : (CONVERSATION_KIND[conversation.conversationType] ??
-                conversation.conversationType);
+              ? senderName !== undefined
+                ? senderName + ': ' + preview
+                : preview
+              : 'No messages yet';
 
           return (
             <li key={conversation.conversationId}>
@@ -236,7 +261,11 @@ export function ConversationList({
                     className={`row-avatar${avatarFor(conversation).isGroup ? ' group' : ''}`}
                     aria-hidden="true"
                   >
-                    {avatarFor(conversation).text}
+                    {avatarFor(conversation).isGroup ? (
+                      <GroupGlyph />
+                    ) : (
+                      avatarFor(conversation).text
+                    )}
                   </span>
                   {(conversation.participants ?? []).length === 1 ? (
                     <PresenceDot principalId={conversation.participants?.[0]?.principalId} />

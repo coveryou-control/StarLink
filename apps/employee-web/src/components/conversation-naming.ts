@@ -14,26 +14,6 @@
  */
 import type { ConversationSummary } from '../lib/api-client';
 
-/**
- * Human wording for the stored conversation kind.
- *
- * The row was rendering the enum verbatim - INTERNAL_DIRECT, CUSTOMER_SERVICE - which is a
- * database value wearing a label's clothes. The mapping is presentation only: the value
- * that travels, is filtered on and is stored never changes, and an unrecognised kind falls
- * back to the raw string rather than being hidden.
- */
-export const CONVERSATION_KIND: Readonly<Record<string, string>> = {
-  INTERNAL_DIRECT: 'Direct message',
-  INTERNAL_GROUP: 'Group',
-  CUSTOMER_SERVICE: 'Customer · Service',
-  CUSTOMER_SALES: 'Customer · Sales',
-  CUSTOMER_RENEWAL: 'Customer · Renewal',
-  CUSTOMER_CLAIM: 'Customer · Claim',
-  CUSTOMER_GRIEVANCE: 'Customer · Grievance',
-  CUSTOMER_GENERAL: 'Customer',
-  SYSTEM_INTERACTION: 'System',
-  AI_HANDOFF: 'AI handover',
-};
 
 /**
  * What to call a conversation in the list.
@@ -138,17 +118,19 @@ export function avatarFor(conversation: ConversationSummary): {
   }
 
   /**
-   * A hash, not initials — the reference's marker for a channel.
+   * No text at all — a group is drawn as a figure, not a letter.
    *
-   * It used to be the first letters of the first two members, which reads as a PERSON with
+   * It was the first letters of the first two members once, which reads as a PERSON with
    * two initials: "RR" beside "Rahul, Rishitt Gupta" looks exactly like an avatar for
    * somebody called R. R., and a list of five groups became five two-letter circles nobody
    * could tell apart from the direct messages between them.
    *
-   * The hash says "this is a room" at a glance and is what every screen in the design draws
-   * for one, in the neutral tint rather than a person's.
+   * Then it was `#`, which fixed that and introduced its own claim: a hash means a CHANNEL,
+   * and StarLink has no channels. Callers now render `GroupGlyph` when `isGroup`, and the
+   * empty string is what they fall back to if one ever forgets — a blank tile, which is
+   * wrong but not a lie about what the conversation is.
    */
-  return { text: '#', isGroup: true };
+  return { text: '', isGroup: true };
 }
 
 /**

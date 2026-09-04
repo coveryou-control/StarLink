@@ -21,6 +21,8 @@ import {
   SharedFiles,
 } from '../../../components/conversation-info';
 import { ConversationSearch } from '../../../components/conversation-search';
+import { ConfirmDialog } from '../../../components/confirm-dialog';
+import { GroupGlyph } from '../../../components/group-glyph';
 import { useMediaQuery } from '../../../lib/use-media-query';
 import {
   useActiveConversation,
@@ -235,9 +237,18 @@ export default function ThreadPage(): ReactNode {
    * in `message_revisions` for an investigation, but nothing in the product puts it back.
    * The row stays in the thread with its text gone, so nothing shifts under the reader.
    */
+  /**
+   * The message a delete has been REQUESTED for, and not yet confirmed.
+   *
+   * Deletion asks before it acts, and the asking is a component rather than
+   * `window.confirm` — see `confirm-dialog.tsx` for why the browser's own alert could not
+   * stay. Holding the message here rather than a boolean means the dialog knows what it is
+   * about to destroy without the callback having to close over it.
+   */
+  const [deleting, setDeleting] = useState<MessageView | undefined>();
+
   const deleteMessage = useCallback(
     (message: MessageView) => {
-      if (!window.confirm('Delete this message? The text will be removed for everyone.')) return;
       setMessages((current) =>
         current.map((m) =>
           m.messageId === message.messageId
@@ -628,7 +639,7 @@ export default function ThreadPage(): ReactNode {
               readWatermark={readWatermark}
               onReact={react}
               onEdit={editMessage}
-              onDelete={deleteMessage}
+              onDelete={setDeleting}
             />
           </>
         ) : null}
@@ -640,6 +651,32 @@ export default function ThreadPage(): ReactNode {
         The same component the list uses, given a conversation — the server has accepted a
         conversation scope since the route was written, and nothing ever sent one.
       */}
+      {/*
+        Delete asks first, and asks the real question.
+
+        "Delete for everyone" is the only option offered today because it is the only one
+        the server implements: `DELETE /messages/:id` redacts the body for every reader.
+        A "delete for me" needs a per-principal suppression the schema does not have, and
+        an item that silently did the other thing would be worse than an absent one.
+      */}
+      {deleting !== undefined ? (
+        <ConfirmDialog
+          title="Delete message?"
+          body="The text is removed for everyone in this conversation. Who sent it, and when, stays in the record."
+          choices={[
+            {
+              label: 'Delete for everyone',
+              tone: 'danger',
+              onChoose: () => {
+                deleteMessage(deleting);
+                setDeleting(undefined);
+              },
+            },
+          ]}
+          onCancel={() => setDeleting(undefined)}
+        />
+      ) : null}
+
       {searchOpen ? (
         <div className="thread-search">
           <ConversationSearch
@@ -778,7 +815,13 @@ export default function ThreadPage(): ReactNode {
         <div className="details-body">
         <div className="details-identity">
           <span className={`chat-avatar${isGroup ? ' group' : ''}`} aria-hidden="true">
-            {activeConversation !== undefined ? avatarFor(activeConversation).text : '\u00b7'}
+            {isGroup ? (
+              <GroupGlyph />
+            ) : activeConversation !== undefined ? (
+              avatarFor(activeConversation).text
+            ) : (
+              '\u00b7'
+            )}
           </span>
           <span className="details-identity-name">
             {activeConversation !== undefined

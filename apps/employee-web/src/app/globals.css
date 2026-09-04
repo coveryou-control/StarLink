@@ -484,9 +484,6 @@ button {
    A base rule should always lose to a component rule. `:where()` is how a reset says so,
    rather than every component having to out-specify it.
 */
-:where(button:hover:not(:disabled)) {
-  background: var(--hover);
-}
 
 :where(button:active:not(:disabled)) {
   background: var(--surface-2);
@@ -514,13 +511,6 @@ button:disabled {
   border-color: var(--accent);
   color: var(--accent-contrast);
   font-weight: 620;
-}
-
-.actions-form-buttons button:first-child:hover:not(:disabled),
-.picker-search button:hover:not(:disabled),
-.start-panel-buttons button.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
 }
 
 .start-panel-buttons button.primary:disabled {
@@ -682,7 +672,6 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--rail-fg);
 }
 
-
 /* =====================================================================================
    The mark
 
@@ -790,7 +779,6 @@ input[type='search']::-webkit-search-cancel-button {
    horizontal auto is restated so centring survives.
 */
 .rail-item:hover {
-  background: var(--rail-item-active);
   color: var(--rail-fg-active);
 }
 
@@ -810,7 +798,6 @@ input[type='search']::-webkit-search-cancel-button {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
 }
-
 
 /* Orange, per rule 1 — an unread count is exactly what the signal colour is for. The
    ring is the rail's own dark ground so the badge reads as sitting on the tile. */
@@ -863,10 +850,6 @@ input[type='search']::-webkit-search-cancel-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.rail-avatar:hover {
-  background: var(--accent-hover);
 }
 
 /* Opens up and to the right, out of the rail. */
@@ -938,10 +921,6 @@ input[type='search']::-webkit-search-cancel-button {
   background: transparent;
   text-align: left;
   font-size: var(--text-base);
-}
-
-.account-menu > button:hover {
-  background: var(--hover);
 }
 
 /* =====================================================================================
@@ -1041,7 +1020,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .panel-head-icon:hover:not(:disabled) {
-  background: var(--hover);
   color: var(--text);
 }
 
@@ -1089,10 +1067,6 @@ input[type='search']::-webkit-search-cancel-button {
      colour: rule 1 keeps orange for the unread counts this control clears. */
   color: var(--info);
   font-weight: 500;
-}
-
-.panel-action:hover:not(:disabled) {
-  background: var(--accent-soft);
 }
 
 .panel-action:disabled {
@@ -1231,7 +1205,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .field-clear:hover {
-  background: var(--surface-3);
   color: var(--text);
 }
 
@@ -1272,11 +1245,6 @@ input[type='search']::-webkit-search-cancel-button {
   text-align: left;
   line-height: var(--lh);
   color: var(--text-muted);
-}
-
-.search-results li > button:hover {
-  background: var(--surface);
-  box-shadow: var(--hairline);
 }
 
 .search-text {
@@ -1481,7 +1449,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .people-strip-person:hover {
-  background: transparent;
   transform: translateY(-2px);
 }
 
@@ -1548,7 +1515,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .filter-pill:hover:not(.active) {
-  background: var(--surface-3);
   color: var(--text);
 }
 
@@ -1632,10 +1598,6 @@ input[type='search']::-webkit-search-cancel-button {
   transition:
     background var(--dur) var(--ease),
     transform var(--dur) var(--ease);
-}
-
-.fab-new:hover:not(:disabled) {
-  background: var(--accent-hover);
 }
 
 .fab-new:active:not(:disabled) {
@@ -1727,7 +1689,6 @@ input[type='search']::-webkit-search-cancel-button {
 */
 
 .conversation-row:hover {
-  background: var(--hover);
   color: inherit;
   text-decoration: none;
 }
@@ -1940,11 +1901,6 @@ input[type='search']::-webkit-search-cancel-button {
   border-color: var(--accent-soft);
 }
 
-.conversation-row:hover .presence-dot,
-.person-row:hover .presence-dot {
-  border-color: var(--hover);
-}
-
 /* Smaller avatars carry a smaller dot: at 34px a 13px dot is a third of the picture. */
 .member-list .presence-dot,
 .person-row .presence-dot {
@@ -2078,8 +2034,6 @@ input[type='search']::-webkit-search-cancel-button {
   z-index: 5;
 }
 
-
-
 /* Hidden until the panes stop sharing the screen. On a desktop the list is right there and
    a back arrow beside it would be furniture; on a phone it is the only way out. */
 .chat-back {
@@ -2096,7 +2050,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .chat-back:hover {
-  background: var(--hover);
   color: var(--text);
 }
 
@@ -2136,10 +2089,6 @@ input[type='search']::-webkit-search-cancel-button {
 .chat-identity-button {
   cursor: pointer;
   transition: background var(--dur) var(--ease);
-}
-
-.chat-identity-button:hover {
-  background: var(--hover);
 }
 
 .chat-identity {
@@ -2258,7 +2207,6 @@ input[type='search']::-webkit-search-cancel-button {
   font-weight: 500;
 }
 
-.chat-header-named:hover:not(:disabled),
 .chat-header-named[aria-expanded='true'] {
   background: var(--hover);
 }
@@ -2284,10 +2232,13 @@ input[type='search']::-webkit-search-cancel-button {
   justify-content: center;
 }
 
-.chat-header-action:hover,
 .chat-header-action[aria-expanded='true'],
 .chat-header-action[aria-pressed='true'] {
   background: var(--surface-2);
+  color: var(--text);
+}
+
+.chat-header-action:hover {
   color: var(--text);
 }
 
@@ -2533,7 +2484,6 @@ input[type='search']::-webkit-search-cancel-button {
   border-bottom-left-radius: var(--radius-bubble);
   border-bottom-right-radius: var(--radius-bubble);
 }
-
 
 .message-row.grouped .message-meta {
   display: none;
@@ -3110,14 +3060,6 @@ input[type='search']::-webkit-search-cancel-button {
   box-shadow: none;
 }
 
-.message-row.mine .attachment-card:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--bubble-mine-ink) 20%, transparent);
-}
-
-.message-row:not(.mine) .attachment-card:hover:not(:disabled) {
-  background: var(--hover);
-}
-
 /* -------------------------------------------------------------------------------------
    Message actions and reactions
    ------------------------------------------------------------------------------------- */
@@ -3214,7 +3156,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .reaction-choice:hover {
-  background: var(--surface-2);
   /* The lift is what says "this one" without a border appearing under the pointer. */
   transform: scale(1.15);
 }
@@ -3266,7 +3207,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .message-action:hover {
-  background: var(--surface-2);
   color: var(--text);
 }
 
@@ -3310,16 +3250,8 @@ input[type='search']::-webkit-search-cancel-button {
   font-size: var(--text-sm);
 }
 
-.message-menu button:hover {
-  background: var(--hover);
-}
-
 .menu-danger {
   color: var(--danger);
-}
-
-.menu-danger:hover {
-  background: var(--danger-soft);
 }
 
 /*
@@ -3367,10 +3299,6 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.4;
-}
-
-.reaction:hover:not(:disabled) {
-  border-color: var(--border-strong);
 }
 
 /*
@@ -3654,8 +3582,6 @@ input[type='search']::-webkit-search-cancel-button {
   grid-row: 2;
 }
 
-
-
 /*
    The field: input and emoji in one rounded surface.
 
@@ -3751,9 +3677,12 @@ input[type='search']::-webkit-search-cancel-button {
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 
-.emoji-toggle:hover,
 .emoji-toggle[aria-expanded='true'] {
   background: var(--surface-2);
+  color: var(--text);
+}
+
+.emoji-toggle:hover {
   color: var(--text);
 }
 
@@ -3814,7 +3743,6 @@ input[type='search']::-webkit-search-cancel-button {
 
 .emoji-tab:hover {
   opacity: 0.8;
-  background: var(--surface-2);
 }
 
 .emoji-tab.active {
@@ -3861,10 +3789,6 @@ input[type='search']::-webkit-search-cancel-button {
   background: transparent;
   display: grid;
   place-items: center;
-}
-
-.emoji-grid button:hover {
-  background: var(--surface-2);
 }
 
 /*
@@ -3917,7 +3841,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .attach-control:hover {
-  background: var(--surface-2);
   color: var(--text);
 }
 
@@ -3991,10 +3914,6 @@ input[type='search']::-webkit-search-cancel-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.composer-send:hover:not(:disabled) {
-  background: var(--accent-hover);
 }
 
 /*
@@ -4090,7 +4009,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .replying-to-cancel:hover {
-  background: var(--surface-3);
   color: var(--text);
 }
 
@@ -4190,7 +4108,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .composer [role='radio']:hover {
-  background: transparent;
   color: var(--text);
 }
 
@@ -4365,7 +4282,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .details-close:hover {
-  background: var(--hover);
   color: var(--text);
 }
 
@@ -4441,14 +4357,6 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--btn-primary-label);
 }
 
-.details-identity-actions button:hover:not(:disabled) {
-  background: var(--hover);
-}
-
-.details-identity-actions button.primary:hover:not(:disabled) {
-  background: var(--btn-primary-bg-hover);
-}
-
 /* =====================================================================================
    The panel's sections: DETAILS, SHARED FILES, and the group's membership.
 
@@ -4499,7 +4407,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .details-section-title .details-more:hover:not(:disabled) {
-  background: transparent;
   text-decoration: underline;
 }
 
@@ -4570,10 +4477,6 @@ input[type='search']::-webkit-search-cancel-button {
   text-align: left;
 }
 
-.details-switch:hover:not(:disabled) {
-  background: transparent;
-}
-
 .switch-track {
   flex: none;
   display: flex;
@@ -4630,10 +4533,6 @@ input[type='search']::-webkit-search-cancel-button {
   box-shadow: var(--hairline);
   text-align: left;
   cursor: pointer;
-}
-
-.shared-file:hover:not(:disabled) {
-  background: var(--hover);
 }
 
 /*
@@ -4739,10 +4638,6 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: var(--radius-sm);
 }
 
-.member-list li:hover {
-  background: var(--hover);
-}
-
 .member-list .person-name {
   flex: 1;
   min-width: 0;
@@ -4774,7 +4669,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .member-remove:hover:not(:disabled) {
-  background: var(--danger-soft);
   color: var(--danger);
 }
 
@@ -4857,10 +4751,6 @@ input[type='search']::-webkit-search-cancel-button {
   background: transparent;
   text-align: left;
   font-weight: 550;
-}
-
-.participants .found li > button:first-child:hover {
-  background: var(--hover);
 }
 
 /* BR-07: adding a colleague exposes prior history, and the person doing it is told so
@@ -4950,10 +4840,6 @@ input[type='search']::-webkit-search-cancel-button {
   transition: background var(--dur) var(--ease);
 }
 
-.person-row:hover:not(:disabled) {
-  background: var(--hover);
-}
-
 .person-text {
   display: flex;
   flex-direction: column;
@@ -5028,10 +4914,6 @@ input[type='search']::-webkit-search-cancel-button {
   text-align: left;
 }
 
-.notification-row:hover {
-  background: var(--surface-2);
-}
-
 /*
    An unread notification sits on a wash of the signal colour.
 
@@ -5041,10 +4923,6 @@ input[type='search']::-webkit-search-cancel-button {
 */
 .notification-row.unread {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-
-.notification-row.unread:hover {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 /*
@@ -5187,7 +5065,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .settings-nav-item:hover:not(.active) {
-  background: var(--surface-3);
   color: var(--text);
 }
 
@@ -5260,10 +5137,6 @@ input[type='search']::-webkit-search-cancel-button {
 .settings-row-block:last-child,
 .settings-toggle:last-child {
   border-bottom: 0;
-}
-
-.settings-toggle:hover:not(:disabled) {
-  background: transparent;
 }
 
 .settings-row-label {
@@ -5371,10 +5244,6 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--surface);
 }
 
-.settings-rows button.danger:hover:not(:disabled) {
-  filter: brightness(1.08);
-}
-
 /* =====================================================================================
    Threads in a channel (design screen 03)
    ===================================================================================== */
@@ -5435,11 +5304,6 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: 0;
   background: transparent;
   text-align: left;
-}
-
-.you-profile:hover,
-.you-row:hover {
-  background: var(--hover);
 }
 
 .you-profile .row-avatar {
@@ -5866,7 +5730,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .start-panel-close:hover:not(:disabled) {
-  background: var(--surface-3);
   color: var(--text);
 }
 
@@ -5897,11 +5760,6 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: var(--radius);
   background: var(--surface);
   text-align: left;
-}
-
-.start-mode:hover {
-  background: var(--surface-2);
-  border-color: var(--border-strong);
 }
 
 .start-mode-icon {
@@ -5993,10 +5851,6 @@ input[type='search']::-webkit-search-cancel-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.chosen li button:hover {
-  background: var(--accent-line);
 }
 
 /* The one place a stacked label is right: naming a group is a distinct step with no
@@ -6186,17 +6040,12 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .empty-splash-chips button:hover {
-  background: var(--hover);
   color: var(--text);
 }
 
 .empty-splash-actions button:first-child {
   background: var(--btn-primary-bg);
   color: var(--btn-primary-label);
-}
-
-.empty-splash-actions button:first-child:hover {
-  background: var(--btn-primary-bg-hover);
 }
 
 .empty-splash-actions button:last-child {
@@ -6413,7 +6262,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .signin-forgot:hover:not(:disabled) {
-  background: transparent;
   text-decoration: underline;
 }
 
@@ -6505,10 +6353,6 @@ input[type='search']::-webkit-search-cancel-button {
   font-size: var(--text-lg);
 }
 
-.signin-submit:hover:not(:disabled) {
-  background: var(--btn-primary-bg-hover);
-}
-
 .signin-note,
 .signin-footer {
   margin: 0;
@@ -6577,10 +6421,6 @@ input[type='search']::-webkit-search-cancel-button {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   transition: background var(--dur) var(--ease);
-}
-
-.queue-row:hover {
-  background: var(--hover);
 }
 
 .queue-wait {
@@ -7124,17 +6964,19 @@ input[type='search']::-webkit-search-cancel-button {
   }
 
   .rail-item:hover {
-    background: transparent;
     color: var(--text);
-  }
+}
 
   /* Orange, and rule 1 names it: "the active tab". Weight carries it too, so the state
      survives greyscale (NFR-ACC-3). */
-  .rail-item[aria-current='page'],
-  .rail-item[aria-current='page']:hover {
+  .rail-item[aria-current='page'] {
     background: transparent;
     color: var(--accent);
-  }
+}
+
+  .rail-item[aria-current='page']:hover {
+    color: var(--accent);
+}
 
   .rail-item[aria-current='page'] .rail-label {
     font-weight: 600;
@@ -7196,10 +7038,6 @@ input[type='search']::-webkit-search-cancel-button {
     background: var(--accent);
     color: #fff;
     box-shadow: var(--shadow-float);
-  }
-
-  .fab-new:hover:not(:disabled) {
-    background: var(--accent-hover);
   }
 
   .fab-new svg {
@@ -7532,4 +7370,134 @@ input[type='search']::-webkit-search-cancel-button {
   .message-actions {
     opacity: 0.55;
   }
+}
+
+/* =====================================================================================
+   Confirmation dialog.
+
+   Replaces `window.confirm`, which put a browser alert at the top of the screen reading
+   "localhost:3010 says" — chrome that belongs to the browser, in the browser's own
+   typography, over a page that then looked like it had done something to you.
+
+   Narrower than the compose modal on purpose. A confirmation is one sentence and a short
+   column of choices; given the modal's width the buttons stretch far enough apart that
+   the safe one and the destructive one stop reading as one group.
+   ===================================================================================== */
+.confirm-dialog {
+  width: min(400px, 100%);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.confirm-dialog h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.confirm-dialog > p {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--lh);
+}
+
+/*
+   Stacked, not a row of buttons across the foot.
+
+   The choices are not symmetrical — "for everyone" and "for me" differ by who is
+   affected, not by degree — and side by side at equal width they read as interchangeable.
+   A column gives each one its own line and room for the sentence that says what it does.
+*/
+.confirm-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.confirm-choices button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  height: auto;
+  min-height: var(--row);
+  padding: 10px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+  font-size: var(--text-sm);
+  font-weight: 550;
+}
+
+.confirm-choices .muted {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.confirm-danger {
+  color: var(--danger);
+}
+
+/* Last, and quiet. The way out is not the thing the eye lands on first, but it is the
+   thing the keyboard lands on first — `cancel` takes focus on open. */
+.confirm-cancel {
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* =====================================================================================
+   Rail foot: the avatar, and the power symbol under it.
+
+   The avatar used to open a two-item popover. Both items are their own control now — see
+   `AccountControls` — which is why this is a column rather than a single tile.
+   ===================================================================================== */
+.rail-account {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  /*
+     Lifted off the floor of the rail. At `var(--space-3)` the avatar sat on the bottom
+     edge, and on a laptop where the browser chrome ends a few pixels below it, it read as
+     something that had slipped out of the layout rather than the foot of a column.
+  */
+  padding-bottom: var(--space-4);
+}
+
+.rail-power {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  /* Dimmer than the navigation icons. It is the one control here nobody is looking for,
+     and the one with no undo — quiet is the correct volume for it. */
+  color: var(--rail-fg);
+  opacity: 0.55;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.rail-power svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* The one hover left in the rail, and it is not a highlight: the symbol comes up to full
+   strength so it is legible before you commit to pressing it. */
+.rail-power:hover,
+.rail-power:focus-visible {
+  opacity: 1;
 }
