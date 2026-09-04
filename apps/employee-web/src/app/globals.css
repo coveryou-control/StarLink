@@ -7643,3 +7643,20 @@ input[type='search']::-webkit-search-cancel-button {
     transform: none;
   }
 }
+
+/*
+   A heading inside a menu, for its second page.
+
+   The mute durations need a line saying what the six numbers are durations OF; without it
+   "15 minutes / 30 minutes / 1 hour" in a menu that a moment ago said "Pin chat" reads as
+   a list of something else entirely.
+*/
+.menu-heading {
+  margin: 0;
+  padding: var(--space-1) var(--space-2) 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}

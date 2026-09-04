@@ -117,10 +117,20 @@ export interface ConversationSummary {
    * Never optional: false is a real answer, and an absent flag would make "not pinned"
    * indistinguishable from "not asked", which is not a state a switch can be drawn from.
    *
-   * There is no mute. Being told a conversation needs you is not a per-thread preference —
-   * see migration 0018.
    */
   readonly pinned: boolean;
+  /**
+   * When this reader's mute of the thread runs out; absent when it is not muted.
+   *
+   * Mute was removed in migration 0018 and brought back by 0021 as a LEASE rather than a
+   * switch — every mute ends, and the longest is a day. That is why this is an instant and
+   * not a boolean: the menu says "Muted until 15:40", which is a thing somebody can act on,
+   * where "Muted" is a state they have to remember setting.
+   *
+   * §29.6 is untouched: a muted conversation still counts unread and still bolds its row.
+   * What is suppressed is the interruption, never the record.
+   */
+  readonly mutedUntil?: string;
   readonly readWatermark?: number;
 }
 
@@ -713,8 +723,24 @@ export const api = {
    * valid and the caller is allowed; they simply already have three. Throwing here would
    * make the caller render "that could not be saved", which is both wrong and unhelpful.
    */
-  setConversationPreferences: (conversationId: string, preferences: { pinned: boolean }) =>
-    request<{ pinned: boolean; limitReached?: boolean; maxPinned?: number }>(
+  setConversationPreferences: (
+    conversationId: string,
+    /*
+       Both optional, and at least one required by the server. Pinning and muting are
+       independent, and sending only the one being changed means a mute cannot silently
+       clear a pin set in another tab.
+
+       `muteMinutes` is a duration, never an instant: see the route's own note on why the
+       browser must not be the thing deciding when "an hour from now" is.
+    */
+    preferences: { pinned?: boolean; muteMinutes?: number | null },
+  ) =>
+    request<{
+      pinned?: boolean;
+      mutedUntil?: string | null;
+      limitReached?: boolean;
+      maxPinned?: number;
+    }>(
       employeeRoutes.conversations.preferences(conversationId),
       {
         method: 'PUT',

@@ -122,7 +122,15 @@ export function ConversationList({
   const [filter, setFilter] = useState<Filter>('all');
   /** The row a right-click opened a menu for, and where the pointer was. */
   const [rowMenu, setRowMenu] = useState<
-    { conversationId: string; label: string; pinned: boolean; x: number; y: number } | undefined
+    | {
+        conversationId: string;
+        label: string;
+        pinned: boolean;
+        mutedUntil: string | undefined;
+        x: number;
+        y: number;
+      }
+    | undefined
   >();
   /*
      Shown when the server refuses a fourth pin. Held here rather than in the menu, which
@@ -145,6 +153,27 @@ export function ConversationList({
         onPinChanged?.();
       })
       .catch(() => setPinProblem('That could not be saved.'));
+  };
+
+  /*
+     `null` unmutes. The duration is sent, not the instant it ends: the server computes
+     that against its own clock, so a browser running fast cannot ask to be quietened until
+     a moment already past.
+
+     Re-reads the list on success, because `mutedUntil` lives on the summary and the shell
+     hands it to the notification hook — a mute that the list does not know about is a mute
+     that still makes a noise.
+  */
+  const setMute = (conversationId: string, minutes: number | null): void => {
+    setPinProblem(undefined);
+    void api
+      .setConversationPreferences(conversationId, { muteMinutes: minutes })
+      .then(() => onPinChanged?.())
+      .catch(() =>
+        setPinProblem(
+          minutes === null ? 'That could not be unmuted.' : 'That could not be muted.',
+        ),
+      );
   };
 
   /**
@@ -306,6 +335,7 @@ export function ConversationList({
                     conversationId: conversation.conversationId,
                     label,
                     pinned: conversation.pinned === true,
+                    mutedUntil: conversation.mutedUntil,
                     x: event.clientX,
                     y: event.clientY,
                   });
@@ -392,8 +422,10 @@ export function ConversationList({
           conversationId={rowMenu.conversationId}
           label={rowMenu.label}
           pinned={rowMenu.pinned}
+          mutedUntil={rowMenu.mutedUntil}
           at={{ x: rowMenu.x, y: rowMenu.y }}
           onTogglePin={togglePin}
+          onMute={setMute}
           onClose={() => setRowMenu(undefined)}
         />
       ) : null}

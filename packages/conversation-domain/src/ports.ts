@@ -84,6 +84,15 @@ export interface ConversationSummary {
    * preference. See migration 0018.
    */
   readonly pinned: boolean;
+  /**
+   * When this reader's mute of the thread runs out; absent when it is not muted.
+   *
+   * Absent rather than a boolean because the UI has to say WHEN — "muted until 15:40" is
+   * actionable and "muted" is a state somebody has to remember setting. An expired mute is
+   * reported as absent, so no consumer has to know that an old row can still be sitting in
+   * the table.
+   */
+  readonly mutedUntil?: string;
 }
 
 export interface NewParticipant {

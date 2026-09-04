@@ -584,3 +584,106 @@ describe('pinning a conversation', () => {
     });
   }, 120_000);
 });
+
+/**
+ * Mute, and the two things about it that are easy to get wrong.
+ *
+ * It is a LEASE, not a switch: migration 0018 removed the boolean deliberately and 0021
+ * brought it back with an end on it. So the interesting assertions are not "mute works" —
+ * they are that the instant comes from the SERVER (a client sending its own would let a
+ * skewed clock mute until yesterday), that an expired mute reads as no mute at all with
+ * nothing having to sweep it, and that muting does not disturb the pin sitting in the same
+ * row.
+ */
+describe('muting a conversation', () => {
+  it('is a lease the server dates, and leaves the pin alone', async (ctx) => {
+    if (skipUnlessReady(ctx, 'the mute lease is unproven.')) return;
+
+    const alice = await signIn('alice');
+    await pool!.query(`DELETE FROM conversation.conversation_preferences WHERE principal_id = $1`, [
+      ALICE,
+    ]);
+
+    const started = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_GROUP',
+      participantIds: [BOB, CARA],
+      title: `Mute ${crypto.randomUUID().slice(0, 8)}`,
+    });
+    expect(started.status).toBe(201);
+    const { conversationId } = (await started.json()) as { conversationId: string };
+    created.push(conversationId);
+
+    const preferences = async (body: unknown): Promise<Response> =>
+      fetch(`${BASE}${employeeRoutes.conversations.preferences(conversationId)}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', cookie: alice },
+        body: JSON.stringify(body),
+      });
+
+    const rowFor = async (): Promise<{ pinned: boolean; mutedUntil?: string }> => {
+      const list = await get(employeeRoutes.conversations.list, alice);
+      const { conversations } = (await list.json()) as {
+        conversations: { conversationId: string; pinned: boolean; mutedUntil?: string }[];
+      };
+      const row = conversations.find((c) => c.conversationId === conversationId);
+      expect(row, 'the conversation vanished from its own list').toBeDefined();
+      return row!;
+    };
+
+    /* Pin first, so the mute below has something it could plausibly clobber. */
+    expect((await preferences({ pinned: true })).status).toBe(200);
+    expect((await rowFor()).pinned).toBe(true);
+
+    const before = Date.now();
+    expect((await preferences({ muteMinutes: 60 })).status).toBe(200);
+    const after = Date.now();
+
+    const muted = await rowFor();
+    expect(muted.mutedUntil, 'the mute did not come back on the summary').toBeDefined();
+    expect(muted.pinned, 'muting cleared the pin in the same row').toBe(true);
+
+    /*
+       Dated by the server, within the window this test was running.
+
+       An hour from `before` is the earliest it could legitimately be and an hour from
+       `after` the latest; anything outside says the instant came from somewhere other than
+       the server's clock at the moment of the write.
+    */
+    const until = Date.parse(muted.mutedUntil!);
+    expect(until).toBeGreaterThanOrEqual(before + 60 * 60_000 - 1_000);
+    expect(until).toBeLessThanOrEqual(after + 60 * 60_000 + 1_000);
+
+    /*
+       An expired mute is no mute, and nothing had to sweep it.
+
+       The row is aged in place rather than waiting an hour. What is under test is that the
+       READ compares against the clock — if it reported any non-null column as "muted", a
+       mute set last week would still be silencing this conversation.
+    */
+    await pool!.query(
+      `UPDATE conversation.conversation_preferences
+          SET muted_until = now() - interval '1 minute'
+        WHERE principal_id = $1 AND conversation_id = $2`,
+      [ALICE, conversationId],
+    );
+    const expired = await rowFor();
+    expect(expired.mutedUntil, 'an elapsed mute was still reported as muted').toBeUndefined();
+    expect(expired.pinned, 'the pin did not survive the mute expiring').toBe(true);
+
+    /* Unmute is explicit too, and does not need the mute to be live. */
+    expect((await preferences({ muteMinutes: null })).status).toBe(200);
+    expect((await rowFor()).mutedUntil).toBeUndefined();
+
+    /*
+       A duration the menu cannot offer is refused, not clamped.
+
+       MUTE_DURATIONS_MINUTES is the whole reason no mute can outlive a day; if the server
+       rounded 100000 down to 1440 instead of refusing it, that ceiling would rest on the
+       six buttons the UI happens to draw.
+    */
+    expect((await preferences({ muteMinutes: 100_000 })).status).toBeGreaterThanOrEqual(400);
+    expect((await preferences({})).status, 'an empty change was accepted').toBeGreaterThanOrEqual(
+      400,
+    );
+  }, 120_000);
+});

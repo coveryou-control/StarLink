@@ -80,6 +80,39 @@ export const SEARCH_MINIMUM_TERM_LENGTH = 1;
 export const MAX_PINNED_CONVERSATIONS = 3;
 
 /**
+ * How long a conversation may be quietened for, in minutes.
+ *
+ * ## Why the list is closed
+ *
+ * A free-form duration invites "forever", and forever is the thing migration 0018 removed
+ * and 0021 deliberately did not bring back: a mute with no end is how somebody misses the
+ * thread that mattered in March because of a busy Tuesday in September. Every value here
+ * arrives, and the longest is a day.
+ *
+ * ## Why it is in the contract
+ *
+ * The server validates against this list and the menu is drawn from it. Kept in one place
+ * so a duration cannot be offered that the server then refuses — the same drift that once
+ * turned a two-character search into an "unavailable" message.
+ */
+export const MUTE_DURATIONS_MINUTES = [15, 30, 60, 240, 720, 1440] as const;
+
+/** A duration the server will accept. */
+export type MuteDurationMinutes = (typeof MUTE_DURATIONS_MINUTES)[number];
+
+/**
+ * "15 minutes", "4 hours" — the same words on the menu and in any refusal.
+ *
+ * Derived rather than listed beside the numbers, so adding a duration cannot leave a
+ * label behind. Hours are whole by construction: every value above 60 is a multiple of it.
+ */
+export function muteDurationLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const hours = minutes / 60;
+  return hours === 1 ? '1 hour' : `${hours} hours`;
+}
+
+/**
  * A `LIKE`/`ILIKE` pattern that matches the term as TEXT, not as a pattern.
  *
  * `%` and `_` are wildcards. A search box that interpolates the term straight into

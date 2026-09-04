@@ -22,7 +22,10 @@ import {
   type ReadStateStore,
 } from '@starlink/conversation-domain';
 import type { ConversationAuthzReader } from '@starlink/database';
-import { MAX_PINNED_CONVERSATIONS as MAX_PINNED } from '@starlink/shared-contracts';
+import {
+  MAX_PINNED_CONVERSATIONS as MAX_PINNED,
+  MUTE_DURATIONS_MINUTES,
+} from '@starlink/shared-contracts';
 import type {
   EmployeeDirectoryProvider,
   IdentityAuthorizationClient,
@@ -77,15 +80,38 @@ const announceSchema = z.object({
 });
 
 /**
- * One flag. There is deliberately no mute — see migration 0018.
+ * What one person may set about one conversation.
  *
- * Kept as an object rather than collapsing to a bare boolean: the next preference that
- * belongs to a person and a conversation goes here beside it, and a bare body would have to
- * be replaced rather than extended.
+ * Both fields are optional and independent: the row-level menu pins without touching the
+ * mute, and mutes without touching the pin. Sending both at once is allowed and does both.
+ *
+ * `muteMinutes` is a DURATION from now, not an instant, because the client must not be the
+ * one deciding when "an hour from now" is — a browser with a skewed clock would otherwise
+ * mute until yesterday. The server converts it against its own clock. `null` unmutes, which
+ * is distinct from the field being absent (leave it alone); `.nullable()` on an
+ * `.optional()` is exactly that distinction.
+ *
+ * The duration must be one of the six the contract offers. An arbitrary number is refused
+ * rather than clamped: `MUTE_DURATIONS_MINUTES` exists so no path can produce a mute that
+ * outlives a day, and silently rounding 100000 down to 1440 would hide a caller doing
+ * something the menu cannot ask for.
  */
-const preferencesSchema = z.object({
-  pinned: z.boolean(),
-});
+const preferencesSchema = z
+  .object({
+    pinned: z.boolean().optional(),
+    muteMinutes: z
+      .number()
+      .int()
+      /* Membership of the contract's list, not a range. A range would accept 999 and the
+         only thing stopping a mute outliving a day would be the menu that draws six
+         buttons — which is not a control, it is a habit. */
+      .refine((minutes) => (MUTE_DURATIONS_MINUTES as readonly number[]).includes(minutes))
+      .nullable()
+      .optional(),
+  })
+  .refine((body) => body.pinned !== undefined || body.muteMinutes !== undefined, {
+    message: 'nothing to change',
+  });
 
 const renameSchema = z.object({
   // Length is bounded in the DOMAIN too — this is the transport's own sanity check, and
@@ -130,10 +156,24 @@ export class EmployeeConversationsController {
        and never from a query this controller writes itself (rule 11). */
     @Inject(EMPLOYEE_DIRECTORY) private readonly directory: EmployeeDirectoryProvider,
     /* One table, one statement — see `setPreferences`. Reaching for the store's port would
-       mean a domain command for a two-boolean upsert that carries no rule. */
+       mean a domain command for an upsert that carries no rule beyond the pin ceiling,
+       and that ceiling is expressed in the statement itself. */
     @Inject(DATABASE) private readonly pool: pg.Pool,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {}
+
+  /**
+   * The server's clock, in one place.
+   *
+   * A mute is stored as the instant it ends, and that instant is computed here rather than
+   * sent by the caller — a browser a few minutes fast would otherwise ask to be quietened
+   * until a moment already past, and the mute would appear to do nothing. A method rather
+   * than a bare `new Date()` at the call site so a test can override it without stubbing
+   * the global.
+   */
+  protected now(): Date {
+    return new Date();
+  }
 
   /**
    * The object check — load the conversation and authorise against IT (§18.4 step 3).
@@ -670,6 +710,37 @@ export class EmployeeConversationsController {
     const session = request.session!;
     if (!(await this.mayActOn(session.principalId, conversationId.data, 'conversation.read'))) {
       return refuse();
+    }
+
+    /*
+       Mute first, because it cannot fail.
+
+       Pinning can be refused by the ceiling below, and a request carrying both would
+       otherwise apply neither when the pin bounced — which is a worse answer than "your
+       mute worked and your pin did not". They are independent preferences and are written
+       as such.
+
+       The instant is computed HERE, from the server clock, not sent by the caller. A
+       browser running a few minutes fast would otherwise mute until an instant already
+       past, and the mute would appear to do nothing at all. See CLAUDE.md on clocks: both
+       ends of an effective period have to come from the same one.
+    */
+    if (parsed.data.muteMinutes !== undefined) {
+      const until =
+        parsed.data.muteMinutes === null
+          ? null
+          : new Date(this.now().getTime() + parsed.data.muteMinutes * 60_000).toISOString();
+
+      await this.pool.query(
+        `INSERT INTO conversation.conversation_preferences
+           (principal_id, conversation_id, muted_until, updated_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (principal_id, conversation_id) DO UPDATE
+           SET muted_until = EXCLUDED.muted_until, updated_at = now()`,
+        [session.principalId, conversationId.data, until],
+      );
+
+      if (parsed.data.pinned === undefined) return { mutedUntil: until };
     }
 
     /*

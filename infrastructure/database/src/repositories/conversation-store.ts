@@ -396,7 +396,8 @@ export class PgConversationReader implements ConversationReader {
               c.last_seq,
               newest.sender_principal_id AS last_message_sender_id,
               others.names AS participant_names,
-              COALESCE(cp.pinned, false) AS pinned
+              COALESCE(cp.pinned, false) AS pinned,
+              cp.muted_until
          FROM conversation.conversations c
          JOIN conversation.participants p
            ON p.conversation_id = c.conversation_id
@@ -501,6 +502,21 @@ export class PgConversationReader implements ConversationReader {
          "absent" would make every unset conversation indistinguishable from a query that
          did not ask. */
       pinned: row.pinned === true,
+      /*
+         Present only while the mute has not run out.
+
+         An expired row is left in the table on purpose — nothing has to sweep it, because
+         a mute whose instant has passed is indistinguishable from no mute at all. Filtered
+         here rather than in SQL so the comparison happens against the SAME clock that
+         every other effective period in this codebase is read against, rather than the
+         database's `now()`; the two have differed by a minute on a dev machine before, and
+         a mute that is over is not something to be wrong about in either direction.
+      */
+      ...(row.muted_until !== null &&
+      row.muted_until !== undefined &&
+      (row.muted_until as Date).getTime() > Date.now()
+        ? { mutedUntil: (row.muted_until as Date).toISOString() }
+        : {}),
       // `bigint` arrives from pg as a string; left as one, every comparison against a
       // message sequence would be lexicographic, and "9" > "10".
       readWatermark: Number(row.read_watermark),

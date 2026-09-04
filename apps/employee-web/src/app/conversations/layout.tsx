@@ -78,7 +78,33 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
    * shell, so a person is told about a message regardless of which section they are looking
    * at — and only once, rather than once per panel that happened to want it.
    */
-  useNotifications(signedInId);
+  /*
+     Rebuilt only when a `mutedUntil` actually changes, not on every list poll.
+
+     The hook takes this map as a dependency of the effect that decides whether to make a
+     noise. A fresh Map on every render would re-run that effect on every poll, and the
+     "what arrived since last time" comparison inside it would then fire against an
+     unchanged list. Keyed on the joined values so the identity is stable while the facts
+     are.
+  */
+  const mutedKey = conversations
+    .filter((c) => c.mutedUntil !== undefined)
+    .map((c) => `${c.conversationId}:${c.mutedUntil}`)
+    .join('|');
+  const mutedUntil = useMemo(
+    () =>
+      new Map(
+        mutedKey === ''
+          ? []
+          : mutedKey.split('|').map((entry) => {
+              const at = entry.indexOf(':');
+              return [entry.slice(0, at), entry.slice(at + 1)] as const;
+            }),
+      ),
+    [mutedKey],
+  );
+
+  useNotifications(signedInId, undefined, mutedUntil);
 
   /**
    * Presence for everybody currently on screen, asked once for the whole surface.
