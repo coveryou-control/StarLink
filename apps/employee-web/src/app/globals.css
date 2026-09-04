@@ -6158,45 +6158,47 @@ input[type='search']::-webkit-search-cancel-button {
 /* =====================================================================================
    Sign in
 
-   One centred column on a near-plain ground. No card: a bordered box floating on a
-   patterned canvas is the shape of every SaaS sign-in, and it frames a form that is
-   already the only thing on the page. Grouping comes from SPACING instead — the mark, the
-   heading, the fields and the action sit at four deliberately different distances, so the
-   eye reads four groups with nothing drawing a line round them.
+   The reference's own palette and pattern, applied directly: a lavender panel, a yellow
+   disc for the mark, white fields, an indigo pill, and a dark outline on every one of
+   them. Asked for explicitly on 2026-09-04 — "use the exact same colours and design
+   pattern" — which supersedes the earlier instruction not to take a reference's colours.
 
-   The tiled constellation is gone. It was the product's own pattern and it made this
-   screen busy: a 250px repeat behind a 360px form is two competing grids. What is left of
-   it is one large, non-repeating arc anchored off the bottom-right corner at 4% —
-   identity as a whisper rather than a wallpaper.
+   ## This screen does not use the product palette
+
+   Everywhere else CY Orange is the one signal colour and rule 1 bounds where it may
+   appear. Here it appears nowhere: the accent is the reference's indigo and the mark's
+   tile is its yellow. That is a deliberate, isolated departure, and it is worth knowing
+   that somebody signing in meets one colour world and lands in another.
+
+   ## Single-theme, on purpose
+
+   The palette below is fixed rather than tokenised, so the dark theme does not repaint
+   half of it and leave the other half. A committed look painted explicitly is honest;
+   the same look with three of its colours swapped by a media query is a bug waiting to
+   be reported. Every value is stated, so the page holds whatever the OS asks for.
    ===================================================================================== */
 
 .signin {
-  display: grid;
-  place-items: center;
+  /* The reference's ink, panel, disc and action. Named here so a change is one edit and
+     so the next reader can see the whole palette at a glance rather than hunting it. */
+  --si-ink: #16162b;
+  --si-panel: #b9aef9;
+  --si-disc: #ffc61a;
+  --si-action: #4a47e0;
+  --si-field: #ffffff;
+  --si-page: #f4f3fb;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   min-height: 100vh;
   padding: var(--space-6) var(--space-5);
-  /*
-     A ground that is nearly, but not quite, white.
-
-     Pure white puts the form on a sheet of paper; a hint of the brand's cool neutral makes
-     it a surface. The two washes are enormous and very faint — coral high-left, indigo
-     low-right — so the page has a direction without anything that reads as a gradient.
-     Nothing here tiles.
-  */
-  background-color: #fcfcfd;
-  background-image:
-    radial-gradient(72rem 46rem at 8% -18%, rgb(226 81 58 / 6%), transparent 58%),
-    radial-gradient(62rem 42rem at 106% 118%, rgb(43 58 99 / 7%), transparent 60%),
-    var(--signin-trace);
-  background-repeat: no-repeat;
-  background-position:
-    0 0,
-    0 0,
-    right -3rem bottom -4rem;
-  background-size:
-    auto,
-    auto,
-    30rem 30rem;
+  /* A pale wash of the panel's own hue, so the lavender reads as the subject rather than
+     as the only colour on an unrelated grey. */
+  background-color: var(--si-page);
+  background-image: none;
+  color: var(--si-ink);
 }
 
 @supports (min-height: 100dvh) {
@@ -6206,47 +6208,21 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
-   Dark: the fields lift OFF the page rather than sinking into it.
+   The panel.
 
-   `--surface` in this theme is near-black, and against a page that is also near-black the
-   inputs read as holes cut in the ground rather than as controls sitting on it. A step up
-   to the tertiary surface is what every dark interface does here, and it is the difference
-   between a form you can see the shape of and four floating labels.
+   A 2px outline in the ink, a generous radius, and no shadow — the outline IS the
+   elevation in this language, and adding a shadow underneath would be two different
+   systems saying the same thing.
 */
-:root[data-theme='dark'] .signin-control {
-  background: var(--surface-3);
-  border-color: var(--border);
-}
-
-:root[data-theme='dark'] .signin-check {
-  background: var(--surface-3);
-  border-color: var(--border);
-}
-
-:root[data-theme='dark'] .signin-remember input:checked + .signin-check {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-:root[data-theme='dark'] .signin {
-  background-color: var(--surface-2);
-  background-image:
-    radial-gradient(72rem 46rem at 8% -18%, rgb(226 81 58 / 10%), transparent 58%),
-    radial-gradient(62rem 42rem at 106% 118%, rgb(120 140 210 / 9%), transparent 60%),
-    var(--signin-trace-dark);
-}
-
-/*
-   360px, which is the width a 13px label and a 14.5px input want.
-
-   Wider and the eye travels back across an empty line to find the next label; the form
-   stops reading as a column and starts reading as a table.
-*/
-.signin-column {
+.signin-panel {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 360px;
+  max-width: 392px;
+  padding: 36px 32px 32px;
+  border: 2px solid var(--si-ink);
+  border-radius: 26px;
+  background: var(--si-panel);
 }
 
 /* ---------------------------------------------------------------------- masthead ---- */
@@ -6254,43 +6230,48 @@ input[type='search']::-webkit-search-cancel-button {
 .signin-masthead {
   display: flex;
   flex-direction: column;
-  /* 40px to the form below, against 8px inside this block: the gap is what says "these
-     three lines are one thing, and the form is another". */
-  margin-bottom: 40px;
-}
-
-.signin-masthead .brand-mark {
+  align-items: center;
+  text-align: center;
   margin-bottom: 26px;
 }
 
 /*
-   In the dark theme the tile has to step UP, not down.
+   The mark becomes the reference's yellow disc.
 
-   `.brand-mark` is CY Grey — near-black — which is the right ground for an orange letter
-   on a white page and invisible on a black one. The rail hit this first and solved it the
-   same way; the comment there says "otherwise the mark is invisible against its own
-   ground", and on a dark sign-in page it was.
+   `.brand-mark` is a near-black squircle with a coral letter, and it is overridden only
+   here — the rail, the panel masthead and every other place it appears keep the product's
+   own mark. A circle rather than the squircle because the reference draws a circle, and
+   the letter takes the ink so it reads on yellow.
 */
-:root[data-theme='dark'] .signin-masthead .brand-mark {
-  background: var(--neutral-800-2);
+/*
+   Colours only. The size and the radius come from the component's own inline style —
+   `<BrandMark size={64} round />` — because inline beats a class, and a stylesheet trying
+   to resize or round this off does nothing at all. The first attempt did exactly that and
+   produced a yellow tile at the wrong size and the wrong shape.
+*/
+.signin-masthead .brand-mark {
+  margin-bottom: 22px;
+  border: 2px solid var(--si-ink);
+  background: var(--si-disc);
+  color: var(--si-ink);
 }
 
 .signin-masthead h1 {
   margin: 0 0 8px;
-  font-size: 24px;
-  font-weight: 620;
-  /* Negative tracking at display sizes. At 24px the interface's default spacing leaves a
-     heading looking loose beside 13.5px body text set at its own. */
-  letter-spacing: -0.021em;
+  font-size: 23px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
   line-height: 1.2;
-  color: var(--text);
+  color: var(--si-ink);
 }
 
 .signin-masthead p {
   margin: 0;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
-  color: var(--text-muted);
+  /* The ink at 72%, not a separate grey: a second neutral in a palette this committed
+     reads as a colour that wandered in from another design. */
+  color: color-mix(in srgb, var(--si-ink) 72%, transparent);
 }
 
 /* -------------------------------------------------------------------------- form ---- */
@@ -6298,24 +6279,30 @@ input[type='search']::-webkit-search-cancel-button {
 .signin-form {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
 }
 
 .signin-field {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 6px;
 }
 
+/*
+   Labels, which the reference does not have.
+
+   It draws two bare boxes. Placeholders are not labels — they vanish the moment somebody
+   types, they are announced inconsistently, and a form relying on them fails NFR-ACC-1.
+   So the labels stay, in the ink, sized down so they sit under the pattern rather than
+   fighting it.
+*/
 .signin-label {
-  font-size: 13px;
-  font-weight: 520;
+  font-size: 12.5px;
+  font-weight: 620;
   letter-spacing: -0.005em;
-  color: var(--text);
+  color: var(--si-ink);
 }
 
-/* `baseline`, not `center`: the label and the link differ in size and weight, and centring
-   them leaves the smaller one looking as though it has slipped. */
 .signin-label-row {
   display: flex;
   align-items: baseline;
@@ -6323,32 +6310,23 @@ input[type='search']::-webkit-search-cancel-button {
   gap: var(--space-3);
 }
 
-/*
-   The input, and the group that wraps one with a trailing button.
-
-   Both wear the same class so the password field cannot drift from the email field by a
-   pixel — they are the two things on this page most obviously compared to each other.
-*/
 .signin-control {
   display: flex;
   align-items: center;
   gap: 8px;
   width: 100%;
-  height: 42px;
-  padding: 0 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--surface);
-  color: var(--text);
+  height: 46px;
+  padding: 0 14px;
+  border: 2px solid var(--si-ink);
+  border-radius: 10px;
+  background: var(--si-field);
+  color: var(--si-ink);
   font-size: 14.5px;
-  /* Composited properties only, so the focus transition costs no layout. */
-  transition:
-    border-color 130ms var(--ease),
-    box-shadow 130ms var(--ease);
+  transition: box-shadow 130ms var(--ease);
 }
 
 .signin-control::placeholder {
-  color: var(--text-subtle);
+  color: color-mix(in srgb, var(--si-ink) 42%, transparent);
 }
 
 .signin-control-group input {
@@ -6362,95 +6340,79 @@ input[type='search']::-webkit-search-cancel-button {
   font: inherit;
 }
 
+.signin-control-group input::placeholder {
+  color: color-mix(in srgb, var(--si-ink) 42%, transparent);
+}
+
 /*
-   Focus: the border takes the accent and a soft ring appears outside it.
+   Focus is a hard offset shadow, not a soft ring.
 
-   Two signals rather than one, because a border colour alone is a change somebody with low
-   colour acuity may not catch, and a ring alone reads as a browser default. 3px at 12% is
-   present at a glance and nearly invisible in a screenshot.
-
-   This is the one place the product keeps a ring on a text field. `data-pointer` suppresses
-   them elsewhere because `:focus-visible` matches a MOUSE click on an input (see
-   `input-modality.ts`), and a ring flashing onto every box somebody reaches for is noise —
-   two fields that are the entire point of the screen are the exception.
+   A blurred halo is the wrong grammar for a palette drawn in flat colour and 2px strokes —
+   it reads as a different design system leaking in. An offset block in the ink is the same
+   language as the outlines, and it moves the field rather than glowing around it.
 */
 .signin-control:focus-within,
 .signin-control:focus-visible {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
+  box-shadow: 3px 3px 0 0 var(--si-ink);
   outline: none;
 }
 
 .signin-control-group input:focus-visible {
-  /* The GROUP shows focus; a second ring inside the first reads as two controls. */
   outline: none;
 }
 
-/*
-   A text button that is not a link and does not want to be noticed.
-
-   "Forgot password?" and "Show" share one register — small, muted, reaching the text colour
-   under the pointer. Neither takes the accent: on this page the accent means "press this to
-   sign in", and spending it on two secondary controls would leave three orange things
-   competing for the same glance.
-*/
 .signin-quiet {
   flex: none;
   padding: 0;
   height: auto;
   border: 0;
   background: transparent;
-  color: var(--text-muted);
-  font-size: 12.5px;
-  font-weight: 500;
+  color: color-mix(in srgb, var(--si-ink) 70%, transparent);
+  font-size: 12px;
+  font-weight: 600;
   transition: color 120ms var(--ease);
 }
 
 .signin-quiet:hover,
 .signin-quiet:focus-visible {
-  color: var(--text);
+  color: var(--si-ink);
 }
 
 .signin-help {
   margin: -4px 0 0;
   padding: 10px 12px;
-  border-radius: 8px;
-  background: var(--surface-2);
-  font-size: 12.5px;
+  border: 2px solid var(--si-ink);
+  border-radius: 10px;
+  background: var(--si-field);
+  font-size: 12px;
   line-height: 1.5;
-  color: var(--text-muted);
+  color: var(--si-ink);
 }
 
 /* --------------------------------------------------------------------- remember ---- */
 
-/*
-   The native checkbox is kept and made transparent rather than replaced by a div: it
-   carries the label association, the keyboard behaviour and the form value for free, and
-   every hand-rolled checkbox eventually rediscovers one of the three.
-*/
 .signin-remember {
   position: relative;
   display: flex;
   align-items: center;
   gap: 9px;
-  margin-top: -2px;
-  font-size: 13px;
-  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--si-ink);
   cursor: pointer;
 }
 
 /*
    Hidden from sight, NOT from the pointer.
 
-   The first version used the usual 1px `pointer-events: none` trick, which made the real
-   control unactuatable: only a click landing on the label worked, and anything driving the
-   page — the browser suite, a password manager — could not tick it at all. It keeps its hit
-   area now and is simply transparent, laid over the box it controls.
+   The 1px `pointer-events: none` version made the real control unactuatable: only a click
+   landing on the label worked, and nothing driving the page could tick it. It keeps its hit
+   area and is simply transparent, over the box it controls.
 */
 .signin-remember input {
   position: absolute;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   margin: 0;
   opacity: 0;
   cursor: pointer;
@@ -6461,27 +6423,22 @@ input[type='search']::-webkit-search-cancel-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
-  border: 1px solid var(--border-strong);
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--si-ink);
   border-radius: 5px;
-  background: var(--surface);
+  background: var(--si-field);
   color: transparent;
-  transition:
-    background 120ms var(--ease),
-    border-color 120ms var(--ease);
+  transition: background 120ms var(--ease);
 }
 
 .signin-remember input:checked + .signin-check {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--accent-contrast);
+  background: var(--si-action);
+  color: #ffffff;
 }
 
-/* The hidden input cannot show focus, so the drawn box shows it — otherwise this control is
-   invisible to a keyboard. */
 .signin-remember input:focus-visible + .signin-check {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow: 2px 2px 0 0 var(--si-ink);
 }
 
 /* ------------------------------------------------------------------------ action ---- */
@@ -6489,86 +6446,70 @@ input[type='search']::-webkit-search-cancel-button {
 .signin-error {
   margin: 0;
   padding: 10px 12px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
-  color: var(--critical-label, var(--danger));
+  border: 2px solid var(--si-ink);
+  border-radius: 10px;
+  background: #ffe0dc;
+  color: var(--si-ink);
   font-size: 12.5px;
   line-height: 1.45;
+  font-weight: 500;
 }
 
 /*
-   The one saturated thing on the page.
+   The indigo pill, outlined like everything else.
 
-   No chevron and no gradient. A primary button that is the only coloured element does not
-   need an arrow to say it is the primary button, and the arrow was the last piece of
-   template grammar left on the screen.
+   No hover shade: `hover-highlighting.test.ts` refuses one, and the rule behind it — that
+   nothing paints behind the pointer — was asked for across the whole application. The
+   press interaction below carries the whole response instead, and in this language it is a
+   better one anyway: the button moves onto its own shadow.
 */
 .signin-submit {
-  height: 42px;
-  margin-top: 4px;
-  border: 0;
-  border-radius: 8px;
-  background: var(--accent);
-  color: var(--accent-contrast);
-  font-size: 14px;
-  font-weight: 560;
+  height: 50px;
+  margin-top: 6px;
+  border: 2px solid var(--si-ink);
+  border-radius: var(--radius-pill);
+  background: var(--si-action);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 640;
   letter-spacing: -0.005em;
+  box-shadow: 3px 3px 0 0 var(--si-ink);
   transition:
-    filter 130ms var(--ease),
+    box-shadow 90ms var(--ease),
     transform 90ms var(--ease);
 }
 
 /*
-   No hover shade on this button, deliberately.
+   Pressed, the button travels onto its shadow and the shadow disappears.
 
-   It had one — `--accent-hover` — and `hover-highlighting.test.ts` refused it. That guard
-   exists because the whole application was asked to stop painting anything behind the
-   pointer, and the rule as written does not carve out "unless it is a filled button".
-   Weakening it to fit one control would be the wrong way round: the guard is the
-   instruction, this page is the newcomer.
-   
-   So the button's whole response lives on `:active` below, which is a press rather than a
-   hover and which the rule does not touch. If a hover shade is wanted here, it needs a
-   named exception in the guard and a decision to go with it — not a quiet edit.
-*/
-
-/*
-   One pixel down on press.
-
-   The whole micro-interaction budget for this page, spent on the only control that performs
-   an action. It is what makes a flat button feel like a button rather than a coloured
-   rectangle, and it is small enough that nobody notices it deliberately.
+   The whole micro-interaction budget for this page. In a flat-and-outlined language this
+   is the press: the object moves the exact distance its shadow occupied, so it reads as
+   being pushed down rather than as a colour changing.
 */
 .signin-submit:active:not(:disabled) {
-  transform: translateY(1px);
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 0 var(--si-ink);
 }
 
 .signin-submit:disabled {
-  opacity: 0.65;
+  opacity: 0.62;
 }
 
 /* -------------------------------------------------------------------------- foot ---- */
 
 .signin-foot {
-  margin: 36px 0 0;
-  padding-top: 20px;
-  border-top: 1px solid var(--border);
-  font-size: 12px;
+  max-width: 392px;
+  margin: 18px auto 0;
+  text-align: center;
+  font-size: 11.5px;
   line-height: 1.55;
-  color: var(--text-subtle);
+  color: color-mix(in srgb, var(--si-ink) 60%, transparent);
 }
 
 /* --------------------------------------------------------------- arriving on it ---- */
 
-/*
-   A short rise on load, and nothing else.
-
-   The page has one moment of motion and this is it: the column settles rather than
-   appearing, which reads as deliberate where a fade alone reads as a slow connection.
-   240ms and 8px — below the threshold at which somebody waits for it to finish.
-*/
 @media (prefers-reduced-motion: no-preference) {
-  .signin-column {
+  .signin-panel {
     animation: signin-rise 240ms var(--ease) both;
   }
 }
@@ -6583,25 +6524,29 @@ input[type='search']::-webkit-search-cancel-button {
 /* ---------------------------------------------------------------------- narrower ---- */
 
 /*
-   The column already fits a 375px phone with the page's own padding, so nothing about the
-   layout changes — only the breathing room around it, which a phone cannot spare.
+   The panel survives on a phone in this language, unlike the tinted one it replaced.
+
+   A 2px outline and a lavender fill are legible at any width — what was wrong before was a
+   near-invisible tint inside a bordered box inside a padded page. Only the insets come
+   down, and the masthead stays centred because the outline gives the centring something to
+   be measured against.
 */
 @media (max-width: 480px) {
   .signin {
     padding: var(--space-5) var(--space-4);
-    /* The bottom-right trace is mostly off-screen at this width and reads as a smudge in
-       the corner rather than as a constellation, so it is dropped rather than cropped. */
-    background-image:
-      radial-gradient(60rem 40rem at 8% -18%, rgb(226 81 58 / 6%), transparent 58%),
-      radial-gradient(50rem 36rem at 106% 118%, rgb(43 58 99 / 7%), transparent 60%);
   }
 
-  .signin-masthead {
-    margin-bottom: 32px;
+  .signin-panel {
+    padding: 30px 22px 26px;
+    border-radius: 22px;
   }
 
   .signin-masthead h1 {
-    font-size: 22px;
+    font-size: 21px;
+  }
+
+  .signin-masthead .brand-mark {
+    margin-bottom: 18px;
   }
 }
 

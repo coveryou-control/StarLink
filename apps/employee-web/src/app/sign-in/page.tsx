@@ -11,31 +11,34 @@ import { ApiError } from '../../lib/api-client';
 /**
  * Sign in.
  *
- * ## The composition
+ * ## The reference's own palette, applied directly
  *
- * One column, centred, no card. The card was the thing making this read as a template: a
- * bordered box floating on a patterned ground is the shape of every SaaS sign-in, and it
- * puts a frame around a form that is already the only thing on the page. Without it the
- * form IS the page — which is what "integrated" means here, and what Linear, Vercel and
- * Stripe all do on this screen.
+ * Lavender panel, yellow disc, white fields, indigo pill, and a 2px ink outline on every
+ * one of them. Asked for on 2026-09-04 — "use the exact same colours and design pattern" —
+ * which supersedes the earlier instruction not to take a reference's colours.
  *
- * What replaces the card's job of grouping is spacing. The mark, the heading, the fields
- * and the action sit at deliberately different distances from each other, so the eye reads
- * four groups without a border telling it to.
+ * ## This screen does not use the product palette
  *
- * ## The mark alone
+ * Worth knowing rather than discovering: everywhere else in StarLink, CY Orange is the one
+ * signal colour and rule 1 bounds where it may appear. Here it appears nowhere. Somebody
+ * signing in meets one colour world and lands in another, which is a deliberate, isolated
+ * departure and not a drift.
  *
- * No wordmark. The heading says "Sign in to StarLink" one line below it, so a lockup would
- * print the product's name twice in forty pixels. A mark on its own also behaves like a
- * mark rather than a masthead — it identifies without announcing, which is the register an
- * internal tool wants.
+ * ## What the reference does that this does not
  *
- * ## Restraint over decoration
+ * It has no labels — two bare boxes under two placeholder lines. Placeholders are not
+ * labels: they vanish the moment somebody types, they are announced inconsistently, and a
+ * form relying on them fails NFR-ACC-1. The labels stay, set small and in the ink so they
+ * sit inside the pattern rather than fighting it.
  *
- * No icons in the fields: a mail glyph beside a box labelled "Work email" is a second
- * statement of the same fact, and two of them make the form look busier than it is. No
- * gradient, no glass. The one saturated thing on the screen is the button, which is the
- * one thing to press.
+ * It also has no "Forgot password?", no show/hide and no remember box, because it is a
+ * thumbnail rather than a product. All three are real controls here and all three stay.
+ *
+ * ## The mark
+ *
+ * The reference's yellow disc, carrying StarLink's own letter. `.brand-mark` is overridden
+ * for this page only — the rail and every other surface keep the product's near-black
+ * squircle, so the override cannot leak into them.
  */
 export default function SignInPage(): ReactNode {
   const { state, signIn } = useSession();
@@ -82,9 +85,9 @@ export default function SignInPage(): ReactNode {
 
   return (
     <main className="signin">
-      <div className="signin-column">
+      <div className="signin-panel">
         <header className="signin-masthead">
-          <BrandMark size={36} />
+          <BrandMark size={64} round />
           <h1>Sign in to StarLink</h1>
           <p>CoverYou&rsquo;s internal workspace. Conversations stay inside the company.</p>
         </header>
@@ -215,18 +218,20 @@ export default function SignInPage(): ReactNode {
           </button>
         </form>
 
-        {/*
-          One quiet line, separated by a rule.
-
-          It is the only place the page says anything about access, and it belongs at the
-          foot rather than under the button — a sentence between the CTA and the edge of the
-          form would compete with the thing somebody came here to press.
-        */}
-        <p className="signin-foot">
-          Access is limited to active employees. Single sign-on becomes available once
-          StarLink is connected to the company directory.
-        </p>
       </div>
+
+      {/*
+        Outside the panel, deliberately.
+
+        Inside it, this paragraph was a third of the panel's height and turned a compact
+        object into a tall one with its weight at the bottom. It is also not part of the
+        form: it is a note about who may use the product, which belongs to the page rather
+        than to the thing you fill in. Out here it reads as a footnote, which is what it is.
+      */}
+      <p className="signin-foot">
+        Access is limited to active employees. Single sign-on becomes available once
+        StarLink is connected to the company directory.
+      </p>
     </main>
   );
 }
