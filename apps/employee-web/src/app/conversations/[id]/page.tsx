@@ -563,6 +563,17 @@ export default function ThreadPage(): ReactNode {
         compact={panelOverlays}
         searchOpen={searchOpen}
         onToggleSearch={() => setSearchOpen((was) => !was)}
+        /* The duration is sent, never the instant: the server dates the lease against its
+           own clock, so a browser running fast cannot ask to be quietened until a moment
+           already past. `refreshConversations` because `mutedUntil` lives on the summary,
+           and the shell hands that to the notification hook — a mute the list does not
+           know about is a mute that still makes a noise. */
+        onMute={(minutes) => {
+          void api
+            .setConversationPreferences(conversationId, { muteMinutes: minutes })
+            .then(() => refreshConversations())
+            .catch(() => undefined);
+        }}
       />
 
       {/*

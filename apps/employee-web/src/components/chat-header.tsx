@@ -40,6 +40,7 @@ export function ChatHeader({
   onToggleDetails,
   searchOpen = false,
   onToggleSearch,
+  onMute,
   compact = false,
 }: {
   readonly conversation: ConversationSummary | undefined;
@@ -60,6 +61,13 @@ export function ChatHeader({
    */
   readonly searchOpen?: boolean;
   readonly onToggleSearch?: (() => void) | undefined;
+  /**
+   * Quieten this conversation for a while, or lift it. `null` unmutes.
+   *
+   * The header offers it as well as the row does, because the moment somebody wants a
+   * conversation to stop interrupting them is usually the moment they are reading it.
+   */
+  readonly onMute?: ((minutes: number | null) => void) | undefined;
   /** A phone. The header keeps the back control, the person and one action — see below. */
   readonly compact?: boolean;
 }): ReactNode {
@@ -375,9 +383,11 @@ export function ChatHeader({
           <ChatHeaderMenu
             isGroup={isGroup}
             anchor={menuAnchor}
+            mutedUntil={conversation?.mutedUntil}
             onOpenDetails={onToggleDetails}
             onSearch={onToggleSearch}
             onCloseChat={() => router.push('/conversations')}
+            onMute={onMute}
             onDismiss={() => setMenuAnchor(undefined)}
           />
         ) : null}
