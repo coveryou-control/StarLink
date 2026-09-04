@@ -20,6 +20,15 @@ import type {
 export interface ConversationParticipantRef {
   readonly principalId: UUID;
   readonly displayName: string;
+  /**
+   * Their role in THIS conversation.
+   *
+   * `CREATOR` marks whoever started it, and in a group that is the only person permitted
+   * to remove members (migration 0023). Optional, because a summary produced before this
+   * was carried simply has no answer — and an absent role must read as "not the admin"
+   * rather than as "unknown, allow it", which is rule 4 applied to a projection.
+   */
+  readonly role?: string;
 }
 
 export interface ConversationSummary {
@@ -84,6 +93,15 @@ export interface ConversationSummary {
    * preference. See migration 0018.
    */
   readonly pinned: boolean;
+  /**
+   * When this reader's mute of the thread runs out; absent when it is not muted.
+   *
+   * Absent rather than a boolean because the UI has to say WHEN — "muted until 15:40" is
+   * actionable and "muted" is a state somebody has to remember setting. An expired mute is
+   * reported as absent, so no consumer has to know that an old row can still be sitting in
+   * the table.
+   */
+  readonly mutedUntil?: string;
 }
 
 export interface NewParticipant {

@@ -78,12 +78,33 @@ export interface MeResponse {
   readonly roles: readonly { role: string; scope: unknown }[];
   /** `TEMPORARY_AUTHORITY` until HRMS/Central IAM take over — shown, never hidden. */
   readonly authority: string;
+  /**
+   * This session, as far as ADR-008 can honestly describe it.
+   *
+   * Optional because an older server does not send it, and the settings row then renders a
+   * dash rather than inventing a value. There is deliberately no location and no MAC
+   * address — see the route for why neither can be produced honestly.
+   */
+  readonly session?: {
+    readonly startedAt: string;
+    readonly expiresAt: string;
+    readonly ip: string | null;
+  };
 }
 
 /** Just enough of a participant to name a conversation. Never contact details. */
 export interface ConversationParticipantRef {
   readonly principalId: string;
   readonly displayName: string;
+  /**
+   * Their role in THIS conversation.
+   *
+   * `CREATOR` marks whoever started it, and in a group that is the only person permitted
+   * to remove members (migration 0023). Optional, because a summary produced before this
+   * was carried simply has no answer — and an absent role must read as "not the admin"
+   * rather than as "unknown, allow it", which is rule 4 applied to a projection.
+   */
+  readonly role?: string;
 }
 
 export interface ConversationSummary {
@@ -117,11 +138,61 @@ export interface ConversationSummary {
    * Never optional: false is a real answer, and an absent flag would make "not pinned"
    * indistinguishable from "not asked", which is not a state a switch can be drawn from.
    *
-   * There is no mute. Being told a conversation needs you is not a per-thread preference —
-   * see migration 0018.
    */
   readonly pinned: boolean;
+  /**
+   * When this reader's mute of the thread runs out; absent when it is not muted.
+   *
+   * Mute was removed in migration 0018 and brought back by 0021 as a LEASE rather than a
+   * switch — every mute ends, and the longest is a day. That is why this is an instant and
+   * not a boolean: the menu says "Muted until 15:40", which is a thing somebody can act on,
+   * where "Muted" is a state they have to remember setting.
+   *
+   * §29.6 is untouched: a muted conversation still counts unread and still bolds its row.
+   * What is suppressed is the interruption, never the record.
+   */
+  readonly mutedUntil?: string;
   readonly readWatermark?: number;
+}
+
+/** A message held at the top of a conversation, for everybody in it. */
+export interface PinnedMessage {
+  readonly messageId: string;
+  readonly pinnedBy: string;
+  readonly pinnedByName: string;
+  readonly pinnedAt: string;
+  /** Empty when the message has been deleted since it was pinned. */
+  readonly body: string;
+  readonly senderPrincipalId?: string;
+  readonly senderDisplayName?: string;
+  readonly redacted: boolean;
+}
+
+/** Who has read one message — the "Message info" panel. The sender is not listed. */
+export interface MessageInfo {
+  readonly deliveredAt: string;
+  readonly senderPrincipalId?: string;
+  readonly readers: readonly {
+    readonly principalId: string;
+    readonly displayName: string;
+    /** Only present when they have actually read past this message. */
+    readonly readAt?: string;
+    readonly hasRead: boolean;
+  }[];
+}
+
+/**
+ * What somebody says they are doing — never inferred, and never routed on.
+ *
+ * `clearsAt` is absent only for AVAILABLE. Everything else expires, because a status that
+ * cannot go stale is one nobody remembers to clear, and a reader burned by that once stops
+ * believing any of them.
+ */
+export interface DeclaredStatusView {
+  readonly principalId: string;
+  readonly status: string;
+  readonly setAt: string;
+  readonly clearsAt?: string;
 }
 
 /** One file shared in a conversation, for the information panel. Metadata only. */
@@ -327,11 +398,17 @@ const query = (params: Record<string, string | number | undefined>): string => {
 export const api = {
   me: () => request<MeResponse>(employeeRoutes.auth.me),
 
-  /** Sign-in returns only the id; the shell then loads the full profile via `me()`. */
-  signIn: (username: string, password: string) =>
+  /**
+   * Sign-in returns only the id; the shell then loads the full profile via `me()`.
+   *
+   * `rememberMe` asks for a fourteen-day session instead of twelve hours. The server
+   * decides both numbers and sets the cookie to match — the client asks a question, it
+   * does not set a duration.
+   */
+  signIn: (username: string, password: string, rememberMe = false) =>
     request<{ principalId: string }>(employeeRoutes.auth.signIn, {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, rememberMe }),
     }),
 
   signOut: () => request<void>(employeeRoutes.auth.signOut, { method: 'POST' }),
@@ -704,18 +781,161 @@ export const api = {
     }),
 
   /** Sets this reader's preference for one thread. Today that is where it sits. */
-  setConversationPreferences: (conversationId: string, preferences: { pinned: boolean }) =>
-    request<{ pinned: boolean }>(employeeRoutes.conversations.preferences(conversationId), {
+  /**
+   * `limitReached` is a SUCCESSFUL response, not an error.
+   *
+   * The server caps pinning at `MAX_PINNED_CONVERSATIONS` inside the statement that writes,
+   * so the fourth pin is refused by the database rather than by a check that could race.
+   * That refusal comes back as `{ pinned: false, limitReached: true }` — the request was
+   * valid and the caller is allowed; they simply already have three. Throwing here would
+   * make the caller render "that could not be saved", which is both wrong and unhelpful.
+   */
+  setConversationPreferences: (
+    conversationId: string,
+    /*
+       Both optional, and at least one required by the server. Pinning and muting are
+       independent, and sending only the one being changed means a mute cannot silently
+       clear a pin set in another tab.
+
+       `muteMinutes` is a duration, never an instant: see the route's own note on why the
+       browser must not be the thing deciding when "an hour from now" is.
+    */
+    preferences: { pinned?: boolean; muteMinutes?: number | null },
+  ) =>
+    request<{
+      pinned?: boolean;
+      mutedUntil?: string | null;
+      limitReached?: boolean;
+      maxPinned?: number;
+    }>(
+      employeeRoutes.conversations.preferences(conversationId),
+      {
+        method: 'PUT',
+        body: JSON.stringify(preferences),
+      },
+    ),
+
+  /**
+   * What is pinned in this conversation, newest first.
+   *
+   * A redacted pin comes back with `redacted: true` and an empty body rather than being
+   * omitted — see the store. The panel renders it as "this message was deleted", which is
+   * the only thing that gives somebody a reason to unpin it.
+   */
+  pins: (conversationId: string) =>
+    request<{ pins: readonly PinnedMessage[] }>(employeeRoutes.conversations.pins(conversationId)),
+
+  pinMessage: (conversationId: string, messageId: string) =>
+    request<{ pinned: boolean; changed: boolean }>(
+      employeeRoutes.conversations.pin(conversationId, messageId),
+      { method: 'PUT' },
+    ),
+
+  unpinMessage: (conversationId: string, messageId: string) =>
+    request<{ pinned: boolean; changed: boolean }>(
+      employeeRoutes.conversations.pin(conversationId, messageId),
+      { method: 'DELETE' },
+    ),
+
+  /** Who has read one message, and when it was delivered. */
+  messageInfo: (conversationId: string, messageId: string) =>
+    request<MessageInfo>(employeeRoutes.conversations.messageInfo(conversationId, messageId)),
+
+  /**
+   * Sends this message on to another conversation.
+   *
+   * One destination per call. A list would force a partial-success answer nobody can act
+   * on; four requests can each be reported on.
+   */
+  forwardMessage: (conversationId: string, messageId: string, toConversationId: string) =>
+    request<{ messageId: string; conversationId: string }>(
+      employeeRoutes.conversations.forward(conversationId, messageId),
+      { method: 'POST', body: JSON.stringify({ toConversationId }) },
+    ),
+
+  /**
+   * What the caller says they are doing.
+   *
+   * Distinct from presence, which is a realtime lease and says only "connected" — see the
+   * status controller for why the two are shown together and never merged.
+   */
+  myStatus: () => request<DeclaredStatusView>(employeeRoutes.auth.status),
+
+  /**
+   * Sets it. `minutes` is a duration, and the server dates the expiry from its own clock.
+   *
+   * Required for everything except AVAILABLE and refused for AVAILABLE: that one is the
+   * absence of a claim, and giving it an expiry would mean "I stop being available in an
+   * hour", which is a different statement.
+   */
+  setMyStatus: (status: string, minutes?: number) =>
+    request<{ status: string; clearsAt: string | null }>(employeeRoutes.auth.status, {
       method: 'PUT',
-      body: JSON.stringify(preferences),
+      body: JSON.stringify(minutes === undefined ? { status } : { status, minutes }),
     }),
+
+  /**
+   * Statuses for the colleagues currently on screen.
+   *
+   * AVAILABLE is omitted and a lapsed status is omitted, so an id missing from the answer
+   * means "nothing to say" — which is what lets the caller treat absence as the default
+   * rather than having to filter.
+   */
+  statusesFor: (principalIds: readonly string[]) =>
+    request<{ statuses: readonly DeclaredStatusView[] }>(
+      `${employeeRoutes.statuses}?ids=${principalIds.join(',')}`,
+    ),
+
+  /**
+   * Sets the caller's own picture.
+   *
+   * The bytes have already been through a canvas on the client — see `avatar-picker.tsx`,
+   * which is where the safety comes from. The server re-checks size, type and the bytes'
+   * own signature regardless, because a caller can skip the client.
+   */
+  setMyAvatar: (base64: string, contentType = 'image/png') =>
+    request<{ updatedAt: string }>(employeeRoutes.auth.avatar, {
+      method: 'PUT',
+      body: JSON.stringify({ base64, contentType }),
+    }),
+
+  removeMyAvatar: () =>
+    request<{ removed: boolean }>(employeeRoutes.auth.avatar, { method: 'DELETE' }),
+
+  setConversationAvatar: (conversationId: string, base64: string, contentType = 'image/png') =>
+    request<{ updatedAt: string }>(employeeRoutes.conversations.avatar(conversationId), {
+      method: 'PUT',
+      body: JSON.stringify({ base64, contentType }),
+    }),
+
+  /**
+   * Which of these people have a picture, and when each last changed.
+   *
+   * Stamps, not bytes: the list draws thirty avatars and needs to know which of them to
+   * point at an image and what to hang on the URL so a changed one is not served from
+   * cache. Fetching the images to decide whether to draw initials would move megabytes.
+   */
+  avatarStamps: (principalIds: readonly string[]) =>
+    request<{ avatars: readonly { id: string; updatedAt: string }[] }>(
+      `${employeeRoutes.avatarStamps}?ids=${principalIds.join(',')}`,
+    ),
+
+  /**
+   * Hides one message from your own view — "delete for me".
+   *
+   * Not `deleteMessage`, which is a redaction: that clears the body for every reader and
+   * only the author may do it. This changes one person's timeline and tells nobody.
+   */
+  hideMessage: (conversationId: string, messageId: string) =>
+    request<{ hidden: boolean }>(
+      employeeRoutes.conversations.hideMessage(conversationId, messageId),
+      { method: 'POST' },
+    ),
 
   /** Ends every session this account holds, including this browser's. */
   signOutEverywhere: () =>
     request<void>(employeeRoutes.auth.signOutEverywhere, { method: 'POST' }),
 
-  /** What this account has uploaded that is still reachable. */
-  storage: () => request<{ files: number; bytes: number }>(employeeRoutes.auth.storage),
 
   /** Everything BOUND in a conversation, newest first. */
   sharedFiles: (conversationId: string) =>

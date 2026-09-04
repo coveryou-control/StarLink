@@ -13,8 +13,16 @@ import type { MessageView } from '../lib/api-client';
  * The hover bar carried a kebab, and a kebab is a button whose label is "there is more".
  * Right-clicking a message is what people already do — it is how every desktop application
  * and every desktop messenger offers the same list — and it costs no pixels beside every
- * message on the screen. The smiley and the reply arrow stay on hover, because those are
- * the two actions worth making visible; the rest lives here.
+ * message on the screen. Only the smiley stays on hover; everything else lives here,
+ * including Reply, which is why `message-list.tsx` also opens this menu on the ContextMenu
+ * key — a list where Reply needs a right-click is a list a keyboard cannot use.
+ *
+ * ## What is in it
+ *
+ * Message info, Copy, Reply, Edit, Forward, Pin, Delete. Star is absent because it was
+ * asked to be, and there is no "Ask Meta AI" for the obvious reason. Edit and Delete
+ * appear only on your own messages — the server refuses both otherwise, and offering them
+ * would be offering a refusal.
  *
  * ## Why a portal, which is the actual bug fix
  *
@@ -40,9 +48,13 @@ export function MessageContextMenu({
   at,
   canEdit,
   canDelete,
+  pinned,
   onReply,
   onEdit,
   onDelete,
+  onTogglePin,
+  onForward,
+  onMessageInfo,
   onClose,
 }: {
   readonly message: MessageView;
@@ -50,9 +62,14 @@ export function MessageContextMenu({
   readonly at: { readonly x: number; readonly y: number };
   readonly canEdit: boolean;
   readonly canDelete: boolean;
+  /** Whether this message is currently pinned for everybody in the conversation. */
+  readonly pinned: boolean;
   readonly onReply?: ((message: MessageView) => void) | undefined;
   readonly onEdit?: ((message: MessageView) => void) | undefined;
   readonly onDelete?: ((message: MessageView) => void) | undefined;
+  readonly onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
+  readonly onForward?: ((message: MessageView) => void) | undefined;
+  readonly onMessageInfo?: ((message: MessageView) => void) | undefined;
   readonly onClose: () => void;
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -124,6 +141,24 @@ export function MessageContextMenu({
          also be read as a click outside one. */
       onPointerDown={(event) => event.stopPropagation()}
     >
+      {/*
+        Message info first, as the reference draws it. It is the only item that ANSWERS a
+        question rather than performing an action, and putting it under the destructive
+        ones would bury it.
+      */}
+      {onMessageInfo !== undefined ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onMessageInfo(message);
+            onClose();
+          }}
+        >
+          Message info
+        </button>
+      ) : null}
+
       <button type="button" role="menuitem" onClick={() => void copy()}>
         {copied ? 'Copied' : 'Copy text'}
       </button>
@@ -151,6 +186,40 @@ export function MessageContextMenu({
           Edit
         </button>
       ) : null}
+      {/*
+        Forward and Pin, between the personal actions and the destructive one.
+
+        Both act on the conversation rather than on your own copy: a pin is visible to
+        everybody in the thread, and a forward puts the text somewhere else entirely. They
+        sit after Copy and Reply because those are what people reach for, and before
+        Delete because a destructive item belongs last where a mis-click cannot find it.
+      */}
+      {onForward !== undefined ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onForward(message);
+            onClose();
+          }}
+        >
+          Forward
+        </button>
+      ) : null}
+
+      {onTogglePin !== undefined ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onTogglePin(message, !pinned);
+            onClose();
+          }}
+        >
+          {pinned ? 'Unpin' : 'Pin'}
+        </button>
+      ) : null}
+
       {canDelete && onDelete !== undefined ? (
         <button
           type="button"

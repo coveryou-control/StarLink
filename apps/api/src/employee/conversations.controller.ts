@@ -21,7 +21,11 @@ import {
   type ConversationStore,
   type ReadStateStore,
 } from '@starlink/conversation-domain';
-import type { ConversationAuthzReader } from '@starlink/database';
+import type { ConversationAuthzReader, PgPinStore } from '@starlink/database';
+import {
+  MAX_PINNED_CONVERSATIONS as MAX_PINNED,
+  MUTE_DURATIONS_MINUTES,
+} from '@starlink/shared-contracts';
 import type {
   EmployeeDirectoryProvider,
   IdentityAuthorizationClient,
@@ -40,6 +44,7 @@ import {
   EMPLOYEE_DIRECTORY,
   IDENTITY_CLIENT,
   LOGGER,
+  PIN_STORE,
   READ_STATE_STORE,
 } from '../tokens.js';
 import type { AuditWriter } from '../audit/audit-writer.js';
@@ -47,6 +52,15 @@ import { recordDecision } from '../edge/authorization-metrics.js';
 import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
 
 const uuid = z.string().uuid();
+
+/**
+ * How many conversations one person may pin.
+ *
+ * Shared with the client through the contracts package rather than restated: a cap the
+ * server holds at three and the UI believes is five produces a control that fails with no
+ * explanation on the fourth press.
+ */
+const MAX_PINNED_CONVERSATIONS = MAX_PINNED;
 
 const createSchema = z.object({
   type: z.enum(['INTERNAL_DIRECT', 'INTERNAL_GROUP']),
@@ -67,15 +81,38 @@ const announceSchema = z.object({
 });
 
 /**
- * One flag. There is deliberately no mute — see migration 0018.
+ * What one person may set about one conversation.
  *
- * Kept as an object rather than collapsing to a bare boolean: the next preference that
- * belongs to a person and a conversation goes here beside it, and a bare body would have to
- * be replaced rather than extended.
+ * Both fields are optional and independent: the row-level menu pins without touching the
+ * mute, and mutes without touching the pin. Sending both at once is allowed and does both.
+ *
+ * `muteMinutes` is a DURATION from now, not an instant, because the client must not be the
+ * one deciding when "an hour from now" is — a browser with a skewed clock would otherwise
+ * mute until yesterday. The server converts it against its own clock. `null` unmutes, which
+ * is distinct from the field being absent (leave it alone); `.nullable()` on an
+ * `.optional()` is exactly that distinction.
+ *
+ * The duration must be one of the six the contract offers. An arbitrary number is refused
+ * rather than clamped: `MUTE_DURATIONS_MINUTES` exists so no path can produce a mute that
+ * outlives a day, and silently rounding 100000 down to 1440 would hide a caller doing
+ * something the menu cannot ask for.
  */
-const preferencesSchema = z.object({
-  pinned: z.boolean(),
-});
+const preferencesSchema = z
+  .object({
+    pinned: z.boolean().optional(),
+    muteMinutes: z
+      .number()
+      .int()
+      /* Membership of the contract's list, not a range. A range would accept 999 and the
+         only thing stopping a mute outliving a day would be the menu that draws six
+         buttons — which is not a control, it is a habit. */
+      .refine((minutes) => (MUTE_DURATIONS_MINUTES as readonly number[]).includes(minutes))
+      .nullable()
+      .optional(),
+  })
+  .refine((body) => body.pinned !== undefined || body.muteMinutes !== undefined, {
+    message: 'nothing to change',
+  });
 
 const renameSchema = z.object({
   // Length is bounded in the DOMAIN too — this is the transport's own sanity check, and
@@ -120,10 +157,25 @@ export class EmployeeConversationsController {
        and never from a query this controller writes itself (rule 11). */
     @Inject(EMPLOYEE_DIRECTORY) private readonly directory: EmployeeDirectoryProvider,
     /* One table, one statement — see `setPreferences`. Reaching for the store's port would
-       mean a domain command for a two-boolean upsert that carries no rule. */
+       mean a domain command for an upsert that carries no rule beyond the pin ceiling,
+       and that ceiling is expressed in the statement itself. */
     @Inject(DATABASE) private readonly pool: pg.Pool,
+    @Inject(PIN_STORE) private readonly pins: PgPinStore,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {}
+
+  /**
+   * The server's clock, in one place.
+   *
+   * A mute is stored as the instant it ends, and that instant is computed here rather than
+   * sent by the caller — a browser a few minutes fast would otherwise ask to be quietened
+   * until a moment already past, and the mute would appear to do nothing. A method rather
+   * than a bare `new Date()` at the call site so a test can override it without stubbing
+   * the global.
+   */
+  protected now(): Date {
+    return new Date();
+  }
 
   /**
    * The object check — load the conversation and authorise against IT (§18.4 step 3).
@@ -662,16 +714,188 @@ export class EmployeeConversationsController {
       return refuse();
     }
 
-    await this.pool.query(
+    /*
+       Mute first, because it cannot fail.
+
+       Pinning can be refused by the ceiling below, and a request carrying both would
+       otherwise apply neither when the pin bounced — which is a worse answer than "your
+       mute worked and your pin did not". They are independent preferences and are written
+       as such.
+
+       The instant is computed HERE, from the server clock, not sent by the caller. A
+       browser running a few minutes fast would otherwise mute until an instant already
+       past, and the mute would appear to do nothing at all. See CLAUDE.md on clocks: both
+       ends of an effective period have to come from the same one.
+    */
+    if (parsed.data.muteMinutes !== undefined) {
+      const until =
+        parsed.data.muteMinutes === null
+          ? null
+          : new Date(this.now().getTime() + parsed.data.muteMinutes * 60_000).toISOString();
+
+      await this.pool.query(
+        `INSERT INTO conversation.conversation_preferences
+           (principal_id, conversation_id, muted_until, updated_at)
+         VALUES ($1, $2, $3, now())
+         ON CONFLICT (principal_id, conversation_id) DO UPDATE
+           SET muted_until = EXCLUDED.muted_until, updated_at = now()`,
+        [session.principalId, conversationId.data, until],
+      );
+
+      if (parsed.data.pinned === undefined) return { mutedUntil: until };
+    }
+
+    /*
+       At most three pinned conversations, counted in the same statement that writes.
+
+       A pinned list is only useful while it is shorter than the list it sits on top of;
+       pin twenty and the feature has done nothing but reorder. Three is the cap the
+       request named.
+
+       Enforced HERE and not in the panel that draws the control, for the ordinary reason:
+       a limit the client applies is a limit the next client forgets. And enforced inside
+       the INSERT rather than as a SELECT followed by an INSERT, because two tabs pinning
+       at the same moment would both read two and both write, leaving four.
+
+       `WHERE` on the insert makes the count and the write one statement: the row lands
+       only if fewer than three are already pinned for this person. `rowCount` then says
+       whether it did, so the refusal is a fact about the database rather than a guess.
+       Unpinning skips the guard entirely — taking one away can never breach a maximum.
+    */
+    const written = await this.pool.query(
       `INSERT INTO conversation.conversation_preferences
          (principal_id, conversation_id, pinned, updated_at)
-       VALUES ($1, $2, $3, now())
+       SELECT $1, $2, $3, now()
+        WHERE $3 = false
+           OR (SELECT count(*) FROM conversation.conversation_preferences
+                WHERE principal_id = $1
+                  AND pinned
+                  AND conversation_id <> $2) < $4
        ON CONFLICT (principal_id, conversation_id) DO UPDATE
          SET pinned = EXCLUDED.pinned, updated_at = now()`,
-      [session.principalId, conversationId.data, parsed.data.pinned],
+      [session.principalId, conversationId.data, parsed.data.pinned, MAX_PINNED_CONVERSATIONS],
     );
 
+    if (written.rowCount === 0) {
+      /*
+         Not `refuse()`. §27.3's uniform refusal exists so that a probe cannot tell "you
+         may not see this" from "this does not exist" — it is about concealing the
+         EXISTENCE of a conversation. This is neither: the caller has already passed the
+         object check on a conversation they are in, and the only thing being withheld is
+         their own fourth pin. Answering "you have three" is the honest reply, and a bare
+         404 here would send the panel looking for a conversation that is plainly there.
+      */
+      return {
+        pinned: false,
+        limitReached: true,
+        maxPinned: MAX_PINNED_CONVERSATIONS,
+      };
+    }
+
     return { pinned: parsed.data.pinned };
+  }
+
+  /**
+   * What is pinned in this conversation.
+   *
+   * Authorized with `conversation.read`, the same action the message list uses: a pin is a
+   * message, and being allowed to see it is being allowed to see the thread. The object
+   * check happens before the pins are loaded, not after — rule 2, and the reason this
+   * route reads its own `mayActOn` rather than delegating to a shared tail.
+   */
+  @Get(':conversationId/pins')
+  async listPins(
+    @Param('conversationId') conversationIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    if (!conversationId.success) return refuse();
+
+    const session = request.session!;
+    if (!(await this.mayActOn(session.principalId, conversationId.data, 'conversation.read'))) {
+      return refuse();
+    }
+
+    return { pins: await this.pins.list(conversationId.data) };
+  }
+
+  /**
+   * Pins one message for everybody in the conversation.
+   *
+   * ## Why `conversation.message.send` and not `conversation.read`
+   *
+   * A pin is visible to every participant, so it is a WRITE to the shared thread even
+   * though it adds no text. Authorizing it with the read action would let somebody with
+   * oversight access — a team lead reading a conversation they are not in, rung 5 of the
+   * ladder — reorder what its participants see. Whoever may speak here may pin here;
+   * whoever may only look may only look.
+   *
+   * ## The message must be IN this conversation
+   *
+   * Checked before anything else. Without it a caller could authorize against a
+   * conversation they are in and pin a message belonging to one they are not — the object
+   * check would pass and the write would land somewhere else entirely. An unknown message
+   * and a message in another thread give the same refusal (§27.3).
+   */
+  @Put(':conversationId/pins/:messageId')
+  async pinMessage(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    if (!conversationId.success || !messageId.success) return refuse();
+
+    const owner = await this.pins.conversationOf(messageId.data);
+    if (owner === undefined || owner !== conversationId.data) return refuse();
+
+    const session = request.session!;
+    if (
+      !(await this.mayActOn(session.principalId, conversationId.data, 'conversation.message.send'))
+    ) {
+      return refuse();
+    }
+
+    const pinned = await this.pins.pin(
+      conversationId.data,
+      messageId.data,
+      session.principalId,
+      this.now().toISOString(),
+    );
+
+    /* `false` means somebody else pinned it first, which is not a failure — the message is
+       pinned either way, which is what the caller asked for. */
+    return { pinned: true, changed: pinned };
+  }
+
+  /**
+   * Unpins.
+   *
+   * Anybody who may pin may unpin, including a message somebody else pinned. A pin is a
+   * property of the conversation rather than of the person who set it, and a rule that
+   * only the pinner may remove it leaves a group stuck with a stale pin the moment that
+   * person is on leave.
+   */
+  @Delete(':conversationId/pins/:messageId')
+  async unpinMessage(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    if (!conversationId.success || !messageId.success) return refuse();
+
+    const session = request.session!;
+    if (
+      !(await this.mayActOn(session.principalId, conversationId.data, 'conversation.message.send'))
+    ) {
+      return refuse();
+    }
+
+    const changed = await this.pins.unpin(conversationId.data, messageId.data);
+    return { pinned: false, changed };
   }
 
   @Post(':conversationId/read')

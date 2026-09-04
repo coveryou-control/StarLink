@@ -396,7 +396,8 @@ export class PgConversationReader implements ConversationReader {
               c.last_seq,
               newest.sender_principal_id AS last_message_sender_id,
               others.names AS participant_names,
-              COALESCE(cp.pinned, false) AS pinned
+              COALESCE(cp.pinned, false) AS pinned,
+              cp.muted_until
          FROM conversation.conversations c
          JOIN conversation.participants p
            ON p.conversation_id = c.conversation_id
@@ -427,10 +428,14 @@ export class PgConversationReader implements ConversationReader {
          LEFT JOIN LATERAL (
               SELECT json_agg(json_build_object(
                        'principalId', ip.principal_id,
-                       'displayName', ip.display_name
+                       'displayName', ip.display_name,
+                       /* Carried so the members list can mark the group's admin without a
+                          second read. It is one text column on a row already being
+                          selected, and the alternative is a request per panel open. */
+                       'role', picked.role
                      ) ORDER BY ip.display_name) AS names
                 FROM (
-                  SELECT op.principal_id
+                  SELECT op.principal_id, op.role
                     FROM conversation.participants op
                    WHERE op.conversation_id = c.conversation_id
                      AND op.effective_to IS NULL
@@ -440,10 +445,30 @@ export class PgConversationReader implements ConversationReader {
                 ) picked
                 JOIN identity.principals ip ON ip.principal_id = picked.principal_id
          ) others ON c.conversation_type::text LIKE 'INTERNAL%'
+         /*
+            Who wrote the message the PREVIEW is showing - the same one, not merely the
+            newest row.
+
+            No backticks in here: this SQL is a JS template literal, and one would end the
+            string. The symptom is a parse error on the line AFTER the comment, which
+            points at innocent code.
+
+            last_message_preview is derived from the newest NON-REDACTED message (see
+            refreshPreview), and this lateral had no such filter. Delete the last message
+            in a group and the row then showed the previous message's text under the
+            deleter's name: a sentence one person wrote, attributed to another. The
+            attribution draws the "Name: text" prefix on a group row, so a wrong name is a
+            visible lie rather than a missing detail.
+
+            A system note (a membership change) carries no sender, so this yields NULL and
+            the row falls back to the bare preview. That is the honest outcome: nobody
+            said it.
+         */
          LEFT JOIN LATERAL (
               SELECT lm.sender_principal_id
                 FROM conversation.messages lm
                WHERE lm.conversation_id = c.conversation_id
+                 AND lm.redacted_at IS NULL
                ORDER BY lm.seq DESC
                LIMIT 1
          ) newest ON true
@@ -481,6 +506,21 @@ export class PgConversationReader implements ConversationReader {
          "absent" would make every unset conversation indistinguishable from a query that
          did not ask. */
       pinned: row.pinned === true,
+      /*
+         Present only while the mute has not run out.
+
+         An expired row is left in the table on purpose — nothing has to sweep it, because
+         a mute whose instant has passed is indistinguishable from no mute at all. Filtered
+         here rather than in SQL so the comparison happens against the SAME clock that
+         every other effective period in this codebase is read against, rather than the
+         database's `now()`; the two have differed by a minute on a dev machine before, and
+         a mute that is over is not something to be wrong about in either direction.
+      */
+      ...(row.muted_until !== null &&
+      row.muted_until !== undefined &&
+      (row.muted_until as Date).getTime() > Date.now()
+        ? { mutedUntil: (row.muted_until as Date).toISOString() }
+        : {}),
       // `bigint` arrives from pg as a string; left as one, every comparison against a
       // message sequence would be lexicographic, and "9" > "10".
       readWatermark: Number(row.read_watermark),

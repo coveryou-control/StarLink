@@ -62,6 +62,110 @@ export const EMPLOYEE_API_BASE = '/v1/employee';
 export const SEARCH_MINIMUM_TERM_LENGTH = 1;
 
 /**
+ * How many conversations one person may pin to the top of their list.
+ *
+ * ## Why there is a cap at all
+ *
+ * A pinned group is useful only while it is shorter than the list underneath it. Pin
+ * twenty and nothing has been prioritised — the list has just been reordered, and the
+ * person now has two lists to scan instead of one.
+ *
+ * ## Why it lives in the contract
+ *
+ * The same reason as the search floor above, which cost a working feature an outage
+ * message when the two sides disagreed by one. The server enforces this inside the INSERT
+ * that writes the preference; the client uses it to say "you already have three" before
+ * the round trip and to render the refusal when it loses the race. Both read this.
+ */
+export const MAX_PINNED_CONVERSATIONS = 3;
+
+/**
+ * How long a conversation may be quietened for, in minutes.
+ *
+ * ## Why the list is closed
+ *
+ * A free-form duration invites "forever", and forever is the thing migration 0018 removed
+ * and 0021 deliberately did not bring back: a mute with no end is how somebody misses the
+ * thread that mattered in March because of a busy Tuesday in September. Every value here
+ * arrives, and the longest is a day.
+ *
+ * ## Why it is in the contract
+ *
+ * The server validates against this list and the menu is drawn from it. Kept in one place
+ * so a duration cannot be offered that the server then refuses — the same drift that once
+ * turned a two-character search into an "unavailable" message.
+ */
+export const MUTE_DURATIONS_MINUTES = [15, 30, 60, 240, 720, 1440] as const;
+
+/**
+ * What somebody may say they are doing.
+ *
+ * ## Not presence, and not availability
+ *
+ * Presence is a realtime lease and says only "connected" (§21.9 forbids inferring more
+ * from it). Availability is `agent_states`, which routing reads and which has consequences
+ * for who gets work. This is neither: it is a courtesy to the colleague about to message
+ * you, set by the person themselves, and nothing routes on it.
+ *
+ * `AVAILABLE` is the absence of a claim rather than a claim of its own, which is why it is
+ * the only one that does not expire.
+ */
+/**
+ * The largest picture the server will store, in bytes.
+ *
+ * 256 KB, which is roughly four times what a 256px PNG needs — so an honest client never
+ * reaches it and a dishonest one hits a wall. Shared so the picker can refuse a too-large
+ * file before spending the upload rather than after.
+ */
+export const MAX_AVATAR_BYTES = 262_144;
+
+/** The three the server accepts. Anything else is refused, never converted. */
+export const AVATAR_CONTENT_TYPES = ['image/png', 'image/jpeg', 'image/webp'] as const;
+
+export const DECLARED_STATUSES = ['AVAILABLE', 'BUSY', 'IN_A_MEETING', 'AWAY'] as const;
+
+export type DeclaredStatus = (typeof DECLARED_STATUSES)[number];
+
+/**
+ * How long a status may be held for, in minutes.
+ *
+ * Every one of them ends, because people forget. The colleague who set "in a meeting" on
+ * Tuesday morning is not still in it on Friday, and a reader burned by that once stops
+ * believing any of them. Eight hours is the longest — a working day, after which the claim
+ * has to be made again deliberately.
+ */
+export const STATUS_DURATIONS_MINUTES = [30, 60, 240, 480] as const;
+
+/** "Busy", "In a meeting" — one spelling, used by the picker and by every reader. */
+export function declaredStatusLabel(status: string): string {
+  switch (status) {
+    case 'BUSY':
+      return 'Busy';
+    case 'IN_A_MEETING':
+      return 'In a meeting';
+    case 'AWAY':
+      return 'Away';
+    default:
+      return 'Available';
+  }
+}
+
+/** A duration the server will accept. */
+export type MuteDurationMinutes = (typeof MUTE_DURATIONS_MINUTES)[number];
+
+/**
+ * "15 minutes", "4 hours" — the same words on the menu and in any refusal.
+ *
+ * Derived rather than listed beside the numbers, so adding a duration cannot leave a
+ * label behind. Hours are whole by construction: every value above 60 is a multiple of it.
+ */
+export function muteDurationLabel(minutes: number): string {
+  if (minutes < 60) return `${minutes} minutes`;
+  const hours = minutes / 60;
+  return hours === 1 ? '1 hour' : `${hours} hours`;
+}
+
+/**
  * A `LIKE`/`ILIKE` pattern that matches the term as TEXT, not as a pattern.
  *
  * `%` and `_` are wildcards. A search box that interpolates the term straight into
@@ -95,9 +199,49 @@ export const employeeRoutes = {
      */
     signOutEverywhere: `${EMPLOYEE_API_BASE}/auth/sign-out-everywhere`,
     me: `${EMPLOYEE_API_BASE}/auth/me`,
-    /** What this account has stored, for Settings' "Storage & data". */
-    storage: `${EMPLOYEE_API_BASE}/auth/me/storage`,
+    /**
+     * What the caller says they are doing (PUT), and what everybody else says (GET).
+     *
+     * Under `/auth/me` for the write because it is a statement about yourself and nobody
+     * else may make it. The read is a separate route because it is about OTHER people and
+     * takes a list of ids — putting both on one path would have a GET that means something
+     * different from its own PUT.
+     */
+    status: `${EMPLOYEE_API_BASE}/auth/me/status`,
+    /**
+     * The caller's own picture: PUT to set, DELETE to remove.
+     *
+     * The bytes go in the body as base64 rather than multipart. It is one small field, the
+     * client already holds it as a data URL from the canvas it re-encoded through, and
+     * multipart would mean a body parser on a route that otherwise takes JSON.
+     */
+    avatar: `${EMPLOYEE_API_BASE}/auth/me/avatar`,
   },
+  /**
+   * Somebody's picture, by principal id.
+   *
+   * A GET that returns image bytes rather than JSON — the only one in this contract. It is
+   * behind the session guard like everything else: an avatar is not secret, but it is not
+   * public either, and an unauthenticated image endpoint is an enumeration oracle for who
+   * works here.
+   *
+   * `v` is the picture's own `updatedAt`, hung on the URL so a changed picture is not
+   * served from a stale cache and an UNCHANGED one is served from cache forever.
+   */
+  avatar: (principalId: string, version?: string) =>
+    `${EMPLOYEE_API_BASE}/avatars/${principalId}` +
+    (version === undefined ? '' : `?v=${encodeURIComponent(version)}`),
+  /** Which of these people have a picture, and when each last changed. */
+  avatarStamps: `${EMPLOYEE_API_BASE}/avatars`,
+  /**
+   * Declared statuses for a set of colleagues, so the avatars on screen can show them.
+   *
+   * A separate tree from the directory on purpose: the directory is HRMS's, behind an
+   * adapter (rule 11), and StarLink owns this. Hanging it off the directory would put a
+   * StarLink-owned fact in the shape of an upstream one, which is exactly the confusion
+   * the adapter boundary exists to prevent.
+   */
+  statuses: `${EMPLOYEE_API_BASE}/statuses`,
   conversations: {
     list: `${EMPLOYEE_API_BASE}/conversations`,
     create: `${EMPLOYEE_API_BASE}/conversations`,
@@ -124,6 +268,55 @@ export const employeeRoutes = {
     /** Add (POST) or remove (DELETE) one of the caller's own reactions on a message. */
     reactions: (conversationId: string, messageId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages/${messageId}/reactions`,
+    /**
+     * What is pinned in this conversation (GET).
+     *
+     * A collection under the conversation rather than a flag on each message: a pin is
+     * shared by everybody in the thread, and the one read anybody performs is "what is
+     * pinned here", not "is this particular message pinned".
+     */
+    pins: (conversationId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/pins`,
+    /**
+     * A group's picture: PUT to set, GET for the bytes.
+     *
+     * Groups only. A one-to-one is already drawn with the other person's own avatar, and
+     * giving it a second would let one side change how the other appears in their list.
+     */
+    avatar: (conversationId: string, version?: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/avatar` +
+      (version === undefined ? '' : `?v=${encodeURIComponent(version)}`),
+    /** Pin (PUT) or unpin (DELETE) one message for everybody in the conversation. */
+    pin: (conversationId: string, messageId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/pins/${messageId}`,
+    /**
+     * Who has read one message, and when it was delivered (GET) — the "Message info" panel.
+     *
+     * Under the message because that is what it is about. It is deliberately not part of
+     * the message projection: reading it is a per-participant join nobody wants on every
+     * row of a page of fifty.
+     */
+    messageInfo: (conversationId: string, messageId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages/${messageId}/info`,
+    /**
+     * Send an existing message on to another conversation (POST).
+     *
+     * The target is in the BODY, not the path, because the authorization is two-sided —
+     * the caller must be able to read the source and write to the destination — and a
+     * path that names only one of them invites a handler that checks only one of them.
+     */
+    forward: (conversationId: string, messageId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages/${messageId}/forward`,
+    /**
+     * Hide one message from the caller's own view (POST) — "delete for me".
+     *
+     * A different route from `message` (DELETE), which is a REDACTION: that clears the
+     * body for everyone and only the author may do it. This changes one person's timeline
+     * and says nothing to anybody else. Two verbs on one path would make the more
+     * dangerous of the two reachable by getting the method wrong.
+     */
+    hideMessage: (conversationId: string, messageId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages/${messageId}/hide`,
     participants: (conversationId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/participants`,
     participant: (conversationId: string, principalId: string) =>
@@ -265,9 +458,17 @@ export const employeeRoutes = {
  */
 export const EMPLOYEE_ROUTE_INVENTORY: readonly { method: string; path: string }[] = [
   { method: 'GET', path: employeeRoutes.auth.me },
-  { method: 'GET', path: employeeRoutes.auth.storage },
   { method: 'POST', path: employeeRoutes.auth.signOut },
   { method: 'POST', path: employeeRoutes.auth.signOutEverywhere },
+  { method: 'GET', path: employeeRoutes.auth.status },
+  { method: 'PUT', path: employeeRoutes.auth.status },
+  { method: 'GET', path: employeeRoutes.statuses },
+  { method: 'PUT', path: employeeRoutes.auth.avatar },
+  { method: 'DELETE', path: employeeRoutes.auth.avatar },
+  { method: 'GET', path: employeeRoutes.avatarStamps },
+  { method: 'GET', path: employeeRoutes.avatar(':pid') },
+  { method: 'GET', path: employeeRoutes.conversations.avatar(':id') },
+  { method: 'PUT', path: employeeRoutes.conversations.avatar(':id') },
   { method: 'GET', path: employeeRoutes.conversations.list },
   { method: 'POST', path: employeeRoutes.conversations.create },
   { method: 'POST', path: employeeRoutes.conversations.announce },
@@ -275,6 +476,12 @@ export const EMPLOYEE_ROUTE_INVENTORY: readonly { method: string; path: string }
   { method: 'GET', path: employeeRoutes.conversations.messages(':id') },
   { method: 'POST', path: employeeRoutes.conversations.messages(':id') },
   { method: 'POST', path: employeeRoutes.conversations.read(':id') },
+  { method: 'GET', path: employeeRoutes.conversations.pins(':id') },
+  { method: 'PUT', path: employeeRoutes.conversations.pin(':id', ':mid') },
+  { method: 'DELETE', path: employeeRoutes.conversations.pin(':id', ':mid') },
+  { method: 'GET', path: employeeRoutes.conversations.messageInfo(':id', ':mid') },
+  { method: 'POST', path: employeeRoutes.conversations.forward(':id', ':mid') },
+  { method: 'POST', path: employeeRoutes.conversations.hideMessage(':id', ':mid') },
   { method: 'PUT', path: employeeRoutes.conversations.preferences(':id') },
   { method: 'POST', path: employeeRoutes.conversations.participants(':id') },
   { method: 'DELETE', path: employeeRoutes.conversations.participant(':id', ':pid') },

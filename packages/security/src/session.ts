@@ -36,6 +36,15 @@ export interface VerifiedSession {
   readonly kind: PrincipalKind;
   readonly surface: Surface;
   readonly sessionVersion: number;
+  /**
+   * When this session began.
+   *
+   * Already in the signed payload and simply not surfaced until now. Settings shows it as
+   * "signed in at", which is the closest thing to a device list that ADR-008's stateless
+   * sessions can honestly produce — there is no per-session record, so there is nothing to
+   * enumerate, but the session in front of you can say when it started.
+   */
+  readonly issuedAt: Timestamp;
   readonly expiresAt: Timestamp;
   readonly assurance?: Assurance;
 }
@@ -89,6 +98,19 @@ export interface IssueRequest {
   readonly surface: Surface;
   readonly sessionVersion: number;
   readonly assurance?: Assurance;
+  /**
+   * A longer life than the surface's default, for "keep me signed in on this device".
+   *
+   * Optional, and the default is the short one — a caller that forgets this gets the safe
+   * answer rather than the convenient one. The COOKIE has to be set to the same number, or
+   * the browser discards a token that is still valid (or keeps one that is not); the
+   * sign-in route computes it once and uses it for both.
+   *
+   * It does not weaken revocation. Every verification re-reads the principal's
+   * `sessionVersion`, so "sign out everywhere" ends a fourteen-day session on its next
+   * request exactly as it ends a twelve-hour one (FR-AUTH-2).
+   */
+  readonly ttlSeconds?: number;
 }
 
 export class SessionService {
@@ -105,9 +127,10 @@ export class SessionService {
     const issuedAt = this.now();
     const ttlSeconds =
       request.surface === 'CUSTOMER'
-        ? // Customer sessions are bounded and shorter (§26.1).
+        ? // Customer sessions are bounded and shorter (§26.1), and there is deliberately no
+          // "keep me signed in" for them: a customer session is a stranger's browser.
           (this.options.customerTtlSeconds ?? 30 * 60)
-        : (this.options.employeeTtlSeconds ?? 12 * 60 * 60);
+        : (request.ttlSeconds ?? this.options.employeeTtlSeconds ?? 12 * 60 * 60);
 
     const payload: SessionPayload = {
       principalId: request.principalId,
@@ -201,6 +224,7 @@ const toVerified = (payload: SessionPayload): VerifiedSession => ({
   kind: payload.kind,
   surface: payload.surface,
   sessionVersion: payload.sessionVersion,
+  issuedAt: payload.issuedAt,
   expiresAt: payload.expiresAt,
   ...(payload.assurance !== undefined ? { assurance: payload.assurance } : {}),
 });

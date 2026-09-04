@@ -484,9 +484,6 @@ button {
    A base rule should always lose to a component rule. `:where()` is how a reset says so,
    rather than every component having to out-specify it.
 */
-:where(button:hover:not(:disabled)) {
-  background: var(--hover);
-}
 
 :where(button:active:not(:disabled)) {
   background: var(--surface-2);
@@ -514,13 +511,6 @@ button:disabled {
   border-color: var(--accent);
   color: var(--accent-contrast);
   font-weight: 620;
-}
-
-.actions-form-buttons button:first-child:hover:not(:disabled),
-.picker-search button:hover:not(:disabled),
-.start-panel-buttons button.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  border-color: var(--accent-hover);
 }
 
 .start-panel-buttons button.primary:disabled {
@@ -682,7 +672,6 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--rail-fg);
 }
 
-
 /* =====================================================================================
    The mark
 
@@ -790,7 +779,6 @@ input[type='search']::-webkit-search-cancel-button {
    horizontal auto is restated so centring survives.
 */
 .rail-item:hover {
-  background: var(--rail-item-active);
   color: var(--rail-fg-active);
 }
 
@@ -810,7 +798,6 @@ input[type='search']::-webkit-search-cancel-button {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
 }
-
 
 /* Orange, per rule 1 — an unread count is exactly what the signal colour is for. The
    ring is the rail's own dark ground so the badge reads as sitting on the tile. */
@@ -863,10 +850,6 @@ input[type='search']::-webkit-search-cancel-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.rail-avatar:hover {
-  background: var(--accent-hover);
 }
 
 /* Opens up and to the right, out of the rail. */
@@ -938,10 +921,6 @@ input[type='search']::-webkit-search-cancel-button {
   background: transparent;
   text-align: left;
   font-size: var(--text-base);
-}
-
-.account-menu > button:hover {
-  background: var(--hover);
 }
 
 /* =====================================================================================
@@ -1041,7 +1020,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .panel-head-icon:hover:not(:disabled) {
-  background: var(--hover);
   color: var(--text);
 }
 
@@ -1089,10 +1067,6 @@ input[type='search']::-webkit-search-cancel-button {
      colour: rule 1 keeps orange for the unread counts this control clears. */
   color: var(--info);
   font-weight: 500;
-}
-
-.panel-action:hover:not(:disabled) {
-  background: var(--accent-soft);
 }
 
 .panel-action:disabled {
@@ -1231,7 +1205,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .field-clear:hover {
-  background: var(--surface-3);
   color: var(--text);
 }
 
@@ -1272,11 +1245,6 @@ input[type='search']::-webkit-search-cancel-button {
   text-align: left;
   line-height: var(--lh);
   color: var(--text-muted);
-}
-
-.search-results li > button:hover {
-  background: var(--surface);
-  box-shadow: var(--hairline);
 }
 
 .search-text {
@@ -1481,7 +1449,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .people-strip-person:hover {
-  background: transparent;
   transform: translateY(-2px);
 }
 
@@ -1548,7 +1515,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .filter-pill:hover:not(.active) {
-  background: var(--surface-3);
   color: var(--text);
 }
 
@@ -1632,10 +1598,6 @@ input[type='search']::-webkit-search-cancel-button {
   transition:
     background var(--dur) var(--ease),
     transform var(--dur) var(--ease);
-}
-
-.fab-new:hover:not(:disabled) {
-  background: var(--accent-hover);
 }
 
 .fab-new:active:not(:disabled) {
@@ -1727,7 +1689,6 @@ input[type='search']::-webkit-search-cancel-button {
 */
 
 .conversation-row:hover {
-  background: var(--hover);
   color: inherit;
   text-decoration: none;
 }
@@ -1940,11 +1901,6 @@ input[type='search']::-webkit-search-cancel-button {
   border-color: var(--accent-soft);
 }
 
-.conversation-row:hover .presence-dot,
-.person-row:hover .presence-dot {
-  border-color: var(--hover);
-}
-
 /* Smaller avatars carry a smaller dot: at 34px a 13px dot is a third of the picture. */
 .member-list .presence-dot,
 .person-row .presence-dot {
@@ -2078,8 +2034,6 @@ input[type='search']::-webkit-search-cancel-button {
   z-index: 5;
 }
 
-
-
 /* Hidden until the panes stop sharing the screen. On a desktop the list is right there and
    a back arrow beside it would be furniture; on a phone it is the only way out. */
 .chat-back {
@@ -2096,7 +2050,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .chat-back:hover {
-  background: var(--hover);
   color: var(--text);
 }
 
@@ -2136,10 +2089,6 @@ input[type='search']::-webkit-search-cancel-button {
 .chat-identity-button {
   cursor: pointer;
   transition: background var(--dur) var(--ease);
-}
-
-.chat-identity-button:hover {
-  background: var(--hover);
 }
 
 .chat-identity {
@@ -2258,7 +2207,6 @@ input[type='search']::-webkit-search-cancel-button {
   font-weight: 500;
 }
 
-.chat-header-named:hover:not(:disabled),
 .chat-header-named[aria-expanded='true'] {
   background: var(--hover);
 }
@@ -2284,10 +2232,13 @@ input[type='search']::-webkit-search-cancel-button {
   justify-content: center;
 }
 
-.chat-header-action:hover,
 .chat-header-action[aria-expanded='true'],
 .chat-header-action[aria-pressed='true'] {
   background: var(--surface-2);
+  color: var(--text);
+}
+
+.chat-header-action:hover {
   color: var(--text);
 }
 
@@ -2494,6 +2445,15 @@ input[type='search']::-webkit-search-cancel-button {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
+  /*
+     `flex-end` so the meta hugs the right whether or not it wrapped.
+
+     A short message keeps the time beside the words on the same line. A long one pushes
+     the meta onto a line of its own — and without this it landed at the LEFT edge of the
+     bubble, which is the one place a timestamp never goes. The row's default is
+     `flex-start`, and the wrapped line inherits it.
+  */
+  justify-content: flex-end;
   gap: 2px 10px;
   padding: 8px 12px;
   border-radius: var(--radius-bubble);
@@ -2534,7 +2494,6 @@ input[type='search']::-webkit-search-cancel-button {
   border-bottom-right-radius: var(--radius-bubble);
 }
 
-
 .message-row.grouped .message-meta {
   display: none;
 }
@@ -2565,6 +2524,10 @@ input[type='search']::-webkit-search-cancel-button {
    than scanned. */
 .message-body {
   font-family: var(--font-with-emoji);
+  /* The words keep the left edge; `justify-content: flex-end` above then only has the
+     wrapped meta left to push, so a short message still reads "text … time" rather than
+     being shunted right as a block. */
+  margin-right: auto;
   /*
      `flex: 0 1 auto` and NO `min-width: 0`.
 
@@ -3110,14 +3073,6 @@ input[type='search']::-webkit-search-cancel-button {
   box-shadow: none;
 }
 
-.message-row.mine .attachment-card:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--bubble-mine-ink) 20%, transparent);
-}
-
-.message-row:not(.mine) .attachment-card:hover:not(:disabled) {
-  background: var(--hover);
-}
-
 /* -------------------------------------------------------------------------------------
    Message actions and reactions
    ------------------------------------------------------------------------------------- */
@@ -3214,7 +3169,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .reaction-choice:hover {
-  background: var(--surface-2);
   /* The lift is what says "this one" without a border appearing under the pointer. */
   transform: scale(1.15);
 }
@@ -3266,7 +3220,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .message-action:hover {
-  background: var(--surface-2);
   color: var(--text);
 }
 
@@ -3310,16 +3263,8 @@ input[type='search']::-webkit-search-cancel-button {
   font-size: var(--text-sm);
 }
 
-.message-menu button:hover {
-  background: var(--hover);
-}
-
 .menu-danger {
   color: var(--danger);
-}
-
-.menu-danger:hover {
-  background: var(--danger-soft);
 }
 
 /*
@@ -3367,10 +3312,6 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.4;
-}
-
-.reaction:hover:not(:disabled) {
-  border-color: var(--border-strong);
 }
 
 /*
@@ -3654,8 +3595,6 @@ input[type='search']::-webkit-search-cancel-button {
   grid-row: 2;
 }
 
-
-
 /*
    The field: input and emoji in one rounded surface.
 
@@ -3751,9 +3690,12 @@ input[type='search']::-webkit-search-cancel-button {
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 
-.emoji-toggle:hover,
 .emoji-toggle[aria-expanded='true'] {
   background: var(--surface-2);
+  color: var(--text);
+}
+
+.emoji-toggle:hover {
   color: var(--text);
 }
 
@@ -3814,7 +3756,6 @@ input[type='search']::-webkit-search-cancel-button {
 
 .emoji-tab:hover {
   opacity: 0.8;
-  background: var(--surface-2);
 }
 
 .emoji-tab.active {
@@ -3861,10 +3802,6 @@ input[type='search']::-webkit-search-cancel-button {
   background: transparent;
   display: grid;
   place-items: center;
-}
-
-.emoji-grid button:hover {
-  background: var(--surface-2);
 }
 
 /*
@@ -3917,7 +3854,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .attach-control:hover {
-  background: var(--surface-2);
   color: var(--text);
 }
 
@@ -3991,10 +3927,6 @@ input[type='search']::-webkit-search-cancel-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.composer-send:hover:not(:disabled) {
-  background: var(--accent-hover);
 }
 
 /*
@@ -4090,7 +4022,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .replying-to-cancel:hover {
-  background: var(--surface-3);
   color: var(--text);
 }
 
@@ -4190,7 +4121,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .composer [role='radio']:hover {
-  background: transparent;
   color: var(--text);
 }
 
@@ -4288,6 +4218,8 @@ input[type='search']::-webkit-search-cancel-button {
    ===================================================================================== */
 
 .details-drawer {
+  /* The dismiss cross is absolute against this. */
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -4365,7 +4297,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .details-close:hover {
-  background: var(--hover);
   color: var(--text);
 }
 
@@ -4441,14 +4372,6 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--btn-primary-label);
 }
 
-.details-identity-actions button:hover:not(:disabled) {
-  background: var(--hover);
-}
-
-.details-identity-actions button.primary:hover:not(:disabled) {
-  background: var(--btn-primary-bg-hover);
-}
-
 /* =====================================================================================
    The panel's sections: DETAILS, SHARED FILES, and the group's membership.
 
@@ -4499,7 +4422,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .details-section-title .details-more:hover:not(:disabled) {
-  background: transparent;
   text-decoration: underline;
 }
 
@@ -4570,10 +4492,6 @@ input[type='search']::-webkit-search-cancel-button {
   text-align: left;
 }
 
-.details-switch:hover:not(:disabled) {
-  background: transparent;
-}
-
 .switch-track {
   flex: none;
   display: flex;
@@ -4630,10 +4548,6 @@ input[type='search']::-webkit-search-cancel-button {
   box-shadow: var(--hairline);
   text-align: left;
   cursor: pointer;
-}
-
-.shared-file:hover:not(:disabled) {
-  background: var(--hover);
 }
 
 /*
@@ -4739,10 +4653,6 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: var(--radius-sm);
 }
 
-.member-list li:hover {
-  background: var(--hover);
-}
-
 .member-list .person-name {
   flex: 1;
   min-width: 0;
@@ -4774,7 +4684,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .member-remove:hover:not(:disabled) {
-  background: var(--danger-soft);
   color: var(--danger);
 }
 
@@ -4857,10 +4766,6 @@ input[type='search']::-webkit-search-cancel-button {
   background: transparent;
   text-align: left;
   font-weight: 550;
-}
-
-.participants .found li > button:first-child:hover {
-  background: var(--hover);
 }
 
 /* BR-07: adding a colleague exposes prior history, and the person doing it is told so
@@ -4950,10 +4855,6 @@ input[type='search']::-webkit-search-cancel-button {
   transition: background var(--dur) var(--ease);
 }
 
-.person-row:hover:not(:disabled) {
-  background: var(--hover);
-}
-
 .person-text {
   display: flex;
   flex-direction: column;
@@ -5028,10 +4929,6 @@ input[type='search']::-webkit-search-cancel-button {
   text-align: left;
 }
 
-.notification-row:hover {
-  background: var(--surface-2);
-}
-
 /*
    An unread notification sits on a wash of the signal colour.
 
@@ -5041,10 +4938,6 @@ input[type='search']::-webkit-search-cancel-button {
 */
 .notification-row.unread {
   background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-
-.notification-row.unread:hover {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 /*
@@ -5187,7 +5080,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .settings-nav-item:hover:not(.active) {
-  background: var(--surface-3);
   color: var(--text);
 }
 
@@ -5260,10 +5152,6 @@ input[type='search']::-webkit-search-cancel-button {
 .settings-row-block:last-child,
 .settings-toggle:last-child {
   border-bottom: 0;
-}
-
-.settings-toggle:hover:not(:disabled) {
-  background: transparent;
 }
 
 .settings-row-label {
@@ -5371,10 +5259,6 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--surface);
 }
 
-.settings-rows button.danger:hover:not(:disabled) {
-  filter: brightness(1.08);
-}
-
 /* =====================================================================================
    Threads in a channel (design screen 03)
    ===================================================================================== */
@@ -5435,11 +5319,6 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: 0;
   background: transparent;
   text-align: left;
-}
-
-.you-profile:hover,
-.you-row:hover {
-  background: var(--hover);
 }
 
 .you-profile .row-avatar {
@@ -5866,7 +5745,6 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .start-panel-close:hover:not(:disabled) {
-  background: var(--surface-3);
   color: var(--text);
 }
 
@@ -5897,11 +5775,6 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: var(--radius);
   background: var(--surface);
   text-align: left;
-}
-
-.start-mode:hover {
-  background: var(--surface-2);
-  border-color: var(--border-strong);
 }
 
 .start-mode-icon {
@@ -5993,10 +5866,6 @@ input[type='search']::-webkit-search-cancel-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-}
-
-.chosen li button:hover {
-  background: var(--accent-line);
 }
 
 /* The one place a stacked label is right: naming a group is a distinct step with no
@@ -6186,17 +6055,12 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .empty-splash-chips button:hover {
-  background: var(--hover);
   color: var(--text);
 }
 
 .empty-splash-actions button:first-child {
   background: var(--btn-primary-bg);
   color: var(--btn-primary-label);
-}
-
-.empty-splash-actions button:first-child:hover {
-  background: var(--btn-primary-bg-hover);
 }
 
 .empty-splash-actions button:last-child {
@@ -6292,20 +6156,49 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /* =====================================================================================
-   Sign in — screen 01
+   Sign in
 
-   One 460px card centred on the raised plane. The design's own proportions: 44px of
-   padding, 28px between blocks, 56px fields and buttons.
+   The reference's own palette and pattern, applied directly: a lavender panel, a yellow
+   disc for the mark, white fields, an indigo pill, and a dark outline on every one of
+   them. Asked for explicitly on 2026-09-04 — "use the exact same colours and design
+   pattern" — which supersedes the earlier instruction not to take a reference's colours.
+
+   ## This screen does not use the product palette
+
+   Everywhere else CY Orange is the one signal colour and rule 1 bounds where it may
+   appear. Here it appears nowhere: the accent is the reference's indigo and the mark's
+   tile is its yellow. That is a deliberate, isolated departure, and it is worth knowing
+   that somebody signing in meets one colour world and lands in another.
+
+   ## Single-theme, on purpose
+
+   The palette below is fixed rather than tokenised, so the dark theme does not repaint
+   half of it and leave the other half. A committed look painted explicitly is honest;
+   the same look with three of its colours swapped by a media query is a bug waiting to
+   be reported. Every value is stated, so the page holds whatever the OS asks for.
    ===================================================================================== */
 
 .signin {
-  display: grid;
-  place-items: center;
-  align-content: center;
-  gap: 28px;
+  /* The reference's ink, panel, disc and action. Named here so a change is one edit and
+     so the next reader can see the whole palette at a glance rather than hunting it. */
+  --si-ink: #16162b;
+  --si-panel: #b9aef9;
+  --si-disc: #ffc61a;
+  --si-action: #4a47e0;
+  --si-field: #ffffff;
+  --si-page: #f4f3fb;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   min-height: 100vh;
-  padding: var(--space-5);
-  background: var(--surface-2);
+  padding: var(--space-6) var(--space-5);
+  /* A pale wash of the panel's own hue, so the lavender reads as the subject rather than
+     as the only colour on an unrelated grey. */
+  background-color: var(--si-page);
+  background-image: none;
+  color: var(--si-ink);
 }
 
 @supports (min-height: 100dvh) {
@@ -6314,215 +6207,347 @@ input[type='search']::-webkit-search-cancel-button {
   }
 }
 
-.signin-card {
+/*
+   The panel.
+
+   A 2px outline in the ink, a generous radius, and no shadow — the outline IS the
+   elevation in this language, and adding a shadow underneath would be two different
+   systems saying the same thing.
+*/
+.signin-panel {
   display: flex;
   flex-direction: column;
-  gap: 28px;
   width: 100%;
-  max-width: 460px;
-  padding: 44px 44px 36px;
-  border: 0;
-  border-radius: var(--radius-card);
-  background: var(--surface);
-  box-shadow: var(--hairline), var(--shadow-2);
+  max-width: 392px;
+  padding: 36px 32px 32px;
+  border: 2px solid var(--si-ink);
+  border-radius: 26px;
+  background: var(--si-panel);
 }
 
-.signin-head {
+/* ---------------------------------------------------------------------- masthead ---- */
+
+.signin-masthead {
   display: flex;
   flex-direction: column;
-  gap: var(--space-4);
+  align-items: center;
+  text-align: center;
+  margin-bottom: 26px;
 }
 
-.signin-title {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+/*
+   The mark becomes the reference's yellow disc.
+
+   `.brand-mark` is a near-black squircle with a coral letter, and it is overridden only
+   here — the rail, the panel masthead and every other place it appears keep the product's
+   own mark. A circle rather than the squircle because the reference draws a circle, and
+   the letter takes the ink so it reads on yellow.
+*/
+/*
+   Colours only. The size and the radius come from the component's own inline style —
+   `<BrandMark size={64} round />` — because inline beats a class, and a stylesheet trying
+   to resize or round this off does nothing at all. The first attempt did exactly that and
+   produced a yellow tile at the wrong size and the wrong shape.
+*/
+.signin-masthead .brand-mark {
+  margin-bottom: 22px;
+  border: 2px solid var(--si-ink);
+  background: var(--si-disc);
+  color: var(--si-ink);
 }
 
-.signin-title h1 {
-  margin: 0;
-  font-size: 28px;
-  font-weight: 700;
+.signin-masthead h1 {
+  margin: 0 0 8px;
+  font-size: 23px;
+  font-weight: 680;
+  letter-spacing: -0.02em;
   line-height: 1.2;
-  letter-spacing: var(--track-tight);
+  color: var(--si-ink);
 }
 
-.signin-title p {
+.signin-masthead p {
   margin: 0;
-  font-size: var(--text-md);
-  line-height: 1.6;
-  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+  /* The ink at 72%, not a separate grey: a second neutral in a palette this committed
+     reads as a colour that wandered in from another design. */
+  color: color-mix(in srgb, var(--si-ink) 72%, transparent);
 }
 
-.signin-fields {
+/* -------------------------------------------------------------------------- form ---- */
+
+.signin-form {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 .signin-field {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  margin: 0;
-}
-
-.signin-field > span {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text);
+  gap: 6px;
 }
 
 /*
-   The field is the box; the input inside it is bare.
+   Labels, which the reference does not have.
 
-   A 56px bordered input with an icon absolutely positioned over it puts the caret at a
-   different inset from the placeholder the moment the font falls back. A flex row with the
-   glyph as a real sibling cannot drift.
+   It draws two bare boxes. Placeholders are not labels — they vanish the moment somebody
+   types, they are announced inconsistently, and a form relying on them fails NFR-ACC-1.
+   So the labels stay, in the ink, sized down so they sit under the pattern rather than
+   fighting it.
 */
-.signin-input {
+.signin-label {
+  font-size: 12.5px;
+  font-weight: 620;
+  letter-spacing: -0.005em;
+  color: var(--si-ink);
+}
+
+.signin-label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.signin-control {
   display: flex;
   align-items: center;
-  gap: 10px;
-  height: 56px;
-  padding: 0 16px;
-  border-radius: var(--radius);
-  background: var(--input-bg);
-  box-shadow: inset 0 0 0 1px var(--input-border);
-  color: var(--text-muted);
-  transition: box-shadow var(--dur) var(--ease);
+  gap: 8px;
+  width: 100%;
+  height: 46px;
+  padding: 0 14px;
+  border: 2px solid var(--si-ink);
+  border-radius: 10px;
+  background: var(--si-field);
+  color: var(--si-ink);
+  font-size: 14.5px;
+  transition: box-shadow 130ms var(--ease);
 }
 
-.signin-input:focus-within {
-  box-shadow: var(--focus-field);
+.signin-control::placeholder {
+  color: color-mix(in srgb, var(--si-ink) 42%, transparent);
 }
 
-/*
-   "Forgot password?" — the design's own placement and treatment: right-aligned under the
-   password field, 13/500, in the informational blue rather than the brand.
-*/
-.signin-forgot {
-  align-self: flex-end;
-  height: auto;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--info-label);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.signin-forgot:hover:not(:disabled) {
-  background: transparent;
-  text-decoration: underline;
-}
-
-.signin-help {
-  margin: 0;
-  padding: 12px 14px;
-  border-radius: var(--radius);
-  background: var(--info-bg);
-  color: var(--info-label);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-/* Sign in, the divider, and SSO — one block at the reference's 14px rhythm. */
-.signin-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-.signin-or {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-
-.signin-or span {
-  flex: 1;
-  height: 1px;
-  background: var(--border);
-}
-
-/*
-   The secondary route in. Disabled, and it looks it — see the markup for why it is on the
-   screen at all rather than removed.
-*/
-.signin-sso {
-  height: 56px;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--btn-secondary-bg);
-  box-shadow: var(--hairline);
-  color: var(--text);
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.signin-sso:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.signin-input input {
+.signin-control-group input {
   flex: 1;
   min-width: 0;
   height: 100%;
   padding: 0;
   border: 0;
-  border-radius: 0;
   background: transparent;
-  color: var(--text);
-  font-size: var(--text-lg);
+  color: inherit;
+  font: inherit;
 }
 
-.signin-input input:focus-visible {
-  outline: none;
-  box-shadow: none;
+.signin-control-group input::placeholder {
+  color: color-mix(in srgb, var(--si-ink) 42%, transparent);
 }
+
+/*
+   Focus is a hard offset shadow, not a soft ring.
+
+   A blurred halo is the wrong grammar for a palette drawn in flat colour and 2px strokes —
+   it reads as a different design system leaking in. An offset block in the ink is the same
+   language as the outlines, and it moves the field rather than glowing around it.
+*/
+.signin-control:focus-within,
+.signin-control:focus-visible {
+  box-shadow: 3px 3px 0 0 var(--si-ink);
+  outline: none;
+}
+
+.signin-control-group input:focus-visible {
+  outline: none;
+}
+
+.signin-quiet {
+  flex: none;
+  padding: 0;
+  height: auto;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--si-ink) 70%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+  transition: color 120ms var(--ease);
+}
+
+.signin-quiet:hover,
+.signin-quiet:focus-visible {
+  color: var(--si-ink);
+}
+
+.signin-help {
+  margin: -4px 0 0;
+  padding: 10px 12px;
+  border: 2px solid var(--si-ink);
+  border-radius: 10px;
+  background: var(--si-field);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--si-ink);
+}
+
+/* --------------------------------------------------------------------- remember ---- */
+
+.signin-remember {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--si-ink);
+  cursor: pointer;
+}
+
+/*
+   Hidden from sight, NOT from the pointer.
+
+   The 1px `pointer-events: none` version made the real control unactuatable: only a click
+   landing on the label worked, and nothing driving the page could tick it. It keeps its hit
+   area and is simply transparent, over the box it controls.
+*/
+.signin-remember input {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.signin-check {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--si-ink);
+  border-radius: 5px;
+  background: var(--si-field);
+  color: transparent;
+  transition: background 120ms var(--ease);
+}
+
+.signin-remember input:checked + .signin-check {
+  background: var(--si-action);
+  color: #ffffff;
+}
+
+.signin-remember input:focus-visible + .signin-check {
+  box-shadow: 2px 2px 0 0 var(--si-ink);
+}
+
+/* ------------------------------------------------------------------------ action ---- */
 
 .signin-error {
   margin: 0;
-  padding: var(--space-3);
-  border-radius: var(--radius);
-  background: var(--danger-soft);
-  color: var(--danger);
-  font-size: 14px;
+  padding: 10px 12px;
+  border: 2px solid var(--si-ink);
+  border-radius: 10px;
+  background: #ffe0dc;
+  color: var(--si-ink);
+  font-size: 12.5px;
+  line-height: 1.45;
   font-weight: 500;
 }
 
+/*
+   The indigo pill, outlined like everything else.
+
+   No hover shade: `hover-highlighting.test.ts` refuses one, and the rule behind it — that
+   nothing paints behind the pointer — was asked for across the whole application. The
+   press interaction below carries the whole response instead, and in this language it is a
+   better one anyway: the button moves onto its own shadow.
+*/
 .signin-submit {
-  height: 56px;
-  border: 0;
-  border-radius: var(--radius);
-  background: var(--btn-primary-bg);
-  color: var(--btn-primary-label);
-  font-weight: 600;
-  font-size: var(--text-lg);
+  height: 50px;
+  margin-top: 6px;
+  border: 2px solid var(--si-ink);
+  border-radius: var(--radius-pill);
+  background: var(--si-action);
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 640;
+  letter-spacing: -0.005em;
+  box-shadow: 3px 3px 0 0 var(--si-ink);
+  transition:
+    box-shadow 90ms var(--ease),
+    transform 90ms var(--ease);
 }
 
-.signin-submit:hover:not(:disabled) {
-  background: var(--btn-primary-bg-hover);
+/*
+   Pressed, the button travels onto its shadow and the shadow disappears.
+
+   The whole micro-interaction budget for this page. In a flat-and-outlined language this
+   is the press: the object moves the exact distance its shadow occupied, so it reads as
+   being pushed down rather than as a colour changing.
+*/
+.signin-submit:active:not(:disabled) {
+  transform: translate(3px, 3px);
+  box-shadow: 0 0 0 0 var(--si-ink);
 }
 
-.signin-note,
-.signin-footer {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.55;
-  color: var(--text-muted);
+.signin-submit:disabled {
+  opacity: 0.62;
+}
+
+/* -------------------------------------------------------------------------- foot ---- */
+
+.signin-foot {
+  max-width: 392px;
+  margin: 18px auto 0;
   text-align: center;
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--si-ink) 60%, transparent);
 }
 
-.signin-footer {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 13px;
+/* --------------------------------------------------------------- arriving on it ---- */
+
+@media (prefers-reduced-motion: no-preference) {
+  .signin-panel {
+    animation: signin-rise 240ms var(--ease) both;
+  }
+}
+
+@keyframes signin-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* ---------------------------------------------------------------------- narrower ---- */
+
+/*
+   The panel survives on a phone in this language, unlike the tinted one it replaced.
+
+   A 2px outline and a lavender fill are legible at any width — what was wrong before was a
+   near-invisible tint inside a bordered box inside a padded page. Only the insets come
+   down, and the masthead stays centred because the outline gives the centring something to
+   be measured against.
+*/
+@media (max-width: 480px) {
+  .signin {
+    padding: var(--space-5) var(--space-4);
+  }
+
+  .signin-panel {
+    padding: 30px 22px 26px;
+    border-radius: 22px;
+  }
+
+  .signin-masthead h1 {
+    font-size: 21px;
+  }
+
+  .signin-masthead .brand-mark {
+    margin-bottom: 18px;
+  }
 }
 
 /* =====================================================================================
@@ -6577,10 +6602,6 @@ input[type='search']::-webkit-search-cancel-button {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-sm);
   transition: background var(--dur) var(--ease);
-}
-
-.queue-row:hover {
-  background: var(--hover);
 }
 
 .queue-wait {
@@ -7124,17 +7145,19 @@ input[type='search']::-webkit-search-cancel-button {
   }
 
   .rail-item:hover {
-    background: transparent;
     color: var(--text);
-  }
+}
 
   /* Orange, and rule 1 names it: "the active tab". Weight carries it too, so the state
      survives greyscale (NFR-ACC-3). */
-  .rail-item[aria-current='page'],
-  .rail-item[aria-current='page']:hover {
+  .rail-item[aria-current='page'] {
     background: transparent;
     color: var(--accent);
-  }
+}
+
+  .rail-item[aria-current='page']:hover {
+    color: var(--accent);
+}
 
   .rail-item[aria-current='page'] .rail-label {
     font-weight: 600;
@@ -7196,10 +7219,6 @@ input[type='search']::-webkit-search-cancel-button {
     background: var(--accent);
     color: #fff;
     box-shadow: var(--shadow-float);
-  }
-
-  .fab-new:hover:not(:disabled) {
-    background: var(--accent-hover);
   }
 
   .fab-new svg {
@@ -7532,4 +7551,815 @@ input[type='search']::-webkit-search-cancel-button {
   .message-actions {
     opacity: 0.55;
   }
+}
+
+/* =====================================================================================
+   Confirmation dialog.
+
+   Replaces `window.confirm`, which put a browser alert at the top of the screen reading
+   "localhost:3010 says" — chrome that belongs to the browser, in the browser's own
+   typography, over a page that then looked like it had done something to you.
+
+   Narrower than the compose modal on purpose. A confirmation is one sentence and a short
+   column of choices; given the modal's width the buttons stretch far enough apart that
+   the safe one and the destructive one stop reading as one group.
+   ===================================================================================== */
+.confirm-dialog {
+  width: min(400px, 100%);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.confirm-dialog h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.confirm-dialog > p {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: var(--lh);
+}
+
+/*
+   Stacked, not a row of buttons across the foot.
+
+   The choices are not symmetrical — "for everyone" and "for me" differ by who is
+   affected, not by degree — and side by side at equal width they read as interchangeable.
+   A column gives each one its own line and room for the sentence that says what it does.
+*/
+.confirm-choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.confirm-choices button {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  height: auto;
+  min-height: var(--row);
+  padding: 10px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: left;
+  font-size: var(--text-sm);
+  font-weight: 550;
+}
+
+.confirm-choices .muted {
+  font-size: 12px;
+  font-weight: 400;
+}
+
+.confirm-danger {
+  color: var(--danger);
+}
+
+/* Last, and quiet. The way out is not the thing the eye lands on first, but it is the
+   thing the keyboard lands on first — `cancel` takes focus on open. */
+.confirm-cancel {
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* =====================================================================================
+   Rail foot: the avatar, and the power symbol under it.
+
+   The avatar used to open a two-item popover. Both items are their own control now — see
+   `AccountControls` — which is why this is a column rather than a single tile.
+   ===================================================================================== */
+.rail-account {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  /*
+     Lifted off the floor of the rail. At `var(--space-3)` the avatar sat on the bottom
+     edge, and on a laptop where the browser chrome ends a few pixels below it, it read as
+     something that had slipped out of the layout rather than the foot of a column.
+  */
+  padding-bottom: var(--space-4);
+}
+
+.rail-power {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  /* Dimmer than the navigation icons. It is the one control here nobody is looking for,
+     and the one with no undo — quiet is the correct volume for it. */
+  color: var(--rail-fg);
+  opacity: 0.55;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.rail-power svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* The one hover left in the rail, and it is not a highlight: the symbol comes up to full
+   strength so it is legible before you commit to pressing it. */
+.rail-power:hover,
+.rail-power:focus-visible {
+  opacity: 1;
+}
+
+/*
+   The details panel's own dismiss, at column width.
+
+   Absolute, because the panel opens with the avatar and the name rather than a title bar
+   — giving it a header row to hold this button would have cost it that. It sits in the
+   identity block's top padding, which is empty in every state the panel has.
+*/
+.details-dismiss {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-subtle);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--dur) var(--ease);
+}
+
+.details-dismiss:hover,
+.details-dismiss:focus-visible {
+  color: var(--text);
+}
+
+/*
+   Inside a header the dismiss is a normal flex child, not an absolute one.
+
+   `.details-dismiss` is positioned against the drawer because the details panel opens
+   straight into the avatar and has no header to hang a button from. The search panel DOES
+   have one, and leaving the button absolute there would float it over the word it sits
+   beside at some widths.
+*/
+.details-head .details-dismiss {
+  position: static;
+  margin-left: auto;
+}
+
+/*
+   The search panel's results get the panel's width, not the list column's.
+
+   `ConversationSearch` was written for the 320px list and sets its own field width there;
+   in a 360px drawer that left a gutter down the right of every result.
+*/
+.details-body .search {
+  width: 100%;
+}
+
+/*
+   The typing indicator, given a pulse you can actually see.
+
+   The dots faded between 30% and 100% opacity, which at 5px on a light ground is a
+   difference you notice only if you are already looking at it. They now change SIZE as
+   well: a dot that grows is read peripherally, which is the whole job of an indicator
+   that sits below a thread somebody is reading.
+
+   `transform` and `opacity` only — both composited, so three of them animating forever
+   in the corner of a chat costs no layout.
+*/
+.typing-dots i {
+  animation: typing-pulse 1.25s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes typing-pulse {
+  0%,
+  70%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.72);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+/*
+   Whoever is typing, in a group.
+
+   Sized to the dots rather than to the thread's avatars: this sits in a 20px-tall line
+   under the last message, and a 32px circle there reads as a message nobody sent.
+*/
+.typing-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--avatar-bg, var(--surface-2));
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 650;
+  font-style: normal;
+  letter-spacing: 0.02em;
+}
+
+/* The words carry the italics; the avatar above opts out of them. */
+.typing-what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+   Somebody who has asked for less motion gets a static indicator, not a missing one.
+
+   The dots still say "somebody is typing" — they are simply all present at once instead
+   of taking turns. Removing them entirely would take away the information along with the
+   animation.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots i {
+    animation: none;
+    opacity: 0.75;
+    transform: none;
+  }
+}
+
+/*
+   A heading inside a menu, for its second page.
+
+   The mute durations need a line saying what the six numbers are durations OF; without it
+   "15 minutes / 30 minutes / 1 hour" in a menu that a moment ago said "Pin chat" reads as
+   a list of something else entirely.
+*/
+.menu-heading {
+  margin: 0;
+  padding: var(--space-1) var(--space-2) 2px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+
+/* =====================================================================================
+   Pinned messages, above the thread.
+
+   Outside `.thread-scroll` on purpose: a pin that scrolls away with the conversation is
+   not pinned to anything. It sits between the header and the messages, where the thing it
+   is held above actually begins.
+   ===================================================================================== */
+.pinned-bar {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px var(--space-4);
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.pinned-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.pinned-icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--text-subtle);
+}
+
+/*
+   One line, clipped. A pinned paragraph would give the header an unpredictable height
+   that changes as people pin things — and the full text is one click away in the thread.
+*/
+.pinned-text {
+  flex: 1;
+  min-width: 0;
+  height: auto;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pinned-text strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.pinned-unpin {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-subtle);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pinned-more,
+.pinned-note {
+  align-self: flex-start;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text-subtle);
+  height: auto;
+}
+
+/*
+   Where a jump landed.
+
+   A smooth scroll that stops mid-thread leaves the eye with no idea which of the visible
+   messages it was aiming at. The tint fades on its own after a moment — it marks the
+   arrival, it is not a state.
+*/
+.message-jumped .message-main {
+  animation: message-jumped 1.6s ease-out;
+}
+
+@keyframes message-jumped {
+  0%,
+  55% {
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+  100% {
+    box-shadow: var(--hairline);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .message-jumped .message-main {
+    animation: none;
+    box-shadow: 0 0 0 2px var(--accent);
+  }
+}
+
+/* =====================================================================================
+   Forward, and message info. Two dialogs with the same bones as the confirmation.
+   ===================================================================================== */
+.forward-dialog,
+.message-info-dialog {
+  width: min(440px, 100%);
+  max-height: min(560px, 82vh);
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.forward-dialog h2,
+.message-info-dialog h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+/*
+   The text being acted on.
+
+   Forwarding is the action most often performed on the wrong message: the menu was opened
+   from a row, and by the time the dialog is up that row is behind it. Three lines is
+   enough to recognise a message and not enough to push the destination list off screen.
+*/
+.forward-preview {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--surface-2);
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.forward-list,
+.message-info-readers {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.forward-list button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  height: auto;
+  min-height: 52px;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.forward-list .muted {
+  margin-left: auto;
+  font-size: 12px;
+}
+
+.message-info-delivered,
+.message-info-count {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.message-info-count {
+  color: var(--text-muted);
+}
+
+.message-info-readers li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: 40px;
+  font-size: var(--text-sm);
+}
+
+/*
+   The group's name, with a pencil rather than a permanent field.
+
+   An always-open input beside the name says "this is a form", and the panel is not one:
+   the name is read every time the panel opens and changed almost never.
+*/
+.group-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.group-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-name-edit {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-subtle);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--dur) var(--ease);
+}
+
+.group-name-edit:hover,
+.group-name-edit:focus-visible {
+  color: var(--text);
+}
+
+/*
+   Who administers the group.
+
+   A word, not an icon: it has to survive greyscale (NFR-ACC-3) and it has to be read out
+   as part of the member's row rather than announced as a picture.
+*/
+.member-admin {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}
+
+/* =====================================================================================
+   Chat backgrounds.
+
+   Four grounds for the thread, chosen in Settings › Appearance and stored per device. They
+   compose with light/dark rather than multiplying against it: each block below sets only
+   the tokens that differ, and the dark variants sit beside them.
+
+   What these may change is the thread's ground, the pattern on it, and the two bubble
+   colours. What they may NOT change is the accent — CY Orange identifies the send button,
+   the unread count and the active tab, and a background that repainted it would be a
+   different product wearing the same name.
+
+   `constellation` needs no block: it is what `chat-wallpaper.css` already defines on bare
+   `:root`, so the default is the absence of an attribute and a browser with site data
+   blocked lands on it rather than on nothing.
+   ===================================================================================== */
+
+/*
+   Plain — no pattern at all.
+
+   Not an oversight and not a lesser option. A texture behind text is a preference, and
+   offering a wallpaper with no way off it is the complaint every messenger with one
+   eventually receives.
+*/
+:root[data-chat-bg='plain'] {
+  --thread-ground: var(--surface-raised);
+  --thread-wallpaper: none;
+}
+
+:root[data-chat-bg='plain'][data-theme='dark'] {
+  --thread-ground: var(--surface-raised);
+}
+
+/*
+   Graph — a faint square grid, 24px.
+
+   The one that survives a screen share into a meeting: it reads as paper rather than as
+   decoration, and at 4% it is texture from a foot away and invisible from three.
+
+   Two gradients rather than an SVG: a repeating linear gradient is a handful of bytes
+   against the constellation's kilobyte, and a grid has no shape worth authoring.
+*/
+:root[data-chat-bg='graph'] {
+  --thread-ground: #f7f8fa;
+  --thread-wallpaper:
+    repeating-linear-gradient(
+      to right,
+      rgb(43 58 99 / 6%) 0 1px,
+      transparent 1px 24px
+    ),
+    repeating-linear-gradient(to bottom, rgb(43 58 99 / 6%) 0 1px, transparent 1px 24px);
+}
+
+:root[data-chat-bg='graph'][data-theme='dark'] {
+  --thread-ground: #12151c;
+  --thread-wallpaper:
+    repeating-linear-gradient(to right, rgb(255 255 255 / 5%) 0 1px, transparent 1px 24px),
+    repeating-linear-gradient(to bottom, rgb(255 255 255 / 5%) 0 1px, transparent 1px 24px);
+}
+
+/*
+   Dusk — the constellation on a deeper ground.
+
+   For running the machine light and the thread quieter than the panels around it, which is
+   how a lot of people actually work: bright chrome, dim reading surface. The wallpaper is
+   inherited from `:root`, so only the ground and the bubbles move.
+
+   The incoming bubble lifts rather than darkens. On a dim ground a bubble darker than the
+   ground disappears into it, and the thing that has to stay readable is the message.
+*/
+:root[data-chat-bg='dusk'] {
+  --thread-ground: #e7eaf1;
+  --bubble-them: #ffffff;
+}
+
+:root[data-chat-bg='dusk'][data-theme='dark'] {
+  --thread-ground: #0c0e14;
+  --bubble-them: #1b1f2a;
+}
+
+/*
+   The background picker's swatches.
+
+   A named button with a sample of the thing it selects, because "Graph" and "Dusk" mean
+   nothing until you have seen them once — and a row of four words would make somebody
+   choose blind and then undo it.
+
+   Each swatch paints the option's own ground and pattern LITERALLY, using the same
+   declarations the thread uses, so the sample cannot drift from what it is a sample of.
+*/
+.chat-bg-choice {
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chat-bg-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-bg-swatch {
+  /*
+     Wider than it is tall, and larger than it first was.
+
+     At 22×16 the constellation swatch was indistinguishable from the plain one: the tile
+     is 340px and the pattern is drawn at 9–16% opacity, so a fragment that small contained
+     no star at all and two of the four options looked identical. A picker whose samples do
+     not differ is a picker somebody has to choose blind and then undo.
+  */
+  width: 34px;
+  height: 22px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background-color: #f7f8fa;
+  background-image: none;
+  background-size: 44px 44px;
+}
+
+.chat-bg-plain .chat-bg-swatch {
+  background-color: var(--surface-raised);
+}
+
+.chat-bg-graph .chat-bg-swatch {
+  background-image:
+    repeating-linear-gradient(to right, rgb(43 58 99 / 28%) 0 1px, transparent 1px 7px),
+    repeating-linear-gradient(to bottom, rgb(43 58 99 / 28%) 0 1px, transparent 1px 7px);
+}
+
+/*
+   A MOTIF, not a crop of the real tile.
+
+   The wallpaper is 340px of deliberately sparse sky drawn at 9% ink. Scaled into a 34px
+   swatch, a literal crop is blank — which is honest about the pattern and useless as a
+   sample, and left Constellation and Plain looking identical in the picker. Two options
+   nobody can tell apart is a choice made blind and then undone.
+
+   So the swatch draws the same shapes at a size and strength that survive being 34px wide:
+   three stars and a link, in the wallpaper's own ink. It says "this one has stars in it",
+   which is the question somebody is asking of a swatch.
+*/
+.chat-bg-constellation .chat-bg-swatch,
+.chat-bg-dusk .chat-bg-swatch {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='22'%3E%3Cg stroke='%232b3a63' stroke-opacity='0.5' stroke-width='0.8'%3E%3Cline x1='7' y1='6' x2='17' y2='12'/%3E%3Cline x1='17' y1='12' x2='27' y2='7'/%3E%3C/g%3E%3Cg fill='%232b3a63' fill-opacity='0.75'%3E%3Ccircle cx='7' cy='6' r='1.5'/%3E%3Ccircle cx='17' cy='12' r='1.5'/%3E%3Ccircle cx='27' cy='7' r='1.5'/%3E%3Ccircle cx='12' cy='17' r='1'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: cover;
+}
+
+/*
+   Dusk is the same sky on a deeper ground, and the swatch has to say so.
+
+   The real ground is `#e7eaf1`, which beside a white pill is a difference nobody sees at
+   22px. The sample is taken two steps further down: it is showing which of two patterned
+   options is the darker one, and a sample that cannot answer that is not a sample.
+*/
+.chat-bg-dusk .chat-bg-swatch {
+  background-color: #ccd3e0;
+}
+
+/*
+   The status picker, tinted by what each option means.
+
+   Colour is never the only signal — every button carries its own word — but somebody who
+   has learned that amber is "away" should not have to read four labels to find it.
+*/
+.status-choice {
+  flex-wrap: wrap;
+}
+
+.status-option[aria-checked='true'].status-busy {
+  border-color: var(--critical-label, var(--danger));
+  color: var(--critical-label, var(--danger));
+}
+
+.status-option[aria-checked='true'].status-in_a_meeting {
+  border-color: var(--info-label, var(--info));
+  color: var(--info-label, var(--info));
+}
+
+.status-option[aria-checked='true'].status-away {
+  border-color: var(--warning-label, #a2670a);
+  color: var(--warning-label, #a2670a);
+}
+
+/*
+   The badge beside a name.
+
+   Words, not a dot: the dot is already taken by presence, and two dots meaning two
+   different things is worse than one dot and one word. The tint is behind the text so it
+   survives greyscale (NFR-ACC-3).
+*/
+.status-badge {
+  margin-left: 6px;
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.status-badge.status-busy {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--critical-label, var(--danger));
+}
+
+.status-badge.status-in_a_meeting {
+  background: color-mix(in srgb, var(--info) 12%, transparent);
+  color: var(--info-label, var(--info));
+}
+
+.status-badge.status-away {
+  background: color-mix(in srgb, #a2670a 12%, transparent);
+  color: var(--warning-label, #a2670a);
+}
+
+/*
+   A picture over an avatar's initials.
+
+   Absolutely positioned over them rather than replacing them: if the image 401s or the
+   bytes are gone, what shows through is the letters rather than an empty circle or a
+   broken-image glyph. Every avatar in this product is already a positioned round tile, so
+   `inset: 0` inherits whatever diameter its container has and one rule covers the 30px
+   list row, the 38px header and the 88px details panel.
+*/
+.avatar-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+  /* The tile that holds it may be square (a group) or round (a person); inheriting the
+     radius means this never has to know which. */
+}
+
+.row-avatar,
+.chat-avatar,
+.rail-avatar {
+  position: relative;
+  overflow: hidden;
+}
+
+/* The picker's two buttons on one row, with its note beneath. */
+.avatar-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.avatar-picker .settings-note {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+/*
+   "typing" on a list row, in place of the preview.
+
+   The accent colour, because it is the one line in the row that is happening RIGHT NOW
+   rather than describing something that already happened — and the dots beside it are
+   already the product's signal for that.
+*/
+.row-typing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--accent);
+  font-style: italic;
+}
+
+.row-typing .typing-dots i {
+  background: var(--accent);
 }

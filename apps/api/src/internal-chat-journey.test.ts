@@ -24,7 +24,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
 import { assertDatabaseAllowed } from '@starlink/database';
 import { hashPassword } from '@starlink/security';
-import { employeeRoutes } from '@starlink/shared-contracts';
+import { MAX_PINNED_CONVERSATIONS, employeeRoutes } from '@starlink/shared-contracts';
 
 const CONNECTION =
   process.env.SL_DATABASE_URL ?? 'postgres://starlink:starlink_dev_only@localhost:5432/starlink';
@@ -151,9 +151,41 @@ afterAll(async () => {
   if (pool === undefined) return;
   try {
     await pool.query(`DELETE FROM conversation.outbox WHERE aggregate_id = ANY($1::uuid[])`, [created]);
-    for (const table of ['messages', 'participants', 'read_state']) {
+    /* `conversation_preferences` carries an FK to `conversations`, so a pin left behind
+       blocks the delete below — and the failure surfaces in afterAll, where it reads as
+       the suite breaking rather than as a row this file forgot. */
+    for (const table of ['messages', 'participants', 'read_state', 'conversation_preferences']) {
       await pool.query(`DELETE FROM conversation.${table} WHERE conversation_id = ANY($1::uuid[])`, [created]);
     }
+    /*
+       Anything these three CREATED, not only what this run recorded.
+
+       `created` misses a conversation whose id never made it into the array — a test that
+       failed between the POST and the push, or an earlier run whose teardown threw partway
+       through. Those rows keep an FK on `identity.principals.created_by`, so the delete
+       below fails, and the failure is reported by afterAll on a run whose tests all
+       passed. Two runs were spent on that. The principals are this file's alone, so
+       "created by them" is a safe net to cast.
+    */
+    await pool.query(
+      `DELETE FROM conversation.conversation_preferences
+        WHERE principal_id = ANY($1::uuid[])
+           OR conversation_id IN (SELECT conversation_id FROM conversation.conversations
+                                   WHERE created_by = ANY($1::uuid[]))`,
+      [[ALICE, BOB, CARA]],
+    );
+    for (const table of ['outbox', 'messages', 'participants', 'read_state']) {
+      const key = table === 'outbox' ? 'aggregate_id' : 'conversation_id';
+      await pool.query(
+        `DELETE FROM conversation.${table}
+          WHERE ${key} IN (SELECT conversation_id FROM conversation.conversations
+                            WHERE created_by = ANY($1::uuid[]))`,
+        [[ALICE, BOB, CARA]],
+      );
+    }
+    await pool.query(`DELETE FROM conversation.conversations WHERE created_by = ANY($1::uuid[])`, [
+      [ALICE, BOB, CARA],
+    ]);
     await pool.query(`DELETE FROM conversation.conversations WHERE conversation_id = ANY($1::uuid[])`, [created]);
     await pool.query(`DELETE FROM identity.team_memberships WHERE team_id = $1`, [TEAM_ID]);
     await pool.query(`DELETE FROM identity.role_assignments WHERE principal_id = ANY($1::uuid[])`, [
@@ -459,4 +491,573 @@ describe('read receipts — the second tick', () => {
     const theirs = await rowFor(cara);
     expect(theirs.lastMessageSenderId).toBe(ALICE);
   }, 120_000);
+});
+
+/**
+ * Pinning, and the ceiling on it.
+ *
+ * A pinned list is only worth having while it is shorter than the list underneath it, so
+ * the cap is three. What is actually under test is WHERE that three lives: the limit is
+ * applied inside the statement that writes the preference, not read-then-written around
+ * it, because two tabs pinning at the same moment would each read two and each write,
+ * leaving four.
+ *
+ * The last case is the one that would survive a naive implementation — unpinning has to
+ * skip the guard entirely, or somebody at the ceiling can never get back under it.
+ */
+describe('pinning a conversation', () => {
+  it(`stops at ${MAX_PINNED_CONVERSATIONS} and lets you trade one for another`, async (ctx) => {
+    if (skipUnlessReady(ctx, 'the pin ceiling is unproven.')) return;
+
+    const alice = await signIn('alice');
+
+    /*
+       Alice starts with no pins.
+
+       Not tidiness — correctness. The subject here is a CEILING, so the test's result
+       depends on how many pins the account already has, and a row left behind by an
+       earlier run (or by another test in this file) makes the first pin fail and the
+       whole thing report a bug that is not there. It did exactly that once, when the
+       teardown below was still missing this table.
+    */
+    await pool!.query(`DELETE FROM conversation.conversation_preferences WHERE principal_id = $1`, [
+      ALICE,
+    ]);
+
+    /* One more group than the ceiling allows, so the last pin has to be refused. */
+    const conversations: string[] = [];
+    for (let index = 0; index <= MAX_PINNED_CONVERSATIONS; index += 1) {
+      const started = await post(employeeRoutes.conversations.create, alice, {
+        type: 'INTERNAL_GROUP',
+        participantIds: [BOB, CARA],
+        title: `Pin ceiling ${index} ${crypto.randomUUID().slice(0, 8)}`,
+      });
+      expect(started.status).toBe(201);
+      const { conversationId } = (await started.json()) as { conversationId: string };
+      conversations.push(conversationId);
+      created.push(conversationId);
+    }
+
+    const pin = async (conversationId: string, pinned: boolean): Promise<{
+      pinned: boolean;
+      limitReached?: boolean;
+    }> => {
+      const response = await fetch(
+        `${BASE}${employeeRoutes.conversations.preferences(conversationId)}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', cookie: alice },
+          body: JSON.stringify({ pinned }),
+        },
+      );
+      expect(response.status, 'a pin within the allowance was rejected outright').toBe(200);
+      return (await response.json()) as { pinned: boolean; limitReached?: boolean };
+    };
+
+    for (let index = 0; index < MAX_PINNED_CONVERSATIONS; index += 1) {
+      expect(await pin(conversations[index]!, true)).toMatchObject({ pinned: true });
+    }
+
+    /*
+       The one over. Not an HTTP error: the caller is allowed and the conversation exists,
+       they simply already have three — see the controller for why §27.3's uniform refusal
+       is the wrong answer here.
+    */
+    const overflow = await pin(conversations[MAX_PINNED_CONVERSATIONS]!, true);
+    expect(overflow.limitReached, 'a fourth pin was accepted').toBe(true);
+    expect(overflow.pinned).toBe(false);
+
+    /* And the database agrees, which is the claim that matters — a response saying
+       "refused" over a row that was written would pass every assertion above. */
+    const counted = await pool!.query(
+      `SELECT count(*)::int AS pinned
+         FROM conversation.conversation_preferences
+        WHERE principal_id = $1 AND pinned`,
+      [ALICE],
+    );
+    expect(counted.rows[0].pinned).toBe(MAX_PINNED_CONVERSATIONS);
+
+    /* Unpinning must not consult the ceiling, or somebody at it is stuck there. */
+    expect(await pin(conversations[0]!, false)).toMatchObject({ pinned: false });
+    expect(await pin(conversations[MAX_PINNED_CONVERSATIONS]!, true)).toMatchObject({
+      pinned: true,
+    });
+  }, 120_000);
+});
+
+/**
+ * Mute, and the two things about it that are easy to get wrong.
+ *
+ * It is a LEASE, not a switch: migration 0018 removed the boolean deliberately and 0021
+ * brought it back with an end on it. So the interesting assertions are not "mute works" —
+ * they are that the instant comes from the SERVER (a client sending its own would let a
+ * skewed clock mute until yesterday), that an expired mute reads as no mute at all with
+ * nothing having to sweep it, and that muting does not disturb the pin sitting in the same
+ * row.
+ */
+describe('muting a conversation', () => {
+  it('is a lease the server dates, and leaves the pin alone', async (ctx) => {
+    if (skipUnlessReady(ctx, 'the mute lease is unproven.')) return;
+
+    const alice = await signIn('alice');
+    await pool!.query(`DELETE FROM conversation.conversation_preferences WHERE principal_id = $1`, [
+      ALICE,
+    ]);
+
+    const started = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_GROUP',
+      participantIds: [BOB, CARA],
+      title: `Mute ${crypto.randomUUID().slice(0, 8)}`,
+    });
+    expect(started.status).toBe(201);
+    const { conversationId } = (await started.json()) as { conversationId: string };
+    created.push(conversationId);
+
+    const preferences = async (body: unknown): Promise<Response> =>
+      fetch(`${BASE}${employeeRoutes.conversations.preferences(conversationId)}`, {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', cookie: alice },
+        body: JSON.stringify(body),
+      });
+
+    const rowFor = async (): Promise<{ pinned: boolean; mutedUntil?: string }> => {
+      const list = await get(employeeRoutes.conversations.list, alice);
+      const { conversations } = (await list.json()) as {
+        conversations: { conversationId: string; pinned: boolean; mutedUntil?: string }[];
+      };
+      const row = conversations.find((c) => c.conversationId === conversationId);
+      expect(row, 'the conversation vanished from its own list').toBeDefined();
+      return row!;
+    };
+
+    /* Pin first, so the mute below has something it could plausibly clobber. */
+    expect((await preferences({ pinned: true })).status).toBe(200);
+    expect((await rowFor()).pinned).toBe(true);
+
+    const before = Date.now();
+    expect((await preferences({ muteMinutes: 60 })).status).toBe(200);
+    const after = Date.now();
+
+    const muted = await rowFor();
+    expect(muted.mutedUntil, 'the mute did not come back on the summary').toBeDefined();
+    expect(muted.pinned, 'muting cleared the pin in the same row').toBe(true);
+
+    /*
+       Dated by the server, within the window this test was running.
+
+       An hour from `before` is the earliest it could legitimately be and an hour from
+       `after` the latest; anything outside says the instant came from somewhere other than
+       the server's clock at the moment of the write.
+    */
+    const until = Date.parse(muted.mutedUntil!);
+    expect(until).toBeGreaterThanOrEqual(before + 60 * 60_000 - 1_000);
+    expect(until).toBeLessThanOrEqual(after + 60 * 60_000 + 1_000);
+
+    /*
+       An expired mute is no mute, and nothing had to sweep it.
+
+       The row is aged in place rather than waiting an hour. What is under test is that the
+       READ compares against the clock — if it reported any non-null column as "muted", a
+       mute set last week would still be silencing this conversation.
+    */
+    await pool!.query(
+      `UPDATE conversation.conversation_preferences
+          SET muted_until = now() - interval '1 minute'
+        WHERE principal_id = $1 AND conversation_id = $2`,
+      [ALICE, conversationId],
+    );
+    const expired = await rowFor();
+    expect(expired.mutedUntil, 'an elapsed mute was still reported as muted').toBeUndefined();
+    expect(expired.pinned, 'the pin did not survive the mute expiring').toBe(true);
+
+    /* Unmute is explicit too, and does not need the mute to be live. */
+    expect((await preferences({ muteMinutes: null })).status).toBe(200);
+    expect((await rowFor()).mutedUntil).toBeUndefined();
+
+    /*
+       A duration the menu cannot offer is refused, not clamped.
+
+       MUTE_DURATIONS_MINUTES is the whole reason no mute can outlive a day; if the server
+       rounded 100000 down to 1440 instead of refusing it, that ceiling would rest on the
+       six buttons the UI happens to draw.
+    */
+    expect((await preferences({ muteMinutes: 100_000 })).status).toBeGreaterThanOrEqual(400);
+    expect((await preferences({})).status, 'an empty change was accepted').toBeGreaterThanOrEqual(
+      400,
+    );
+  }, 120_000);
+});
+
+/**
+ * Pinning a message, forwarding one, and asking who has read one.
+ *
+ * The interesting assertions are the authorization ones, not the happy paths:
+ *
+ *  - A pin is a WRITE to the shared thread even though it adds no text, so it is
+ *    authorized with the send action. Somebody who may only read must not be able to
+ *    reorder what the participants see.
+ *  - Forwarding is two decisions about two objects. A caller who cannot write to the
+ *    destination must be refused even when they can read the source perfectly well.
+ *  - "Message info" must not report the sender as having read their own message, which is
+ *    the shape that makes a one-to-one claim 1-of-2 while nobody has opened it.
+ */
+describe('pinning, forwarding and message info', () => {
+  it('pins for everybody, forwards with both sides authorized, and reports readers', async (ctx) => {
+    if (skipUnlessReady(ctx, 'pins, forwards and message info are unproven.')) return;
+
+    const alice = await signIn('alice');
+    const bob = await signIn('bob');
+
+    const group = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_GROUP',
+      participantIds: [BOB, CARA],
+      title: `Pins ${crypto.randomUUID().slice(0, 8)}`,
+    });
+    expect(group.status).toBe(201);
+    const { conversationId } = (await group.json()) as { conversationId: string };
+    created.push(conversationId);
+
+    const sent = await post(employeeRoutes.conversations.messages(conversationId), alice, {
+      body: 'The office address is 4th floor, Tower B.',
+      visibility: 'INTERNAL',
+    });
+    expect(sent.status).toBe(201);
+    const { messageId } = (await sent.json()) as { messageId: string };
+
+    /* --- pinning ------------------------------------------------------------------ */
+
+    const pinned = await fetch(
+      `${BASE}${employeeRoutes.conversations.pin(conversationId, messageId)}`,
+      { method: 'PUT', headers: { cookie: alice } },
+    );
+    expect(pinned.status, 'a participant could not pin in their own conversation').toBe(200);
+
+    const listed = await get(employeeRoutes.conversations.pins(conversationId), bob);
+    expect(listed.status).toBe(200);
+    const { pins } = (await listed.json()) as {
+      pins: { messageId: string; pinnedByName: string; body: string; redacted: boolean }[];
+    };
+    /* Shared, which is the whole difference from a pinned CONVERSATION: Bob sees a pin
+       Alice set, and sees who set it. */
+    expect(pins).toHaveLength(1);
+    expect(pins[0]!.messageId).toBe(messageId);
+    expect(pins[0]!.pinnedByName).toBe('Alice Adams');
+    expect(pins[0]!.body).toContain('4th floor');
+
+    /* Pinning twice is not an error, and the first pin keeps its attribution. */
+    const again = await fetch(
+      `${BASE}${employeeRoutes.conversations.pin(conversationId, messageId)}`,
+      { method: 'PUT', headers: { cookie: bob } },
+    );
+    expect(again.status).toBe(200);
+    expect((await again.json()) as { changed: boolean }).toMatchObject({ changed: false });
+
+    /*
+       A message from ANOTHER conversation cannot be pinned here, even by somebody who
+       belongs to both. Without this check the object test passes against a conversation
+       the caller is in while the write lands in one they may not touch.
+    */
+    const other = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_GROUP',
+      participantIds: [BOB],
+      title: `Elsewhere ${crypto.randomUUID().slice(0, 8)}`,
+    });
+    const { conversationId: otherId } = (await other.json()) as { conversationId: string };
+    created.push(otherId);
+    const crossed = await fetch(
+      `${BASE}${employeeRoutes.conversations.pin(otherId, messageId)}`,
+      { method: 'PUT', headers: { cookie: alice } },
+    );
+    expect(crossed.status, 'a message was pinned into a conversation it is not in').toBe(404);
+
+    /* --- message info -------------------------------------------------------------- */
+
+    const info = await get(
+      employeeRoutes.conversations.messageInfo(conversationId, messageId),
+      alice,
+    );
+    expect(info.status).toBe(200);
+    const readers = (await info.json()) as {
+      deliveredAt: string;
+      readers: { principalId: string; displayName: string; hasRead: boolean }[];
+    };
+    expect(readers.deliveredAt).toBeTruthy();
+    /* Bob and Cara, and NOT Alice: "you have read your own message" is not information,
+       and counting it would make this report 1 of 3 before anybody opened anything. */
+    expect(readers.readers.map((r) => r.principalId).sort()).toEqual([BOB, CARA].sort());
+    expect(readers.readers.every((r) => !r.hasRead)).toBe(true);
+
+    /* Bob reads, and only Bob turns over. */
+    const page = await get(employeeRoutes.conversations.messages(conversationId), bob);
+    const { messages } = (await page.json()) as { messages: { seq: number }[] };
+    const newest = Math.max(...messages.map((m) => m.seq));
+    expect(
+      (await post(employeeRoutes.conversations.read(conversationId), bob, { upToSeq: newest }))
+        .status,
+    ).toBeLessThan(400);
+
+    const after = (await (
+      await get(employeeRoutes.conversations.messageInfo(conversationId, messageId), alice)
+    ).json()) as { readers: { principalId: string; hasRead: boolean; readAt?: string }[] };
+    expect(after.readers.find((r) => r.principalId === BOB)?.hasRead).toBe(true);
+    expect(after.readers.find((r) => r.principalId === BOB)?.readAt).toBeTruthy();
+    expect(after.readers.find((r) => r.principalId === CARA)?.hasRead).toBe(false);
+    /* No time beside "not read": a marker instant there would contradict the word. */
+    expect(after.readers.find((r) => r.principalId === CARA)?.readAt).toBeUndefined();
+
+    /* --- forwarding ---------------------------------------------------------------- */
+
+    const forwarded = await post(
+      employeeRoutes.conversations.forward(conversationId, messageId),
+      alice,
+      { toConversationId: otherId },
+    );
+    expect(forwarded.status, 'a forward between two of her own conversations failed').toBe(201);
+
+    const destination = await get(employeeRoutes.conversations.messages(otherId), alice);
+    const { messages: copied } = (await destination.json()) as {
+      messages: { body: string; senderPrincipalId?: string }[];
+    };
+    const copy = copied.find((m) => m.body.includes('4th floor'));
+    expect(copy, 'the forwarded text did not arrive').toBeDefined();
+    /* Authored by whoever forwarded it. Attributing it to the original sender would put
+       words in their mouth in a thread they are not in. */
+    expect(copy!.senderPrincipalId).toBe(ALICE);
+
+    /* Forwarding into a conversation the caller is NOT in is refused, even though they
+       can plainly read the source. */
+    const cara = await signIn('cara');
+    const caraOnly = await post(employeeRoutes.conversations.create, cara, {
+      type: 'INTERNAL_DIRECT',
+      participantIds: [BOB],
+    });
+    const { conversationId: caraId } = (await caraOnly.json()) as { conversationId: string };
+    created.push(caraId);
+
+    const intruder = await post(
+      employeeRoutes.conversations.forward(conversationId, messageId),
+      alice,
+      { toConversationId: caraId },
+    );
+    expect(
+      intruder.status,
+      'a message was forwarded into a conversation the sender is not in',
+    ).toBeGreaterThanOrEqual(400);
+
+    /* Forwarding to the thread it is already in is a no-op dressed as a feature. */
+    const samePlace = await post(
+      employeeRoutes.conversations.forward(conversationId, messageId),
+      alice,
+      { toConversationId: conversationId },
+    );
+    expect(samePlace.status).toBeGreaterThanOrEqual(400);
+
+    /* --- unpinning ------------------------------------------------------------------ */
+
+    const unpinned = await fetch(
+      `${BASE}${employeeRoutes.conversations.pin(conversationId, messageId)}`,
+      { method: 'DELETE', headers: { cookie: bob } },
+    );
+    expect(unpinned.status, 'somebody other than the pinner could not unpin').toBe(200);
+    const empty = (await (
+      await get(employeeRoutes.conversations.pins(conversationId), alice)
+    ).json()) as { pins: unknown[] };
+    expect(empty.pins).toHaveLength(0);
+  }, 180_000);
+});
+
+/**
+ * Only a group's creator may remove somebody from it.
+ *
+ * Until 2026-09-04 any participant could end any other participant's access, so the newest
+ * member of a twelve-person group could remove the other eleven — and BR-05, which needs a
+ * live participant to re-add them, was the only thing between that and permanent.
+ *
+ * The rule lives in the DOMAIN rather than the controller, so what is under test is that
+ * it holds for the operation and not merely for one route. The two cases that matter are
+ * the refusal (a member who is not the creator) and the non-regression (the creator can
+ * still remove, and a one-to-one is untouched by any of this).
+ */
+describe('removing somebody from a group', () => {
+  it('is the admin\'s alone, and the admin is whoever created it', async (ctx) => {
+    if (skipUnlessReady(ctx, 'the group admin rule is unproven.')) return;
+
+    const alice = await signIn('alice');
+    const bob = await signIn('bob');
+
+    /* Alice creates it, so Alice is the admin. */
+    const group = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_GROUP',
+      participantIds: [BOB, CARA],
+      title: `Admin ${crypto.randomUUID().slice(0, 8)}`,
+    });
+    expect(group.status).toBe(201);
+    const { conversationId } = (await group.json()) as { conversationId: string };
+    created.push(conversationId);
+
+    /* The summary carries the role, so the panel can mark the admin without a second
+       read. If this stops arriving the badge silently disappears and nothing else fails. */
+    const list = await get(employeeRoutes.conversations.list, bob);
+    const { conversations } = (await list.json()) as {
+      conversations: {
+        conversationId: string;
+        participants?: { principalId: string; role?: string }[];
+      }[];
+    };
+    const seenByBob = conversations.find((c) => c.conversationId === conversationId);
+    expect(
+      seenByBob?.participants?.find((p) => p.principalId === ALICE)?.role,
+      'the creator role did not reach the conversation summary',
+    ).toBe('CREATOR');
+
+    /* Bob is a member, not the admin. He may not remove Cara. */
+    const refused = await fetch(
+      `${BASE}${employeeRoutes.conversations.participant(conversationId, CARA)}`,
+      { method: 'DELETE', headers: { cookie: bob } },
+    );
+    expect(
+      refused.status,
+      'a plain member removed somebody from a group',
+    ).toBeGreaterThanOrEqual(400);
+
+    /* And Cara is still there — the refusal was not merely a status code over a write that
+       happened anyway. */
+    const stillThere = await get(employeeRoutes.conversations.list, bob);
+    const { conversations: after } = (await stillThere.json()) as {
+      conversations: { conversationId: string; participantCount: number }[];
+    };
+    expect(
+      after.find((c) => c.conversationId === conversationId)?.participantCount,
+      'the participant count moved despite the refusal',
+    ).toBe(3);
+
+    /* Alice created it, so Alice can. */
+    const allowed = await fetch(
+      `${BASE}${employeeRoutes.conversations.participant(conversationId, CARA)}`,
+      { method: 'DELETE', headers: { cookie: alice } },
+    );
+    expect(allowed.status, 'the group creator could not remove a member').toBe(204);
+
+    /*
+       A one-to-one is untouched.
+
+       The rule is scoped to INTERNAL_GROUP on purpose — a direct message has no membership
+       to administer — and a check written too broadly would break adding a third person
+       and then changing your mind, which is the ordinary way a group gets made.
+    */
+    const direct = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_DIRECT',
+      participantIds: [BOB],
+    });
+    const { conversationId: directId } = (await direct.json()) as { conversationId: string };
+    created.push(directId);
+
+    const added = await post(employeeRoutes.conversations.participants(directId), alice, {
+      principalId: CARA,
+      historyExposureAcknowledged: true,
+    });
+    expect(added.status).toBeLessThan(400);
+
+    /*
+       Adding a third person makes it a group — the type is updated when the count crosses
+       — so removing Cara again is now the ADMIN's call, and Alice created this one too.
+    */
+    const undone = await fetch(
+      `${BASE}${employeeRoutes.conversations.participant(directId, CARA)}`,
+      { method: 'DELETE', headers: { cookie: alice } },
+    );
+    expect(undone.status, 'the creator could not undo their own addition').toBe(204);
+  }, 180_000);
+});
+
+/**
+ * "Delete for me" hides a message from ONE person.
+ *
+ * The claim worth testing is not that it disappears — it is that it disappears for exactly
+ * one reader. A per-principal hide that leaked into everybody's page would be a redaction
+ * with a misleading label, and somebody would use it believing the opposite.
+ *
+ * The second claim is that the record does not move. Rule 8 makes the audit ledger
+ * append-only and BR-09 makes what a person COULD have read answerable afterwards; a hide
+ * writes a row about a reader and must leave conversation.messages exactly as it was.
+ */
+describe('deleting a message for yourself', () => {
+  it('hides it from one reader and from nobody else, and leaves the record alone', async (ctx) => {
+    if (skipUnlessReady(ctx, 'delete-for-me is unproven.')) return;
+
+    const alice = await signIn('alice');
+    const bob = await signIn('bob');
+
+    const started = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_GROUP',
+      participantIds: [BOB, CARA],
+      title: `Hide ${crypto.randomUUID().slice(0, 8)}`,
+    });
+    const { conversationId } = (await started.json()) as { conversationId: string };
+    created.push(conversationId);
+
+    const sent = await post(employeeRoutes.conversations.messages(conversationId), alice, {
+      body: 'Something Bob would rather not keep seeing.',
+      visibility: 'INTERNAL',
+    });
+    expect(sent.status).toBe(201);
+    const { messageId } = (await sent.json()) as { messageId: string };
+
+    const bodiesFor = async (cookie: string): Promise<string[]> => {
+      const page = await get(employeeRoutes.conversations.messages(conversationId), cookie);
+      expect(page.status).toBe(200);
+      const { messages } = (await page.json()) as { messages: { body: string }[] };
+      return messages.map((m) => m.body);
+    };
+
+    expect(await bodiesFor(bob)).toContain('Something Bob would rather not keep seeing.');
+
+    /* Bob hides somebody ELSE's message, which is the common case — the thing you want out
+       of your timeline is usually not one you wrote. */
+    const hidden = await post(
+      employeeRoutes.conversations.hideMessage(conversationId, messageId),
+      bob,
+      {},
+    );
+    expect(hidden.status, 'a reader could not hide a message from their own view').toBeLessThan(
+      400,
+    );
+
+    expect(
+      await bodiesFor(bob),
+      'the message was still in the page of the person who hid it',
+    ).not.toContain('Something Bob would rather not keep seeing.');
+
+    /* Alice wrote it and Cara is just another reader. Neither is affected. */
+    expect(
+      await bodiesFor(alice),
+      'one person hiding a message removed it from the author view',
+    ).toContain('Something Bob would rather not keep seeing.');
+
+    const cara = await signIn('cara');
+    expect(
+      await bodiesFor(cara),
+      'one person hiding a message removed it from a third party view',
+    ).toContain('Something Bob would rather not keep seeing.');
+
+    /*
+       And the message itself is untouched — not redacted, not emptied. This is the
+       assertion that separates a hide from a delete, and it is checked against the table
+       rather than the API so a projection change cannot make it pass wrongly.
+    */
+    const stored = await pool!.query(
+      `SELECT body, redacted_at FROM conversation.messages WHERE message_id = $1`,
+      [messageId],
+    );
+    expect(stored.rows[0].body).toBe('Something Bob would rather not keep seeing.');
+    expect(stored.rows[0].redacted_at, 'hiding redacted the message').toBeNull();
+
+    /* Hiding twice is not an error. A double-click must not produce a 500. */
+    const again = await post(
+      employeeRoutes.conversations.hideMessage(conversationId, messageId),
+      bob,
+      {},
+    );
+    expect(again.status).toBeLessThan(400);
+  }, 180_000);
 });

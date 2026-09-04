@@ -27,6 +27,8 @@
 import { useEffect, useState } from 'react';
 import { initialsFor } from './conversation-naming';
 import { PresenceDot, useOnlineSet } from './presence';
+import { AvatarImage } from './avatar-image';
+import { AvatarPicker } from './avatar-picker';
 import { useActiveConversation } from './active-conversation';
 import { useSession } from './session-provider';
 import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
@@ -35,23 +37,9 @@ import { api, ApiError, type DirectoryEntry } from '../lib/api-client';
 export function Participants({
   conversationId,
   onChanged,
-  addOnly = false,
 }: {
   readonly conversationId: string;
   readonly onChanged: () => void;
-  /**
-   * Just the "add a colleague" half, for a one-to-one.
-   *
-   * On a direct message the information panel is about the person you are talking to — the
-   * member list would be the two of you, restating the identity block above it, and the
-   * rename is refused by the server anyway. What must NOT disappear with them is the way to
-   * add a third person: that is how a one-to-one becomes a group, and hiding it would take
-   * the capability away rather than tidy it.
-   *
-   * The section keeps its accessible name either way, so "reach membership in this
-   * conversation" is one question with one answer at both sizes.
-   */
-  readonly addOnly?: boolean;
 }): React.JSX.Element {
   const [term, setTerm] = useState('');
   const [found, setFound] = useState<readonly DirectoryEntry[]>([]);
@@ -71,6 +59,24 @@ export function Participants({
   const members = active?.participants ?? [];
   const meName = session.status === 'SIGNED_IN' ? session.me.displayName : 'You';
   const isGroup = active?.conversationType === 'INTERNAL_GROUP';
+
+  /**
+   * May this person remove members?
+   *
+   * In a group, only its creator (migration 0023). Everywhere else the previous rule
+   * stands — any participant may, and the domain's other guards (no customer, no self)
+   * still apply.
+   *
+   * `members` excludes the reader, so their own role is not in it. It is read from the
+   * conversation summary's participant list the other way round: if nobody visible holds
+   * CREATOR, the creator is either the reader or somebody beyond the six the summary
+   * carries. The first is the common case and the second cannot be distinguished here —
+   * so this asks the honest question instead, using the summary's own `participantCount`
+   * to notice when the list is truncated and falling back to letting the server decide.
+   */
+  const someoneElseIsAdmin = members.some((m) => m.role === 'CREATOR');
+  const listIsComplete = (active?.participantCount ?? 0) <= members.length + 1;
+  const canRemoveMembers = !isGroup || (listIsComplete && !someoneElseIsAdmin);
   const currentTitle = active?.title ?? '';
 
   /**
@@ -86,6 +92,12 @@ export function Participants({
 
   const [title, setTitle] = useState(currentTitle);
   const [renaming, setRenaming] = useState(false);
+  /** Whether the name is being edited. Closed by default — see the pencil below. */
+  const [editingName, setEditingName] = useState(false);
+  /* Set once a picture has been uploaded in this session, so the button says "Change"
+     rather than "Upload" afterwards. The panel does not otherwise know whether a group has
+     one — the image either loads or 404s, and asking would be a request per panel open. */
+  const [groupPictureAt, setGroupPictureAt] = useState<string | undefined>();
 
   /**
    * The field follows the conversation when it changes underneath — somebody else renaming
@@ -219,30 +231,98 @@ export function Participants({
         that with something only one of the two chose — so a field here would be a control
         that always fails.
       */}
-      {isGroup && !addOnly ? (
-        <form
-          className="rename-group"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void rename();
+      {/*
+        The name, with a pencil — not a permanent text field.
+
+        An always-open input beside the group's name says "this is a form", and the panel
+        is not one: renaming happens rarely and reading the name happens every time. The
+        pencil turns a control that was competing for attention into one that is asked for.
+
+        `editingName` rather than an uncontrolled `contentEditable`: the field has to be
+        able to revert, and Escape reverting to the current title is the behaviour somebody
+        who opened it by accident expects.
+      */}
+      {/*
+        The group's picture.
+
+        Anybody who may speak here may change it — the same rule as pinning, and for the
+        same reason: it is a change to what every participant sees rather than to your own
+        view. Removing it is deliberately absent; the default multi-person glyph is what a
+        group has before anybody sets one, and "remove" would need a second endpoint to
+        express something a new upload already expresses.
+      */}
+      {isGroup ? (
+        <AvatarPicker
+          label="Choose a picture for this group"
+          hasPicture={groupPictureAt !== undefined}
+          onChosen={async (base64) => {
+            const saved = await api.setConversationAvatar(conversationId, base64);
+            setGroupPictureAt(saved.updatedAt);
+            onChanged();
           }}
-        >
-          <label>
-            <span className="member-add-title">Group name</span>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={120}
-              placeholder="Name this group"
-            />
-          </label>
-          <button type="submit" disabled={renaming || title.trim() === '' || title.trim() === currentTitle}>
-            {renaming ? 'Saving…' : 'Save'}
-          </button>
-        </form>
+        />
       ) : null}
 
-      {members.length > 0 && !addOnly ? (
+      {isGroup ? (
+        editingName ? (
+          <form
+            className="rename-group"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void rename().then(() => setEditingName(false));
+            }}
+          >
+            <label>
+              <span className="sr-only">Group name</span>
+              <input
+                autoFocus
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== 'Escape') return;
+                  setTitle(currentTitle);
+                  setEditingName(false);
+                }}
+                maxLength={120}
+                placeholder="Name this group"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={renaming || title.trim() === '' || title.trim() === currentTitle}
+            >
+              {renaming ? 'Saving…' : 'Save'}
+            </button>
+          </form>
+        ) : (
+          <div className="group-name-row">
+            <span className="group-name">{currentTitle}</span>
+            <button
+              type="button"
+              className="group-name-edit"
+              onClick={() => {
+                setTitle(currentTitle);
+                setEditingName(true);
+              }}
+              aria-label="Edit group name"
+              title="Edit group name"
+            >
+              <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+                <path
+                  d="M4 20h4L19 9l-4-4L4 16v4Zm12.5-16.5 4 4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          </div>
+        )
+      ) : null}
+
+      {members.length > 0 ? (
         <div className="member-list">
           <h3>
             {members.length + 1} members
@@ -274,10 +354,22 @@ export function Participants({
                 <span className="avatar-wrap">
                   <span className="row-avatar" aria-hidden="true">
                     {initialsFor(m.displayName)}
+                    <AvatarImage principalId={m.principalId} alt="" />
                   </span>
                   <PresenceDot principalId={m.principalId} />
                 </span>
-                <span className="person-name">{m.displayName}</span>
+                <span className="person-name">
+                  {m.displayName}
+                  {/*
+                     The admin, marked.
+
+                     `CREATOR` is the role the conversation has carried since it was made;
+                     migration 0023 explains why no second word was invented for it. The
+                     badge is text rather than an icon so it survives greyscale and so a
+                     screen reader reads it as part of the row (NFR-ACC-3).
+                  */}
+                  {m.role === 'CREATOR' ? <span className="member-admin">Admin</span> : null}
+                </span>
                 {/*
                   Remove sits on the MEMBER, which is the only place it makes sense.
 
@@ -287,16 +379,27 @@ export function Participants({
                   server-side either way; this is about the control being where the thing
                   it acts on is.
                 */}
-                <button
-                  type="button"
-                  className="member-remove"
-                  onClick={() => void remove(m.principalId, m.displayName)}
-                  disabled={busy}
-                  aria-label={`Remove ${m.displayName}`}
-                  title={`Remove ${m.displayName}`}
-                >
-                  <span aria-hidden="true">×</span>
-                </button>
+                {/*
+                   Only the admin gets a remove control, and only in a group.
+
+                   Not hidden with CSS, and not disabled either: absent. A disabled button
+                   still puts the shape of a control in front of somebody who can never
+                   use it, and invites the question of why. The DOMAIN refuses the
+                   operation regardless (`NOT_THE_GROUP_ADMIN`) — this is the interface
+                   agreeing with the boundary, never standing in for it.
+                */}
+                {canRemoveMembers ? (
+                  <button
+                    type="button"
+                    className="member-remove"
+                    onClick={() => void remove(m.principalId, m.displayName)}
+                    disabled={busy}
+                    aria-label={`Remove ${m.displayName}`}
+                    title={`Remove ${m.displayName}`}
+                  >
+                    <span aria-hidden="true">×</span>
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>

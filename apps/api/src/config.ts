@@ -191,6 +191,25 @@ const schema = z.object({
   /** Envelope sender. A relay will refuse a domain it does not own. */
   SL_NOTIFY_EMAIL_FROM: z.string().email().optional(),
   SL_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(12 * 60 * 60),
+  /**
+   * The session length when somebody ticks "keep me signed in on this device".
+   *
+   * Fourteen days, against the default twelve hours. The point of the ordinary TTL is that
+   * a shared branch terminal forgets you by the end of the shift; the point of this one is
+   * that a personal laptop does not ask again every morning. Those are different machines
+   * and the person at the keyboard is the only one who knows which they are sitting at,
+   * which is why the choice is theirs and the wording names the device.
+   *
+   * Fourteen and not ninety: a stolen laptop is a stolen session until somebody revokes it,
+   * and while "sign out everywhere" makes that immediate on the next request (FR-AUTH-2),
+   * it only helps once the loss is noticed. Two weeks is short enough that a forgotten
+   * machine expires on its own and long enough to be worth ticking.
+   */
+  SL_SESSION_REMEMBER_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(14 * 24 * 60 * 60),
 });
 
 export type ApiConfig = z.infer<typeof schema> & { readonly tls: boolean };

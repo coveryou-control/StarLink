@@ -5,12 +5,16 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import {
-  CONVERSATION_KIND,
   avatarFor,
   conversationLabel,
   relativeTime,
 } from './conversation-naming';
 import { PresenceDot } from './presence';
+import { GroupGlyph } from './group-glyph';
+import { AvatarImage, ConversationAvatarImage } from './avatar-image';
+import { ConversationRowMenu } from './conversation-row-menu';
+import { api } from '../lib/api-client';
+import { MAX_PINNED_CONVERSATIONS } from '@starlink/shared-contracts';
 import { deliveryTick } from '@starlink/shared-contracts';
 import type { ConversationSummary } from '../lib/api-client';
 
@@ -28,6 +32,20 @@ interface ConversationListProps {
    * the reader wrote.
    */
   readonly currentPrincipalId?: string;
+  /**
+   * Re-reads the list after a pin moves.
+   *
+   * The order is the SERVER's — pinned conversations come first in its own `ORDER BY` —
+   * so a row that reordered itself locally would disagree with the next page fetched.
+   */
+  readonly onPinChanged?: (() => void) | undefined;
+  /**
+   * conversationId → the principal currently typing in it.
+   *
+   * Only for conversations you are NOT looking at: the open thread draws its own indicator
+   * above the composer, and two of them on one screen saying the same thing is noise.
+   */
+  readonly typing?: ReadonlyMap<string, string> | undefined;
 }
 
 /**
@@ -107,8 +125,65 @@ export function ConversationList({
   onLoadMore,
   loadingMore = false,
   currentPrincipalId,
+  onPinChanged,
+  typing,
 }: ConversationListProps): ReactNode {
   const [filter, setFilter] = useState<Filter>('all');
+  /** The row a right-click opened a menu for, and where the pointer was. */
+  const [rowMenu, setRowMenu] = useState<
+    | {
+        conversationId: string;
+        label: string;
+        pinned: boolean;
+        mutedUntil: string | undefined;
+        x: number;
+        y: number;
+      }
+    | undefined
+  >();
+  /*
+     Shown when the server refuses a fourth pin. Held here rather than in the menu, which
+     has closed by the time the round trip returns — a message inside a component that no
+     longer exists is a message nobody reads.
+  */
+  const [pinProblem, setPinProblem] = useState<string | undefined>();
+
+  const togglePin = (conversationId: string, next: boolean): void => {
+    setPinProblem(undefined);
+    void api
+      .setConversationPreferences(conversationId, { pinned: next })
+      .then((result) => {
+        if (result.limitReached === true) {
+          setPinProblem(
+            `You can pin ${MAX_PINNED_CONVERSATIONS} chats. Unpin one to pin another.`,
+          );
+          return;
+        }
+        onPinChanged?.();
+      })
+      .catch(() => setPinProblem('That could not be saved.'));
+  };
+
+  /*
+     `null` unmutes. The duration is sent, not the instant it ends: the server computes
+     that against its own clock, so a browser running fast cannot ask to be quietened until
+     a moment already past.
+
+     Re-reads the list on success, because `mutedUntil` lives on the summary and the shell
+     hands it to the notification hook — a mute that the list does not know about is a mute
+     that still makes a noise.
+  */
+  const setMute = (conversationId: string, minutes: number | null): void => {
+    setPinProblem(undefined);
+    void api
+      .setConversationPreferences(conversationId, { muteMinutes: minutes })
+      .then(() => onPinChanged?.())
+      .catch(() =>
+        setPinProblem(
+          minutes === null ? 'That could not be unmuted.' : 'That could not be muted.',
+        ),
+      );
+  };
 
   /**
    * Applied to what is loaded, and honest about that.
@@ -213,11 +288,70 @@ export function ConversationList({
              blank under the name.
           */
           const preview = conversation.lastMessagePreview;
+          /*
+             In a group, WHO said it is half the glimpse.
+
+             "on my way" tells you nothing about whether to open a room of six people.
+             "Rahul: on my way" tells you whether it was aimed at you. A one-to-one needs
+             no prefix — the row's own name already answers it, and repeating it there
+             would cost the preview a third of its width for nothing.
+
+             The name comes from the participant summary the row already has, so this is a
+             map read rather than a lookup. Nothing is drawn when the sender is not in that
+             list (someone since removed): a bare preview is right, an invented name is not.
+          */
+          const senderName =
+            avatarFor(conversation).isGroup && conversation.lastMessageSenderId !== undefined
+              ? /*
+                   "You" when it was you.
+
+                   `participants` is the OTHER people in the conversation — the reader is
+                   not in their own summary — so looking the sender up there returns
+                   nothing for your own messages, and half the rows in a group-heavy list
+                   lost their prefix while the other half kept it. That reads as a bug in
+                   the prefix rather than as a fact about who spoke.
+                */
+                conversation.lastMessageSenderId === currentPrincipalId
+                ? 'You'
+                : (conversation.participants ?? []).find(
+                    (person) => person.principalId === conversation.lastMessageSenderId,
+                  )?.displayName
+              : undefined;
+
+          /*
+             With no preview, the kind used to be the fallback — so every group with
+             nothing said in it read "Group", a label the row's own avatar and name already
+             carry. What is actually true of that row is that it is empty, so it says so.
+          */
+          /*
+             Somebody typing replaces the preview, because it is newer than it.
+
+             Suppressed on the conversation you are already in: that one draws its own
+             indicator above the composer, and the same claim in two places on one screen
+             reads as two people typing.
+
+             The name is resolved from the participants the row already carries, and a
+             signal from somebody the summary does not list falls back to the preview
+             rather than to "Someone" — an unattributed "typing…" on a row is less useful
+             than the last thing that was actually said.
+          */
+          const typist =
+            conversation.conversationId === activeId
+              ? undefined
+              : typing?.get(conversation.conversationId);
+          const typistName =
+            typist === undefined
+              ? undefined
+              : (conversation.participants ?? []).find(
+                  (person) => person.principalId === typist,
+                )?.displayName;
+
           const secondary =
             preview !== undefined && preview !== ''
-              ? preview
-              : (CONVERSATION_KIND[conversation.conversationType] ??
-                conversation.conversationType);
+              ? senderName !== undefined
+                ? senderName + ': ' + preview
+                : preview
+              : 'No messages yet';
 
           return (
             <li key={conversation.conversationId}>
@@ -225,6 +359,19 @@ export function ConversationList({
                 href={`/conversations/${conversation.conversationId}`}
                 aria-current={active ? 'page' : undefined}
                 className="conversation-row"
+                /* `preventDefault` so the browser's own menu does not open on top of
+                   this one. Right-click does not follow the link either way. */
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setRowMenu({
+                    conversationId: conversation.conversationId,
+                    label,
+                    pinned: conversation.pinned === true,
+                    mutedUntil: conversation.mutedUntil,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
               >
                 {/*
                   The dot belongs to a PERSON, so it is shown only for a one-to-one. A
@@ -236,7 +383,23 @@ export function ConversationList({
                     className={`row-avatar${avatarFor(conversation).isGroup ? ' group' : ''}`}
                     aria-hidden="true"
                   >
-                    {avatarFor(conversation).text}
+                    {avatarFor(conversation).isGroup ? (
+                      <>
+                        <GroupGlyph />
+                        <ConversationAvatarImage conversationId={conversation.conversationId} />
+                      </>
+                    ) : (
+                      <>
+                        {/* The picture sits OVER the initials rather than replacing them:
+                            if it fails to load, what shows through is the letters rather
+                            than an empty circle. */}
+                        {avatarFor(conversation).text}
+                        <AvatarImage
+                          principalId={conversation.participants?.[0]?.principalId}
+                          alt=""
+                        />
+                      </>
+                    )}
                   </span>
                   {(conversation.participants ?? []).length === 1 ? (
                     <PresenceDot principalId={conversation.participants?.[0]?.principalId} />
@@ -268,7 +431,20 @@ export function ConversationList({
                   </span>
 
                   <span className="row-bottom">
-                    <span className="row-preview">{secondary}</span>
+                    {typistName !== undefined ? (
+                      <span className="row-preview row-typing">
+                        <span className="typing-dots" aria-hidden="true">
+                          <i />
+                          <i />
+                          <i />
+                        </span>
+                        {avatarFor(conversation).isGroup
+                          ? `${typistName} is typing`
+                          : 'typing'}
+                      </span>
+                    ) : (
+                      <span className="row-preview">{secondary}</span>
+                    )}
                     {unread > 0 ? (
                       <span
                         // The visible badge is a numeral; the accessible name spells it
@@ -297,6 +473,27 @@ export function ConversationList({
           );
         })}
       </ul>
+
+      {rowMenu !== undefined ? (
+        <ConversationRowMenu
+          conversationId={rowMenu.conversationId}
+          label={rowMenu.label}
+          pinned={rowMenu.pinned}
+          mutedUntil={rowMenu.mutedUntil}
+          at={{ x: rowMenu.x, y: rowMenu.y }}
+          onTogglePin={togglePin}
+          onMute={setMute}
+          onClose={() => setRowMenu(undefined)}
+        />
+      ) : null}
+
+      {/* `role="alert"` because it appears in response to something the person just did
+          and there is nothing else on the screen to notice. */}
+      {pinProblem !== undefined ? (
+        <p className="state-note" role="alert">
+          {pinProblem}
+        </p>
+      ) : null}
 
       {loading ? <p className="state-note">Loading…</p> : null}
 

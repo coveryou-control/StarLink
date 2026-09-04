@@ -133,6 +133,61 @@ const svgFor = (ink, lineAlpha, starAlpha) => {
 };
 
 /**
+ * A single small constellation, for the sign-in page's corner.
+ *
+ * Not `svgFor`: that draws a 340px TILE, designed to repeat seamlessly and therefore to
+ * spread its stars evenly. This is a composition — five stars and four links, weighted to
+ * one side, with space around it — because it is drawn once at a known position and its
+ * job is to be noticed peripherally and then ignored.
+ *
+ * The alpha is baked in here rather than applied by the page: nothing fades this on the
+ * way through, and the first version was drawn at 0.5 on the assumption that something
+ * would. It rendered as a large piece of line art in the corner competing with the form —
+ * the opposite of a whisper. A tenth is where it stops being a picture and starts being a
+ * texture you notice on the second look.
+ */
+const traceSvg = (ink, alpha) => {
+  const points = [
+    [34, 108],
+    [96, 62],
+    [150, 118],
+    [214, 54],
+    [186, 158],
+  ];
+  const links = [
+    [0, 1],
+    [1, 2],
+    [2, 4],
+    [1, 3],
+  ];
+
+  const lines = links
+    .map(([a, b]) => {
+      const [x1, y1] = points[a];
+      const [x2, y2] = points[b];
+      return `<line x1='${x1}' y1='${y1}' x2='${x2}' y2='${y2}'/>`;
+    })
+    .join('');
+
+  // The two brightest points get the four-pointed figure; the rest stay dots, so the
+  // group has a hierarchy rather than five identical marks.
+  const sparkles = [points[1], points[3]]
+    .map(([x, y]) => `<path d='${sparkPath(x, y, 9)}'/>`)
+    .join('');
+  const dots = points.map(([x, y]) => `<circle cx='${x}' cy='${y}' r='2.4'/>`).join('');
+
+  return (
+    `<svg xmlns='http://www.w3.org/2000/svg' width='248' height='200' viewBox='0 0 248 200'>` +
+    `<g stroke='${ink}' stroke-opacity='${Number(alpha) * 0.55}' stroke-width='1' ` +
+    `stroke-linecap='round'>${lines}</g>` +
+    `<g fill='${ink}' fill-opacity='${alpha}'>${dots}</g>` +
+    `<g fill='none' stroke='${ink}' stroke-opacity='${alpha}' stroke-width='1.4' ` +
+    `stroke-linejoin='round'>${sparkles}</g>` +
+    `</svg>`
+  );
+};
+
+/**
  * Percent-encoding, not base64.
  *
  * A `url()` needs only the handful of characters below escaped, and leaving the rest as
@@ -163,8 +218,9 @@ writeFileSync(
  * The conversation wallpaper: ${starCount} stars and ${LINKS.length} links on a ${TILE}px
  * tile. Named after the product, and texture rather than pictures — see the generator.
  *
- * Two inks, because the pattern has to sit on a light ground and a dark one. Regenerate
- * with \`node scripts/generate-wallpaper.mjs\`.
+ * Three inks: the pattern sits on a light ground, a dark one, and the sign-in screen —
+ * where it carries the brand's colour instead of the thread's near-colourless indigo.
+ * Regenerate with \`node scripts/generate-wallpaper.mjs\`.
  */
 :root {
   /*
@@ -176,11 +232,41 @@ writeFileSync(
   */
   --thread-ground: #f7f8fa;
   --thread-wallpaper: ${dataUri(svgFor('#2b3a63', '0.09', '0.16'))};
+
+  /*
+     The same sky, in the brand's ink, for the sign-in screen.
+
+     The thread's wallpaper is nearly colourless because it sits under text all day. The
+     sign-in page holds one card and nothing else, so the pattern can carry the product's
+     own colour — it is the one moment in the application where the name and the picture
+     are allowed to be the point.
+
+     Stronger too: 14% and 26% against the thread's 9% and 16%. There is no text over it
+     to protect, and at the thread's strength the pattern simply vanished on a page with no
+     bubbles to give it scale.
+  */
+  /*
+     A TRACE, not a tile — for the sign-in page.
+
+     The full pattern was there and had to go: 250px of repeating stars behind a 360px form
+     is two competing grids, and the screen read as busy rather than branded. This is one
+     small asymmetric group, drawn once and anchored off a corner without repeating, so the
+     product's own figure is present as a whisper and never as a wallpaper.
+
+     No backticks in this comment: it lives inside the output template literal, and one
+     would end the string. The parse error then points at a line further down that is
+     perfectly fine.
+
+     Its own coordinates rather than a crop of the tile: a crop lands wherever the tile's
+     stars happen to fall, and half of them would be cut by the edge.
+  */
+  --signin-trace: ${dataUri(traceSvg('#2b3a63', '0.1'))};
 }
 
 :root[data-theme='dark'] {
   --thread-ground: var(--surface-raised);
   --thread-wallpaper: ${dataUri(svgFor('#ffffff', '0.05', '0.11'))};
+  --signin-trace-dark: ${dataUri(traceSvg('#ffffff', '0.13'))};
 }
 `,
   'utf8',

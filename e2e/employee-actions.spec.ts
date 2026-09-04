@@ -197,28 +197,26 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
       await expect(employee.getByRole('region', { name: 'Conversation actions' })).toHaveCount(0);
 
       /**
-       * Membership is in the information panel, and at this width the panel is a COLUMN.
+       * Membership is NOT shown on a one-to-one, and is one click away.
        *
-       * It used to be a labelled search field and a Find button in the chat header, then a
-       * drawer behind that header's control. The design's shell is four columns and the
-       * panel is the fourth, so it is open by default now and the header's control hides it
-       * — this step used to click that control to reveal the panel and, after the change,
-       * clicked it to close the panel it needed.
+       * It used to be permanent here. On a direct message the panel is about the person
+       * you are talking to, and a permanent search field under their face was asked to go
+       * — but deleting the control took the CAPABILITY with it, and BR-07 below is
+       * precisely about the act it removed: adding a third person to an EXISTING thread,
+       * where there is history for them to suddenly be able to read. Starting a new group
+       * is a different act with nothing to expose.
        *
-       * Asserted in all three states rather than just the one under test: visible without
-       * being asked for, gone when hidden, back when asked for again. BR-07 below is
-       * unchanged, and so is the §21.4 assertion above that an internal thread has no
-       * lifecycle panel.
+       * So this asserts both halves of the compromise: absent by default, present when
+       * asked for from the header's overflow.
        */
       const membership = employee.getByRole('region', { name: 'Participants' });
-      await expect(membership).toBeVisible();
+      await expect(
+        membership,
+        'a one-to-one should not carry a permanent membership section',
+      ).toHaveCount(0);
 
-      // The label follows the conversation kind — "Conversation details" for a 1:1, which
-      // is what this thread still is until the colleague below is added.
-      const detailsToggle = employee.getByRole('button', { name: /details$/i });
-      await detailsToggle.click();
-      await expect(membership).toHaveCount(0);
-      await detailsToggle.click();
+      await employee.getByRole('button', { name: 'More actions' }).click();
+      await employee.getByRole('menuitem', { name: 'Add people' }).click();
       await expect(membership).toBeVisible();
     });
 

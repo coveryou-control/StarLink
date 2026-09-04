@@ -20,7 +20,22 @@ import type { ReactNode } from 'react';
  * themselves for the dark theme. Everything here is type and a border radius.
  */
 
-export function BrandMark({ size = 40 }: { readonly size?: number }): ReactNode {
+export function BrandMark({
+  size = 40,
+  round = false,
+}: {
+  readonly size?: number;
+  /**
+   * A disc rather than the squircle.
+   *
+   * One caller: the sign-in page, whose whole palette is borrowed from a reference that
+   * draws a circular mark. A prop rather than a CSS override because the size and the
+   * radius are set INLINE here — proportional radius is the reason — and an inline style
+   * beats a class, so a stylesheet trying to round this off silently does nothing. That
+   * is exactly what happened first: the tile took the new colour and kept its old shape.
+   */
+  readonly round?: boolean;
+}): ReactNode {
   return (
     <span
       className="brand-mark"
@@ -30,7 +45,7 @@ export function BrandMark({ size = 40 }: { readonly size?: number }): ReactNode 
         height: size,
         // The kit's radius scale is absolute, so a tile at 30px would carry the same 12px
         // corner as one at 40px and read as a squircle. Proportional keeps the shape.
-        borderRadius: Math.round(size * 0.3),
+        borderRadius: round ? '50%' : Math.round(size * 0.3),
         fontSize: Math.round(size * 0.48),
       }}
     >

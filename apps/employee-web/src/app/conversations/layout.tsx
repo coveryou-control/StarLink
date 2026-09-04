@@ -22,6 +22,10 @@ import { watchSystemTheme } from '../../lib/theme';
 import { onShellAction, requestNewConversation } from '../../lib/shell-actions';
 import { useNotifications } from '../../lib/use-notifications';
 import { usePresence } from '../../lib/use-presence';
+import { useDeclaredStatuses } from '../../lib/use-declared-status';
+import { useAvatarStamps } from '../../lib/use-avatar-stamps';
+import { useConversationTyping } from '../../lib/use-conversation-typing';
+import { AvatarStampProvider } from '../../components/avatar-image';
 import { PresenceProvider } from '../../components/presence';
 import { ActiveConversationProvider } from '../../components/active-conversation';
 
@@ -78,7 +82,33 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
    * shell, so a person is told about a message regardless of which section they are looking
    * at — and only once, rather than once per panel that happened to want it.
    */
-  useNotifications(signedInId);
+  /*
+     Rebuilt only when a `mutedUntil` actually changes, not on every list poll.
+
+     The hook takes this map as a dependency of the effect that decides whether to make a
+     noise. A fresh Map on every render would re-run that effect on every poll, and the
+     "what arrived since last time" comparison inside it would then fire against an
+     unchanged list. Keyed on the joined values so the identity is stable while the facts
+     are.
+  */
+  const mutedKey = conversations
+    .filter((c) => c.mutedUntil !== undefined)
+    .map((c) => `${c.conversationId}:${c.mutedUntil}`)
+    .join('|');
+  const mutedUntil = useMemo(
+    () =>
+      new Map(
+        mutedKey === ''
+          ? []
+          : mutedKey.split('|').map((entry) => {
+              const at = entry.indexOf(':');
+              return [entry.slice(0, at), entry.slice(at + 1)] as const;
+            }),
+      ),
+    [mutedKey],
+  );
+
+  useNotifications(signedInId, undefined, mutedUntil);
 
   /**
    * Presence for everybody currently on screen, asked once for the whole surface.
@@ -93,6 +123,25 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
     [conversations],
   );
   const online = usePresence(listedPrincipals);
+  /* The same faces, asked a different question — see `use-declared-status.ts` for why
+     presence and a declared status are never merged. */
+  const declaredStatuses = useDeclaredStatuses(listedPrincipals);
+  /*
+     Which of the faces on screen have a picture, asked once for all of them.
+
+     Thirty rows each firing a request to discover a 404 is thirty round trips to draw
+     initials. Same shape as presence: the shell asks, the tree reads.
+  */
+  const avatarStamps = useAvatarStamps(listedPrincipals);
+  /*
+     Typing in conversations the person is NOT looking at, so the list row can say so.
+
+     The open thread has always had this; the list never subscribed to anything, which is
+     why the signal existed and appeared in exactly one place.
+  */
+  const typingByConversation = useConversationTyping(
+    useMemo(() => conversations.map((c) => c.conversationId), [conversations]),
+  );
 
   /**
    * The conversation the thread pane is showing, handed down so its header can name it.
@@ -214,7 +263,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   }
 
   return (
-    <PresenceProvider online={online}>
+    <PresenceProvider online={online} statuses={declaredStatuses}>
+      <AvatarStampProvider stamps={avatarStamps}>
     <div
       className="app-shell"
       data-section={section}
@@ -429,6 +479,10 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                     loading={loading}
                     loadingMore={loadingMore}
                     onLoadMore={nextCursor !== undefined ? () => void loadMore() : undefined}
+                    /* Pinned conversations sort first in the server's own ORDER BY, so a
+                       pin is a re-read rather than a local reorder. */
+                    onPinChanged={() => void refresh()}
+                    typing={typingByConversation}
                   />
                 )}
 
@@ -541,6 +595,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
         <main key={params.id ?? 'none'} className="thread-column">
           <ActiveConversationProvider
             conversation={activeConversation}
+            conversations={conversations}
             refreshConversations={() => void refresh()}
           >
             {children}
@@ -549,6 +604,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
       </div>
       )}
     </div>
+      </AvatarStampProvider>
     </PresenceProvider>
   );
 }

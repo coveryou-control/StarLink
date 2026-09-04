@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { BrandMark } from './brand';
 import { initialsFor } from './conversation-naming';
+import { ConfirmDialog } from './confirm-dialog';
 
 /**
  * The places StarLink has, and the two shapes they take.
@@ -275,7 +276,7 @@ export function AppRail({
         so neither is rendered here.
       */}
       {bottom ? null : (
-        <ProfileMenu
+        <AccountControls
           displayName={displayName}
           onSignOut={onSignOut}
           onSettings={() => onSelect('settings')}
@@ -288,13 +289,26 @@ export function AppRail({
 /**
  * Who you are signed in as, and the two things you can do about it.
  *
- * Deliberately small. There was no account surface at all — the name sat as plain text in
- * the header beside a Sign out button, which is the layout of an admin tool rather than of
- * something a person is logged into all day. There is also no profile to edit: the
- * directory is HRMS's, not StarLink's (rule 11), so an "Edit profile" item would be a
- * control with nowhere to go.
+ * ## Why there is no menu any more
+ *
+ * There was one: the avatar opened a popover holding "Settings" and "Sign out". Two items
+ * behind a click is a menu that exists to hold a menu. Worse, the popover was a light card
+ * inheriting the dark rail's `color`, so the name inside it rendered white on white and had
+ * to be given its own colour to be readable at all — a fix for a surface that did not need
+ * to exist.
+ *
+ * Both actions are now their own control. The avatar IS the settings button, because
+ * settings is the only thing behind it and the person's own face is the universal way into
+ * their own preferences. Sign out is the power symbol below it, where every operating
+ * system on the machine also puts it.
+ *
+ * ## Why sign-out asks
+ *
+ * It is the only control in the rail that ends the session, it sits one pixel-row below a
+ * control people press often, and there is no undo. The dialog is the product's own — see
+ * `confirm-dialog.tsx` for why it is not `window.confirm`.
  */
-function ProfileMenu({
+function AccountControls({
   displayName,
   onSignOut,
   onSettings,
@@ -303,67 +317,52 @@ function ProfileMenu({
   readonly onSignOut: () => void;
   readonly onSettings: () => void;
 }): ReactNode {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    /**
-     * Closes on an outside click and on Escape. Both, because a menu that only closes one
-     * way is a menu somebody gets stuck in — and Escape is what a keyboard user tries.
-     */
-    const onDown = (event: MouseEvent): void => {
-      if (ref.current !== null && !ref.current.contains(event.target as Node)) setOpen(false);
-    };
-    const onKey = (event: KeyboardEvent): void => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('mousedown', onDown);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open]);
+  const [confirming, setConfirming] = useState(false);
 
   return (
-    <div className="rail-account" ref={ref}>
+    <div className="rail-account">
       <button
         type="button"
         className="rail-avatar"
-        onClick={() => setOpen((was) => !was)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        aria-label={`Account: ${displayName}`}
+        onClick={onSettings}
+        aria-label={`Settings for ${displayName}`}
       >
         <span aria-hidden="true">{initialsFor(displayName)}</span>
       </button>
 
-      {open ? (
-        <div className="account-menu" role="menu" aria-label="Account">
-          <div className="account-menu-head">
-            <span className="row-avatar" aria-hidden="true">
-              {initialsFor(displayName)}
-            </span>
-            <span className="account-menu-name">
-              <strong>{displayName}</strong>
-              <span className="muted">Signed in</span>
-            </span>
-          </div>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onSettings();
-            }}
-          >
-            Settings
-          </button>
-          <button type="button" role="menuitem" onClick={onSignOut}>
-            Sign out
-          </button>
-        </div>
+      <button
+        type="button"
+        className="rail-power"
+        onClick={() => setConfirming(true)}
+        aria-label="Sign out"
+        title="Sign out"
+      >
+        {/* The IEC 5009 power mark: a broken ring with a stroke through the gap. Drawn
+            rather than typed — the character U+23FB renders as an emoji on Windows and as
+            nothing at all on several Linux builds. */}
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+          <path
+            d="M12 3.5v7.5"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+          <path
+            d="M7.2 6.6a6.75 6.75 0 1 0 9.6 0"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </svg>
+      </button>
+
+      {confirming ? (
+        <ConfirmDialog
+          title="Sign out?"
+          body={`You are signed in as ${displayName}. Signing out ends this session on this device.`}
+          choices={[{ label: 'Sign out', tone: 'danger', onChoose: onSignOut }]}
+          onCancel={() => setConfirming(false)}
+        />
       ) : null}
     </div>
   );

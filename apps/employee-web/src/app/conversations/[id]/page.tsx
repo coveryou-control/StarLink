@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { TypingFrame } from '@starlink/shared-contracts/realtime';
 
@@ -10,20 +10,34 @@ import { ConversationActions } from '../../../components/conversation-actions';
 import { Participants } from '../../../components/participants';
 import { MessageList } from '../../../components/message-list';
 import { useSession } from '../../../components/session-provider';
-import { ApiError, api, type MessageView } from '../../../lib/api-client';
+import {
+  ApiError,
+  api,
+  type MessageView,
+  type PinnedMessage,
+} from '../../../lib/api-client';
 import { useRealtime } from '../../../lib/use-realtime';
 import { ChatHeader } from '../../../components/chat-header';
-import { avatarFor, conversationLabel } from '../../../components/conversation-naming';
+import {
+  avatarFor,
+  conversationLabel,
+  initialsFor,
+} from '../../../components/conversation-naming';
 import {
   ColleagueRole,
-  ConversationControls,
   EmployeeDetails,
   SharedFiles,
 } from '../../../components/conversation-info';
 import { ConversationSearch } from '../../../components/conversation-search';
+import { ConfirmDialog } from '../../../components/confirm-dialog';
+import { GroupGlyph } from '../../../components/group-glyph';
+import { PinnedBar } from '../../../components/pinned-bar';
+import { ForwardDialog } from '../../../components/forward-dialog';
+import { MessageInfoDialog } from '../../../components/message-info-dialog';
 import { useMediaQuery } from '../../../lib/use-media-query';
 import {
   useActiveConversation,
+  useLoadedConversations,
   useRefreshConversations,
 } from '../../../components/active-conversation';
 import { customerWorkspaceEnabled } from '../../../lib/runtime-origins';
@@ -70,6 +84,8 @@ export default function ThreadPage(): ReactNode {
   /** Supplied by the shell, which already loaded it for the sidebar. */
   const activeConversation = useActiveConversation();
   const refreshConversations = useRefreshConversations();
+  /* For the forward dialog: somewhere to forward TO, from the list the shell already has. */
+  const conversations = useLoadedConversations();
   /**
    * Closed by default, and closed again whenever the conversation changes.
    *
@@ -235,9 +251,113 @@ export default function ThreadPage(): ReactNode {
    * in `message_revisions` for an investigation, but nothing in the product puts it back.
    * The row stays in the thread with its text gone, so nothing shifts under the reader.
    */
+  /**
+   * The message a delete has been REQUESTED for, and not yet confirmed.
+   *
+   * Deletion asks before it acts, and the asking is a component rather than
+   * `window.confirm` — see `confirm-dialog.tsx` for why the browser's own alert could not
+   * stay. Holding the message here rather than a boolean means the dialog knows what it is
+   * about to destroy without the callback having to close over it.
+   */
+  const [deleting, setDeleting] = useState<MessageView | undefined>();
+  /** The message a forward has been started for, and the one an info panel is open on. */
+  const [forwarding, setForwarding] = useState<MessageView | undefined>();
+
+  /**
+   * "Delete for me": removes the message from THIS reader's timeline and nobody else's.
+   *
+   * Dropped locally at once and confirmed by the next fetch, which is the same shape as
+   * the redaction path — a message that lingers for a round trip after you asked it to go
+   * reads as the control not having worked.
+   */
+  const hideMessage = useCallback(
+    (message: MessageView) => {
+      setMessages((current) => current.filter((m) => m.messageId !== message.messageId));
+      void api
+        .hideMessage(conversationId, message.messageId)
+        .catch(() => refetch())
+        .then(() => undefined);
+    },
+    [conversationId, refetch],
+  );
+  const [inspecting, setInspecting] = useState<MessageView | undefined>();
+  /**
+   * Whether the membership section is showing on a ONE-TO-ONE.
+   *
+   * A group shows it always. A direct message does not — the panel there is about the
+   * person you are talking to, and a permanent search field under their face is the
+   * clutter that was asked to go.
+   *
+   * But the CAPABILITY had to stay. Adding a third person to an existing thread is not
+   * the same act as starting a new group: the new group has no history, and BR-07 is
+   * entirely about the history the new arrival can suddenly read — the server refuses
+   * until the interface has said how many messages that is and had it acknowledged. With
+   * the control deleted, that rule was unreachable from a one-to-one, which the browser
+   * journey caught.
+   *
+   * So it is one click away, from the header's overflow, and closes with the panel.
+   */
+  const [addPeopleOpen, setAddPeopleOpen] = useState(false);
+
+  /**
+   * What is pinned here, for everybody.
+   *
+   * Loaded once per conversation and re-read after a pin moves rather than kept in sync
+   * optimistically: a pin is shared, so the local guess is wrong the moment somebody else
+   * sets one, and the list is at most a handful of rows.
+   */
+  const [pins, setPins] = useState<readonly PinnedMessage[]>([]);
+
+  const refreshPins = useCallback(() => {
+    void api
+      .pins(conversationId)
+      .then((result) => setPins(result.pins))
+      /* A conversation whose pins cannot be read is still a conversation you can use.
+         An empty bar is the right degradation; an error banner above the thread is not. */
+      .catch(() => setPins([]));
+  }, [conversationId]);
+
+  useEffect(() => refreshPins(), [refreshPins]);
+
+  const togglePin = useCallback(
+    (message: MessageView, next: boolean) => {
+      void (next
+        ? api.pinMessage(conversationId, message.messageId)
+        : api.unpinMessage(conversationId, message.messageId)
+      )
+        .then(() => refreshPins())
+        .catch(() => undefined);
+    },
+    [conversationId, refreshPins],
+  );
+
+  /**
+   * Scrolls to a pinned message, and says so when it cannot.
+   *
+   * Only the loaded page can be jumped to — a pin older than the oldest message in hand
+   * has no element to scroll to. Returning false lets the bar explain that instead of
+   * appearing broken.
+   */
+  /* A Set, so the row's "is this pinned" is a hash lookup rather than a scan of the pin
+     list once per message on a page of fifty. */
+  const pinnedIds = useMemo(
+    () => new Set(pins.map((pin) => pin.messageId)),
+    [pins],
+  );
+
+  const jumpToMessage = useCallback((messageId: string): boolean => {
+    const element = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (element === null) return false;
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    /* A brief highlight, because a smooth scroll that lands mid-thread leaves the eye
+       with no idea which of the visible messages it was aiming at. */
+    element.classList.add('message-jumped');
+    setTimeout(() => element.classList.remove('message-jumped'), 1_600);
+    return true;
+  }, []);
+
   const deleteMessage = useCallback(
     (message: MessageView) => {
-      if (!window.confirm('Delete this message? The text will be removed for everyone.')) return;
       setMessages((current) =>
         current.map((m) =>
           m.messageId === message.messageId
@@ -511,9 +631,20 @@ export default function ThreadPage(): ReactNode {
     };
   }, [isAnnouncement]);
 
+  /*
+     Search and details share the right column, and search wins while it is open.
+
+     They are the same slot deliberately. Search-in-conversation is a temporary task with
+     an obvious end, details is a reference panel — stacking them would give the thread a
+     third column at 1400px and none at 1200px, and putting search OVER the messages is
+     the thing specifically ruled out: they have to stay visible. Dismissing search
+     returns the details panel to whatever it was doing before.
+  */
+  const rightColumn = searchOpen ? 'search' : showDetails ? 'details' : undefined;
+
   return (
     <div
-      className={`thread-stage${showDetails ? ' details-open' : ' details-hidden'}`}
+      className={`thread-stage${rightColumn !== undefined ? ' details-open' : ' details-hidden'}`}
     >
     {/*
       `one-to-one` on the pane, so the stylesheet can drop the per-message avatar on a phone.
@@ -538,6 +669,23 @@ export default function ThreadPage(): ReactNode {
         compact={panelOverlays}
         searchOpen={searchOpen}
         onToggleSearch={() => setSearchOpen((was) => !was)}
+        /* The duration is sent, never the instant: the server dates the lease against its
+           own clock, so a browser running fast cannot ask to be quietened until a moment
+           already past. `refreshConversations` because `mutedUntil` lives on the summary,
+           and the shell hands that to the notification hook — a mute the list does not
+           know about is a mute that still makes a noise. */
+        /* Reveals membership on a one-to-one, and opens the panel it lives in — asking
+           for it from a header whose panel is closed would otherwise do nothing visible. */
+        onAddPeople={() => {
+          setAddPeopleOpen(true);
+          if (!showDetails) toggleDetails();
+        }}
+        onMute={(minutes) => {
+          void api
+            .setConversationPreferences(conversationId, { muteMinutes: minutes })
+            .then(() => refreshConversations())
+            .catch(() => undefined);
+        }}
       />
 
       {/*
@@ -567,6 +715,22 @@ export default function ThreadPage(): ReactNode {
           onChanged={() => void refetch()}
         />
       ) : null}
+
+      {/*
+        Pinned messages, above the thread and below the header — where the thing they are
+        "held above" actually is. Inside the scroller they would scroll away, which is the
+        one thing a pin must not do.
+      */}
+      <PinnedBar
+        pins={pins}
+        onJump={jumpToMessage}
+        onUnpin={(messageId) => {
+          void api
+            .unpinMessage(conversationId, messageId)
+            .then(() => refreshPins())
+            .catch(() => undefined);
+        }}
+      />
 
       <div ref={scrollRef} className="thread-scroll">
         {/*
@@ -628,7 +792,11 @@ export default function ThreadPage(): ReactNode {
               readWatermark={readWatermark}
               onReact={react}
               onEdit={editMessage}
-              onDelete={deleteMessage}
+              onDelete={setDeleting}
+              pinnedIds={pinnedIds}
+              onTogglePin={togglePin}
+              onForward={setForwarding}
+              onMessageInfo={setInspecting}
             />
           </>
         ) : null}
@@ -640,14 +808,86 @@ export default function ThreadPage(): ReactNode {
         The same component the list uses, given a conversation — the server has accepted a
         conversation scope since the route was written, and nothing ever sent one.
       */}
-      {searchOpen ? (
-        <div className="thread-search">
-          <ConversationSearch
-            conversationId={conversationId}
-            conversations={activeConversation === undefined ? [] : [activeConversation]}
-            onOpenConversation={() => setSearchOpen(false)}
-          />
-        </div>
+      {/*
+        Delete asks first, and asks the real question.
+
+        "Delete for everyone" is the only option offered today because it is the only one
+        the server implements: `DELETE /messages/:id` redacts the body for every reader.
+        A "delete for me" needs a per-principal suppression the schema does not have, and
+        an item that silently did the other thing would be worse than an absent one.
+      */}
+      {forwarding !== undefined ? (
+        <ForwardDialog
+          message={forwarding}
+          conversations={conversations}
+          excludeConversationId={conversationId}
+          onForward={(toConversationId) => {
+            void api
+              .forwardMessage(conversationId, forwarding.messageId, toConversationId)
+              .then(() => {
+                setForwarding(undefined);
+                /* The destination's row needs its preview and its ordering re-read; the
+                   thread we are looking at is unchanged. */
+                refreshConversations();
+              })
+              .catch(() => setForwarding(undefined));
+          }}
+          onCancel={() => setForwarding(undefined)}
+        />
+      ) : null}
+
+      {inspecting !== undefined ? (
+        <MessageInfoDialog
+          message={inspecting}
+          conversationId={conversationId}
+          onClose={() => setInspecting(undefined)}
+        />
+      ) : null}
+
+      {/*
+        Delete asks first, and asks the real question.
+
+        Two options, because "delete" is two different acts. "For everyone" is a redaction:
+        the body is cleared for every reader and the act is in the audit ledger. "For me"
+        writes one row saying this reader would rather not see it — nothing shared moves,
+        and nobody else is told.
+
+        Both are named side by side deliberately. The danger is somebody pressing "for me"
+        believing it reaches the other person, and the only defence against that is the two
+        sentences under the labels.
+
+        "For everyone" is offered only on your own messages, because the server refuses it
+        otherwise; "for me" is offered on anybody's, because the message you want out of
+        your timeline is usually not one you wrote.
+      */}
+      {deleting !== undefined ? (
+        <ConfirmDialog
+          title="Delete message?"
+          choices={[
+            ...(deleting.senderPrincipalId === state.me.principalId
+              ? [
+                  {
+                    label: 'Delete for everyone',
+                    detail: 'The text goes for everybody here. Who sent it, and when, stays in the record.',
+                    tone: 'danger' as const,
+                    onChoose: () => {
+                      deleteMessage(deleting);
+                      setDeleting(undefined);
+                    },
+                  },
+                ]
+              : []),
+            {
+              label: 'Delete for me',
+              detail: 'Hides it from your view only. Everybody else still sees it.',
+              onChoose: () => {
+                hideMessage(deleting);
+                setDeleting(undefined);
+              },
+            },
+          ]}
+          onCancel={() => setDeleting(undefined)}
+        />
       ) : null}
 
       {/*
@@ -663,19 +903,53 @@ export default function ThreadPage(): ReactNode {
         Sits directly above the composer, which is where a chat application puts it and
         where the eye already is while waiting for a reply.
       */}
-      {typing !== undefined ? (
-        <p className="typing-line" aria-live="polite">
-          <span className="typing-dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          {(activeConversation?.participants ?? []).find(
-            (person) => person.principalId === typing.principalId,
-          )?.displayName ?? 'Someone'}{' '}
-          is {typing.visibility === 'INTERNAL' ? 'writing a note' : 'replying'}…
-        </p>
-      ) : null}
+      {typing !== undefined
+        ? (() => {
+            const who = (activeConversation?.participants ?? []).find(
+              (person) => person.principalId === typing.principalId,
+            )?.displayName;
+
+            return (
+              <p className="typing-line" aria-live="polite">
+                {/*
+                   In a group, whose face it is comes FIRST.
+
+                   A group of six has six people who might be about to say something, and
+                   "typing" on its own makes you wait to find out which. The avatar is the
+                   same one the thread draws beside their messages, so it is recognised
+                   rather than read. A one-to-one needs none of this — there is exactly one
+                   other person and the header already names them.
+                */}
+                {isGroup && who !== undefined ? (
+                  <span className="typing-avatar" aria-hidden="true">
+                    {initialsFor(who)}
+                  </span>
+                ) : null}
+
+                <span className="typing-dots" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+
+                {/*
+                   "typing", not "is replying…".
+
+                   An internal note keeps its own wording: what is being composed is not
+                   visible to the customer, and somebody in a customer thread watching the
+                   indicator needs to know which of the two is coming.
+                */}
+                <span className="typing-what">
+                  {typing.visibility === 'INTERNAL'
+                    ? `${who ?? 'Someone'} is writing a note`
+                    : isGroup
+                      ? `${who ?? 'Someone'} is typing`
+                      : 'typing'}
+                </span>
+              </p>
+            );
+          })()
+        : null}
 
       {/* Not rendered until the kind is known: the composer picks its default
           visibility once, at mount, so mounting it early would leave a customer
@@ -734,7 +1008,48 @@ export default function ThreadPage(): ReactNode {
       It opens with the thing it is about: the avatar at size and the conversation's name.
       A details panel that opens with a search field is a form.
     */}
-    {showDetails ? (
+    {/*
+      Search inside this conversation, in the column beside it.
+
+      It used to render between the message list and the composer, inside a
+      `.thread-search` div the stylesheet had no rule for at all — so it pushed the thread
+      up, took the composer with it, and was laid out by whatever the cascade happened to
+      give a bare div. As a panel it sits still and the messages stay exactly where they
+      were, which is the whole of the request.
+
+      The same component the list uses, given a conversation — the server has accepted a
+      conversation scope since the route was written, and nothing ever sent one.
+    */}
+    {searchOpen ? (
+      <aside className="details-drawer" aria-label="Search this conversation">
+        <header className="details-head">
+          <h2>Search</h2>
+          <button
+            type="button"
+            className="details-dismiss"
+            onClick={() => setSearchOpen(false)}
+            aria-label="Close search"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path
+                d="M6 6l12 12M18 6L6 18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </header>
+        <div className="details-body">
+          <ConversationSearch
+            conversationId={conversationId}
+            conversations={activeConversation === undefined ? [] : [activeConversation]}
+            onOpenConversation={() => setSearchOpen(false)}
+          />
+        </div>
+      </aside>
+    ) : showDetails ? (
       <aside className="details-drawer" aria-label={detailsTitle}>
         {/*
           The panel has no header of its own in the design — it is a column, and a column
@@ -773,12 +1088,47 @@ export default function ThreadPage(): ReactNode {
             </button>
             <h2>{detailsTitle}</h2>
           </header>
-        ) : null}
+        ) : (
+          /*
+             At column width the panel used to have no dismiss at all: it was opened from
+             the chat header and closed from the same control, which means the way out is a
+             button in a different part of the screen from the thing being closed. Every
+             panel that can be opened needs a cross where panels keep one — its own
+             top-right corner — and this is that cross.
+
+             Absolute rather than a header row: the panel deliberately opens with the
+             avatar and the name (see above), and giving it a title bar to hang a button
+             from would undo that. It floats over the identity block's top padding, which
+             is empty space in every state.
+          */
+          <button
+            type="button"
+            className="details-dismiss"
+            onClick={() => setColumnHidden(true)}
+            aria-label={`Close ${detailsTitle.toLowerCase()}`}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path
+                d="M6 6l12 12M18 6L6 18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        )}
 
         <div className="details-body">
         <div className="details-identity">
           <span className={`chat-avatar${isGroup ? ' group' : ''}`} aria-hidden="true">
-            {activeConversation !== undefined ? avatarFor(activeConversation).text : '\u00b7'}
+            {isGroup ? (
+              <GroupGlyph />
+            ) : activeConversation !== undefined ? (
+              avatarFor(activeConversation).text
+            ) : (
+              '\u00b7'
+            )}
           </span>
           <span className="details-identity-name">
             {activeConversation !== undefined
@@ -876,31 +1226,39 @@ export default function ThreadPage(): ReactNode {
             {isOneToOne ? <EmployeeDetails principalId={others[0]!.principalId} /> : null}
 
             {/*
-              ONE `Participants`, at one position in the tree, whichever kind of thread this
-              is — only `addOnly` changes.
+              Membership belongs to a GROUP, so the section is a group's alone.
 
-              It used to be two: a full one in the group branch and an add-only one nested in
-              a fragment beside the colleague's details. Adding a third person turns a
-              one-to-one into a group, so the add moved the component from one branch to the
-              other, React remounted it, and the confirmation it had just been given —
-              "E2E Colleague was added, they can now read 4 earlier messages" — vanished in
-              the same frame it appeared. BR-07's whole point is that the person is told what
-              their click exposed, and they were told for about 16 milliseconds.
+              A one-to-one used to carry an add-only version of it, on the reasoning that
+              adding a third person is how a direct message becomes a group and hiding the
+              control would take the capability away rather than tidy it. The capability is
+              still there — "New group" in the start panel, which is also where somebody
+              looking to talk to three people goes first — and what the panel loses is a
+              search field, a button and a confirmation paragraph in a column that is
+              otherwise about one named colleague.
 
-              On a one-to-one the member list and the rename are still absent: those restate
-              what the panel already says, and the rename is refused by the server. What
-              stays is the add, because it is a capability and the only place it starts.
+              It also removes a surprise. On a one-to-one, "add" silently changes what the
+              thread IS: the type flips to a group, the name changes from a person to a
+              list, and BR-07 exposes the whole history to the new arrival. That is a
+              reasonable thing to do deliberately from a "new group" flow and a strange
+              thing to offer inside a panel headed with somebody's face.
+
+              It stays ONE component at ONE position in the tree for groups. It used to be
+              two — a full one here and an add-only one nested beside the colleague's
+              details — and adding a third person moved the component between branches, so
+              React remounted it and the confirmation it had just rendered ("… they can now
+              read 4 earlier messages") vanished in the same frame it appeared.
             */}
-            <Participants
-              conversationId={conversationId}
-              addOnly={isOneToOne}
-              onChanged={() => {
-                // Both: the messages gain a membership note, and the SUMMARY gains a
-                // participant — which is what the header above is named from.
-                void refetch();
-                refreshConversations();
-              }}
-            />
+            {isGroup || addPeopleOpen ? (
+              <Participants
+                conversationId={conversationId}
+                onChanged={() => {
+                  // Both: the messages gain a membership note, and the SUMMARY gains a
+                  // participant — which is what the header above is named from.
+                  void refetch();
+                  refreshConversations();
+                }}
+              />
+            ) : null}
           </>
         )}
 
@@ -916,19 +1274,19 @@ export default function ThreadPage(): ReactNode {
         <SharedFiles conversationId={conversationId} revision={messages.length} />
 
         {/*
-          The design's last section. It draws two switches; there is one, and
-          `ConversationControls` says why the other is absent rather than unbuilt.
+          No "Conversation" section any more, and no "Pin to top" switch in it.
 
-          Drawn from the SUMMARY the shell already holds, so opening the panel costs no extra
-          request and the switch cannot disagree with the list it sorts.
+          Pinning did not go away — it moved to where the thing being pinned actually is.
+          A pin reorders the LIST, and the list is two columns to the left of this panel;
+          setting it from here meant opening the conversation, opening its details, moving
+          a switch, and then looking somewhere else to see what happened. Right-clicking
+          the row does the same thing where the effect is visible, which is also where
+          every other list in every other application puts it.
+
+          `ConversationControls` and the `Switch` it was the only caller of are deleted
+          rather than left exported-but-unused: a component nothing renders is a component
+          the next person has to read before they can be sure of that.
         */}
-        {activeConversation !== undefined ? (
-          <ConversationControls
-            conversationId={conversationId}
-            pinned={activeConversation.pinned}
-            onChanged={refreshConversations}
-          />
-        ) : null}
         </div>
       </aside>
     ) : null}

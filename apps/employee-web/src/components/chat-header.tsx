@@ -1,10 +1,15 @@
 'use client';
 
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { avatarFor, conversationLabel, initialsFor } from './conversation-naming';
-import { PresenceDot, useIsOnline, useOnlineSet } from './presence';
+import { GroupGlyph } from './group-glyph';
+import { ChatHeaderMenu } from './chat-header-menu';
+import { AvatarImage, ConversationAvatarImage } from './avatar-image';
+import { DeclaredStatusBadge, PresenceDot, useIsOnline, useOnlineSet } from './presence';
 import { useColleague } from './conversation-info';
 import type { ConversationSummary } from '../lib/api-client';
 
@@ -36,6 +41,8 @@ export function ChatHeader({
   onToggleDetails,
   searchOpen = false,
   onToggleSearch,
+  onMute,
+  onAddPeople,
   compact = false,
 }: {
   readonly conversation: ConversationSummary | undefined;
@@ -48,16 +55,30 @@ export function ChatHeader({
    * The header's controls, and both of them do something.
    *
    * Screen 02 draws a phone, a magnifier and a star. The phone is a call, which StarLink
-   * does not have and is not going to. The star has gone too: it toggled "pin to top", and
-   * the information panel already carries that as a labelled switch — a glyph in the header
-   * doing the same job meant the state had two homes and one of them had to be hovered to
-   * find out what it was. Search, and the control that opens the fourth column.
+   * does not have and is not going to. The star has gone too: it toggled "pin to top",
+   * which now lives on the conversation's own row in the list — where the reordering it
+   * causes is actually visible — rather than as a glyph in a header two columns away.
+   *
+   * What is left is search, and the overflow beside it.
    */
   readonly searchOpen?: boolean;
   readonly onToggleSearch?: (() => void) | undefined;
+  /**
+   * Quieten this conversation for a while, or lift it. `null` unmutes.
+   *
+   * The header offers it as well as the row does, because the moment somebody wants a
+   * conversation to stop interrupting them is usually the moment they are reading it.
+   */
+  readonly onMute?: ((minutes: number | null) => void) | undefined;
+  /** Reveals membership on a one-to-one; absent on a group, which always shows it. */
+  readonly onAddPeople?: (() => void) | undefined;
   /** A phone. The header keeps the back control, the person and one action — see below. */
   readonly compact?: boolean;
 }): ReactNode {
+  const router = useRouter();
+  /** The overflow trigger's rect while its menu is open; `undefined` when it is closed. */
+  const [menuAnchor, setMenuAnchor] = useState<DOMRect | undefined>();
+
   const name =
     conversation !== undefined ? conversationLabel(conversation) : 'Conversation';
   const others = conversation?.participants ?? [];
@@ -153,7 +174,17 @@ export function ChatHeader({
       {isGroup ? null : (
         <span className="avatar-wrap">
           <span className={`chat-avatar${isGroup ? ' group' : ''}`} aria-hidden="true">
-            {conversation !== undefined ? avatarFor(conversation).text : initialsFor(name)}
+            {conversation !== undefined && avatarFor(conversation).isGroup ? (
+              <>
+                <GroupGlyph />
+                <ConversationAvatarImage conversationId={conversation.conversationId} />
+              </>
+            ) : (
+              <>
+                {conversation !== undefined ? avatarFor(conversation).text : initialsFor(name)}
+                <AvatarImage principalId={others[0]?.principalId} alt="" />
+              </>
+            )}
           </span>
           {/* One person, one dot — see `conversation-list.tsx` for why a group gets none. */}
           {!isGroup && others.length === 1 ? (
@@ -164,14 +195,14 @@ export function ChatHeader({
 
       <span className="chat-identity">
         {/*
-          "# Ops — Daily standup".
+          The name, and only the name.
 
-          The hash is the reference's marker for a channel and the fastest way to tell a
-          group from a person in a header that is otherwise identical. Outside the
-          accessible name, which is the conversation's actual title.
+          A group used to be prefixed with `#`, on the reasoning that it was the fastest
+          way to tell a group from a person in an otherwise identical header. It meant
+          CHANNEL, and StarLink has no channels — the avatar beside it is two figures now,
+          which says "more than one person" without borrowing a word from another product.
         */}
         <h1 className="chat-name" title={name}>
-          {isGroup ? <span aria-hidden="true">#&nbsp;</span> : null}
           {name}
         </h1>
         {subtitle !== undefined && subtitle !== '' ? (
@@ -183,6 +214,16 @@ export function ChatHeader({
               </>
             ) : null}
             {subtitle}
+            {/*
+              What they say they are doing, beside what the socket says.
+
+              Only for a one-to-one: a group has several people and one badge could not say
+              whose. This is the place it earns its keep — somebody about to type a question
+              can see "In a meeting" before they ask it rather than after.
+            */}
+            {!isGroup && others.length === 1 ? (
+              <DeclaredStatusBadge principalId={others[0]?.principalId} />
+            ) : null}
           </span>
         ) : null}
       </span>
@@ -304,7 +345,7 @@ export function ChatHeader({
           Not hidden with CSS: a control that is not on the screen must not be in the tab
           order either.
         */}
-        {compact || isGroup || onToggleSearch === undefined ? null : (
+        {compact || onToggleSearch === undefined ? null : (
           <button
             type="button"
             className="chat-header-action"
@@ -327,17 +368,48 @@ export function ChatHeader({
         )}
 
         {/*
-          No icon here for a one-to-one.
+          The overflow, to the right of search.
 
-          It was a vertical kebab that opened the information panel, and the identity block
-          on the left now does that — a bigger target, in the place people already try. Two
-          controls for one panel also meant two buttons whose accessible names were
-          "Contact details" and "Conversation details", which is a distinction a screen
-          reader user has to guess at.
+          A kebab lived here once, opening the information panel and nothing else — a
+          button whose only job was to duplicate the identity block beside it. This one
+          holds the actions that have no icon of their own; `chat-header-menu.tsx` lists
+          what is in it and what is deliberately still missing.
 
-          A group keeps its named "Group info" button: that is what screen 03 draws, and a
-          word is a better affordance than a glyph for the one control a group header has.
+          The trigger's rect is measured at click time rather than held in a ref, because
+          the header reflows when the conversation's name changes length and a stale
+          anchor puts the menu somewhere the button no longer is.
         */}
+        {compact ? null : (
+          <button
+            type="button"
+            className="chat-header-action"
+            onClick={(event) => setMenuAnchor(event.currentTarget.getBoundingClientRect())}
+            aria-expanded={menuAnchor !== undefined}
+            aria-haspopup="menu"
+            aria-label="More actions"
+            title="More actions"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="5" r="1.7" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+              <circle cx="12" cy="19" r="1.7" fill="currentColor" />
+            </svg>
+          </button>
+        )}
+
+        {menuAnchor !== undefined ? (
+          <ChatHeaderMenu
+            isGroup={isGroup}
+            anchor={menuAnchor}
+            mutedUntil={conversation?.mutedUntil}
+            onOpenDetails={onToggleDetails}
+            onSearch={onToggleSearch}
+            onCloseChat={() => router.push('/conversations')}
+            onMute={onMute}
+            onAddPeople={isGroup ? undefined : onAddPeople}
+            onDismiss={() => setMenuAnchor(undefined)}
+          />
+        ) : null}
       </span>
 
     </header>

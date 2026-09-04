@@ -30,19 +30,23 @@ const QUICK = ['👍', '❤️', '😂', '😮', '😢', '🙏', '👏', '🎉']
  * every message on the screen. See `message-context-menu.tsx`, which also explains why
  * moving it fixed a rendering bug rather than just tidying one.
  *
- * ## Revealed on hover, reachable by keyboard
+ * ## One control, revealed on hover
  *
- * `opacity`, not `display`, so the controls stay in the tab order — a message list where
- * Reply is unreachable without a mouse is a message list half the accessibility
- * requirement fails on. Always visible on touch, where there is no hover to reveal them.
+ * Reply was here too and has gone into the context menu: the request asked for the smiley
+ * alone. Reacting keeps the permanent target because it is the only one of the four with
+ * no command-shaped alternative — it opens a picker, not an action.
+ *
+ * `opacity`, not `display`, so the button stays in the tab order. That is now doing more
+ * work than it was: it is the row's only tab stop, and `message-list.tsx` hangs the
+ * ContextMenu / Shift+F10 handler off the row so that reaching this button is also how a
+ * keyboard reaches Reply, Edit and Delete. Always visible on touch, where there is no
+ * hover to reveal it.
  */
 export function MessageActions({
   message,
-  onReply,
   onReact,
 }: {
   readonly message: MessageView;
-  readonly onReply?: ((message: MessageView) => void) | undefined;
   readonly onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
 }): ReactNode {
   const [reactOpen, setReactOpen] = useState(false);
@@ -72,7 +76,7 @@ export function MessageActions({
    * absence. The row's context menu withholds itself on the same condition.
    */
   if (message.redactedAt !== undefined) return null;
-  if (onReply === undefined && onReact === undefined) return null;
+  if (onReact === undefined) return null;
 
   return (
     <div className="message-actions" ref={ref}>
@@ -133,26 +137,6 @@ export function MessageActions({
             </div>
           ) : null}
         </>
-      ) : null}
-
-      {onReply !== undefined ? (
-        <button
-          type="button"
-          className="message-action"
-          onClick={() => onReply(message)}
-          aria-label={`Reply to ${message.senderDisplayName}`}
-          title="Reply"
-        >
-          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
-            <path
-              d="M9.5 5.5 3.5 11l6 5.5V13c5 0 8 1.6 10 5-.6-5.6-4-9-10-9.6z"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
       ) : null}
 
     </div>

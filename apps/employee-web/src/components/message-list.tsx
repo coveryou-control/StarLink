@@ -71,6 +71,11 @@ interface MessageListProps {
   readonly onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
   readonly onEdit?: ((message: MessageView) => void) | undefined;
   readonly onDelete?: ((message: MessageView) => void) | undefined;
+  /** Message ids currently pinned for everybody in the conversation. */
+  readonly pinnedIds?: ReadonlySet<string> | undefined;
+  readonly onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
+  readonly onForward?: ((message: MessageView) => void) | undefined;
+  readonly onMessageInfo?: ((message: MessageView) => void) | undefined;
   /**
    * How far every OTHER participant has read. Zero means nobody, or somebody has not.
    *
@@ -101,6 +106,10 @@ export function MessageList({
   onReact,
   onEdit,
   onDelete,
+  pinnedIds,
+  onTogglePin,
+  onForward,
+  onMessageInfo,
   readWatermark = 0,
 }: MessageListProps): ReactNode {
   if (messages.length === 0 && pending.length === 0) {
@@ -159,6 +168,10 @@ export function MessageList({
               : messages.find((m) => m.messageId === message.replyToMessageId)
           }
           onReply={onReply}
+          pinnedIds={pinnedIds}
+          onTogglePin={onTogglePin}
+          onForward={onForward}
+          onMessageInfo={onMessageInfo}
           conversationIsInternal={conversationIsInternal}
           isGroup={isGroup}
           currentPrincipalId={currentPrincipalId}
@@ -217,6 +230,10 @@ function MessageRow({
   onReact,
   onEdit,
   onDelete,
+  pinnedIds,
+  onTogglePin,
+  onForward,
+  onMessageInfo,
   readWatermark,
 }: {
   message: MessageView;
@@ -232,6 +249,10 @@ function MessageRow({
   onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
   onEdit?: ((message: MessageView) => void) | undefined;
   onDelete?: ((message: MessageView) => void) | undefined;
+  pinnedIds?: ReadonlySet<string> | undefined;
+  onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
+  onForward?: ((message: MessageView) => void) | undefined;
+  onMessageInfo?: ((message: MessageView) => void) | undefined;
   readWatermark: number;
 }): ReactNode {
   /**
@@ -281,6 +302,10 @@ function MessageRow({
       className={`message-row${isCustomerNote ? ' internal' : ''}${isMine ? ' mine' : ''}${
         grouped ? ' grouped' : ''
       }${showHead ? ' with-head' : ''}`}
+      /* The anchor the pinned bar scrolls to. An id attribute rather than a ref map: the
+         list is virtualised by nothing and remounts freely, and a map of refs would need
+         clearing on every page load to avoid pointing at detached nodes. */
+      data-message-id={message.messageId}
       /*
         Right-click opens the message's actions — see `message-context-menu.tsx`.
 
@@ -294,6 +319,32 @@ function MessageRow({
         if (message.redactedAt !== undefined) return;
         event.preventDefault();
         setMenuAt({ x: event.clientX, y: event.clientY });
+      }}
+      /*
+         The same menu, from the keyboard.
+
+         Reply used to be a button on the hover bar and is now only in this menu, so a menu
+         that opens on right-click alone would put Reply, Edit and Delete out of reach of
+         anybody not using a mouse — NFR-ACC-1 requires the product to be fully operable
+         from a keyboard, and "fully" is doing real work in that sentence.
+
+         `ContextMenu` is the dedicated key; `Shift+F10` is what keyboards without one use,
+         and what most screen-reader users press by habit. The handler sits on the ROW and
+         catches the event as it bubbles from whatever inside it has focus — in practice
+         the react button, which is already a tab stop. That is deliberately not the same
+         as making every message focusable: a thread of two hundred messages would then be
+         two hundred tab stops between the list and the composer.
+
+         Anchored to the focused element's own rect rather than to a pointer that was never
+         used, so the menu opens beside the control the person can see.
+      */
+      onKeyDown={(event) => {
+        if (message.redactedAt !== undefined) return;
+        const wanted = event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10');
+        if (!wanted) return;
+        event.preventDefault();
+        const box = (event.target as HTMLElement).getBoundingClientRect();
+        setMenuAt({ x: box.left, y: box.bottom });
       }}
     >
       {/*
@@ -484,12 +535,16 @@ function MessageRow({
 
 
       {/*
-        React and reply, on hover. Everything else is on right-click — see the row's
-        `onContextMenu` above.
+        The smiley, and only the smiley.
+
+        Reply was beside it and has moved into the context menu — the request asked for one
+        control on hover, and reacting is the one worth a permanent target because it is
+        the only action with no keyboard-friendly alternative phrasing ("react with a
+        thumbs up" is a picker, not a command). Reply, Edit and Delete are all in the menu,
+        reachable by right-click or by the ContextMenu key handled on the row above.
       */}
       <MessageActions
         message={message}
-        {...(onReply !== undefined ? { onReply } : {})}
         {...(onReact !== undefined ? { onReact } : {})}
       />
 
@@ -502,6 +557,10 @@ function MessageRow({
              offering them would be offering a refusal. */
           canEdit={isMine}
           canDelete={isMine}
+          pinned={pinnedIds?.has(message.messageId) === true}
+          {...(onTogglePin !== undefined ? { onTogglePin } : {})}
+          {...(onForward !== undefined ? { onForward } : {})}
+          {...(onMessageInfo !== undefined ? { onMessageInfo } : {})}
           {...(onReply !== undefined ? { onReply } : {})}
           {...(onEdit !== undefined ? { onEdit } : {})}
           {...(onDelete !== undefined ? { onDelete } : {})}
