@@ -295,6 +295,32 @@ function MessageRow({
         event.preventDefault();
         setMenuAt({ x: event.clientX, y: event.clientY });
       }}
+      /*
+         The same menu, from the keyboard.
+
+         Reply used to be a button on the hover bar and is now only in this menu, so a menu
+         that opens on right-click alone would put Reply, Edit and Delete out of reach of
+         anybody not using a mouse — NFR-ACC-1 requires the product to be fully operable
+         from a keyboard, and "fully" is doing real work in that sentence.
+
+         `ContextMenu` is the dedicated key; `Shift+F10` is what keyboards without one use,
+         and what most screen-reader users press by habit. The handler sits on the ROW and
+         catches the event as it bubbles from whatever inside it has focus — in practice
+         the react button, which is already a tab stop. That is deliberately not the same
+         as making every message focusable: a thread of two hundred messages would then be
+         two hundred tab stops between the list and the composer.
+
+         Anchored to the focused element's own rect rather than to a pointer that was never
+         used, so the menu opens beside the control the person can see.
+      */
+      onKeyDown={(event) => {
+        if (message.redactedAt !== undefined) return;
+        const wanted = event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10');
+        if (!wanted) return;
+        event.preventDefault();
+        const box = (event.target as HTMLElement).getBoundingClientRect();
+        setMenuAt({ x: box.left, y: box.bottom });
+      }}
     >
       {/*
         An avatar gutter on the left, filled once per turn.
@@ -484,12 +510,16 @@ function MessageRow({
 
 
       {/*
-        React and reply, on hover. Everything else is on right-click — see the row's
-        `onContextMenu` above.
+        The smiley, and only the smiley.
+
+        Reply was beside it and has moved into the context menu — the request asked for one
+        control on hover, and reacting is the one worth a permanent target because it is
+        the only action with no keyboard-friendly alternative phrasing ("react with a
+        thumbs up" is a picker, not a command). Reply, Edit and Delete are all in the menu,
+        reachable by right-click or by the ContextMenu key handled on the row above.
       */}
       <MessageActions
         message={message}
-        {...(onReply !== undefined ? { onReply } : {})}
         {...(onReact !== undefined ? { onReact } : {})}
       />
 

@@ -7569,3 +7569,77 @@ input[type='search']::-webkit-search-cancel-button {
 .details-body .search {
   width: 100%;
 }
+
+/*
+   The typing indicator, given a pulse you can actually see.
+
+   The dots faded between 30% and 100% opacity, which at 5px on a light ground is a
+   difference you notice only if you are already looking at it. They now change SIZE as
+   well: a dot that grows is read peripherally, which is the whole job of an indicator
+   that sits below a thread somebody is reading.
+
+   `transform` and `opacity` only — both composited, so three of them animating forever
+   in the corner of a chat costs no layout.
+*/
+.typing-dots i {
+  animation: typing-pulse 1.25s ease-in-out infinite;
+  transform-origin: center;
+}
+
+@keyframes typing-pulse {
+  0%,
+  70%,
+  100% {
+    opacity: 0.3;
+    transform: scale(0.72);
+  }
+  35% {
+    opacity: 1;
+    transform: scale(1.15);
+  }
+}
+
+/*
+   Whoever is typing, in a group.
+
+   Sized to the dots rather than to the thread's avatars: this sits in a 20px-tall line
+   under the last message, and a 32px circle there reads as a message nobody sent.
+*/
+.typing-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--avatar-bg, var(--surface-2));
+  color: var(--text-secondary);
+  font-size: 9px;
+  font-weight: 650;
+  font-style: normal;
+  letter-spacing: 0.02em;
+}
+
+/* The words carry the italics; the avatar above opts out of them. */
+.typing-what {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+   Somebody who has asked for less motion gets a static indicator, not a missing one.
+
+   The dots still say "somebody is typing" — they are simply all present at once instead
+   of taking turns. Removing them entirely would take away the information along with the
+   animation.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .typing-dots i {
+    animation: none;
+    opacity: 0.75;
+    transform: none;
+  }
+}

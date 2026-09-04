@@ -13,7 +13,11 @@ import { useSession } from '../../../components/session-provider';
 import { ApiError, api, type MessageView } from '../../../lib/api-client';
 import { useRealtime } from '../../../lib/use-realtime';
 import { ChatHeader } from '../../../components/chat-header';
-import { avatarFor, conversationLabel } from '../../../components/conversation-naming';
+import {
+  avatarFor,
+  conversationLabel,
+  initialsFor,
+} from '../../../components/conversation-naming';
 import {
   ColleagueRole,
   EmployeeDetails,
@@ -700,19 +704,53 @@ export default function ThreadPage(): ReactNode {
         Sits directly above the composer, which is where a chat application puts it and
         where the eye already is while waiting for a reply.
       */}
-      {typing !== undefined ? (
-        <p className="typing-line" aria-live="polite">
-          <span className="typing-dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          {(activeConversation?.participants ?? []).find(
-            (person) => person.principalId === typing.principalId,
-          )?.displayName ?? 'Someone'}{' '}
-          is {typing.visibility === 'INTERNAL' ? 'writing a note' : 'replying'}…
-        </p>
-      ) : null}
+      {typing !== undefined
+        ? (() => {
+            const who = (activeConversation?.participants ?? []).find(
+              (person) => person.principalId === typing.principalId,
+            )?.displayName;
+
+            return (
+              <p className="typing-line" aria-live="polite">
+                {/*
+                   In a group, whose face it is comes FIRST.
+
+                   A group of six has six people who might be about to say something, and
+                   "typing" on its own makes you wait to find out which. The avatar is the
+                   same one the thread draws beside their messages, so it is recognised
+                   rather than read. A one-to-one needs none of this — there is exactly one
+                   other person and the header already names them.
+                */}
+                {isGroup && who !== undefined ? (
+                  <span className="typing-avatar" aria-hidden="true">
+                    {initialsFor(who)}
+                  </span>
+                ) : null}
+
+                <span className="typing-dots" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+
+                {/*
+                   "typing", not "is replying…".
+
+                   An internal note keeps its own wording: what is being composed is not
+                   visible to the customer, and somebody in a customer thread watching the
+                   indicator needs to know which of the two is coming.
+                */}
+                <span className="typing-what">
+                  {typing.visibility === 'INTERNAL'
+                    ? `${who ?? 'Someone'} is writing a note`
+                    : isGroup
+                      ? `${who ?? 'Someone'} is typing`
+                      : 'typing'}
+                </span>
+              </p>
+            );
+          })()
+        : null}
 
       {/* Not rendered until the kind is known: the composer picks its default
           visibility once, at mount, so mounting it early would leave a customer
