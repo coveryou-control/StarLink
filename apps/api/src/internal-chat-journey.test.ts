@@ -865,3 +865,107 @@ describe('pinning, forwarding and message info', () => {
     expect(empty.pins).toHaveLength(0);
   }, 180_000);
 });
+
+/**
+ * Only a group's creator may remove somebody from it.
+ *
+ * Until 2026-09-04 any participant could end any other participant's access, so the newest
+ * member of a twelve-person group could remove the other eleven — and BR-05, which needs a
+ * live participant to re-add them, was the only thing between that and permanent.
+ *
+ * The rule lives in the DOMAIN rather than the controller, so what is under test is that
+ * it holds for the operation and not merely for one route. The two cases that matter are
+ * the refusal (a member who is not the creator) and the non-regression (the creator can
+ * still remove, and a one-to-one is untouched by any of this).
+ */
+describe('removing somebody from a group', () => {
+  it('is the admin\'s alone, and the admin is whoever created it', async (ctx) => {
+    if (skipUnlessReady(ctx, 'the group admin rule is unproven.')) return;
+
+    const alice = await signIn('alice');
+    const bob = await signIn('bob');
+
+    /* Alice creates it, so Alice is the admin. */
+    const group = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_GROUP',
+      participantIds: [BOB, CARA],
+      title: `Admin ${crypto.randomUUID().slice(0, 8)}`,
+    });
+    expect(group.status).toBe(201);
+    const { conversationId } = (await group.json()) as { conversationId: string };
+    created.push(conversationId);
+
+    /* The summary carries the role, so the panel can mark the admin without a second
+       read. If this stops arriving the badge silently disappears and nothing else fails. */
+    const list = await get(employeeRoutes.conversations.list, bob);
+    const { conversations } = (await list.json()) as {
+      conversations: {
+        conversationId: string;
+        participants?: { principalId: string; role?: string }[];
+      }[];
+    };
+    const seenByBob = conversations.find((c) => c.conversationId === conversationId);
+    expect(
+      seenByBob?.participants?.find((p) => p.principalId === ALICE)?.role,
+      'the creator role did not reach the conversation summary',
+    ).toBe('CREATOR');
+
+    /* Bob is a member, not the admin. He may not remove Cara. */
+    const refused = await fetch(
+      `${BASE}${employeeRoutes.conversations.participant(conversationId, CARA)}`,
+      { method: 'DELETE', headers: { cookie: bob } },
+    );
+    expect(
+      refused.status,
+      'a plain member removed somebody from a group',
+    ).toBeGreaterThanOrEqual(400);
+
+    /* And Cara is still there — the refusal was not merely a status code over a write that
+       happened anyway. */
+    const stillThere = await get(employeeRoutes.conversations.list, bob);
+    const { conversations: after } = (await stillThere.json()) as {
+      conversations: { conversationId: string; participantCount: number }[];
+    };
+    expect(
+      after.find((c) => c.conversationId === conversationId)?.participantCount,
+      'the participant count moved despite the refusal',
+    ).toBe(3);
+
+    /* Alice created it, so Alice can. */
+    const allowed = await fetch(
+      `${BASE}${employeeRoutes.conversations.participant(conversationId, CARA)}`,
+      { method: 'DELETE', headers: { cookie: alice } },
+    );
+    expect(allowed.status, 'the group creator could not remove a member').toBe(204);
+
+    /*
+       A one-to-one is untouched.
+
+       The rule is scoped to INTERNAL_GROUP on purpose — a direct message has no membership
+       to administer — and a check written too broadly would break adding a third person
+       and then changing your mind, which is the ordinary way a group gets made.
+    */
+    const direct = await post(employeeRoutes.conversations.create, alice, {
+      type: 'INTERNAL_DIRECT',
+      participantIds: [BOB],
+    });
+    const { conversationId: directId } = (await direct.json()) as { conversationId: string };
+    created.push(directId);
+
+    const added = await post(employeeRoutes.conversations.participants(directId), alice, {
+      principalId: CARA,
+      historyExposureAcknowledged: true,
+    });
+    expect(added.status).toBeLessThan(400);
+
+    /*
+       Adding a third person makes it a group — the type is updated when the count crosses
+       — so removing Cara again is now the ADMIN's call, and Alice created this one too.
+    */
+    const undone = await fetch(
+      `${BASE}${employeeRoutes.conversations.participant(directId, CARA)}`,
+      { method: 'DELETE', headers: { cookie: alice } },
+    );
+    expect(undone.status, 'the creator could not undo their own addition').toBe(204);
+  }, 180_000);
+});

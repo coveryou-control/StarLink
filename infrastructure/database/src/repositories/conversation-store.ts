@@ -428,10 +428,14 @@ export class PgConversationReader implements ConversationReader {
          LEFT JOIN LATERAL (
               SELECT json_agg(json_build_object(
                        'principalId', ip.principal_id,
-                       'displayName', ip.display_name
+                       'displayName', ip.display_name,
+                       /* Carried so the members list can mark the group's admin without a
+                          second read. It is one text column on a row already being
+                          selected, and the alternative is a request per panel open. */
+                       'role', picked.role
                      ) ORDER BY ip.display_name) AS names
                 FROM (
-                  SELECT op.principal_id
+                  SELECT op.principal_id, op.role
                     FROM conversation.participants op
                    WHERE op.conversation_id = c.conversation_id
                      AND op.effective_to IS NULL

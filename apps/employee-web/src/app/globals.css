@@ -7860,3 +7860,65 @@ input[type='search']::-webkit-search-cancel-button {
   min-height: 40px;
   font-size: var(--text-sm);
 }
+
+/*
+   The group's name, with a pencil rather than a permanent field.
+
+   An always-open input beside the name says "this is a form", and the panel is not one:
+   the name is read every time the panel opens and changed almost never.
+*/
+.group-name-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.group-name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-base);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-name-edit {
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-subtle);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--dur) var(--ease);
+}
+
+.group-name-edit:hover,
+.group-name-edit:focus-visible {
+  color: var(--text);
+}
+
+/*
+   Who administers the group.
+
+   A word, not an icon: it has to survive greyscale (NFR-ACC-3) and it has to be read out
+   as part of the member's row rather than announced as a picture.
+*/
+.member-admin {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: 1px;
+}

@@ -84,6 +84,15 @@ export interface MeResponse {
 export interface ConversationParticipantRef {
   readonly principalId: string;
   readonly displayName: string;
+  /**
+   * Their role in THIS conversation.
+   *
+   * `CREATOR` marks whoever started it, and in a group that is the only person permitted
+   * to remove members (migration 0023). Optional, because a summary produced before this
+   * was carried simply has no answer — and an absent role must read as "not the admin"
+   * rather than as "unknown, allow it", which is rule 4 applied to a projection.
+   */
+  readonly role?: string;
 }
 
 export interface ConversationSummary {

@@ -277,7 +277,9 @@ export type RemoveParticipantResult =
         | 'NOT_A_PARTICIPANT'
         | 'REMOVER_NOT_PARTICIPANT'
         | 'CANNOT_REMOVE_CUSTOMER'
-        | 'CANNOT_REMOVE_SELF';
+        | 'CANNOT_REMOVE_SELF'
+        /* Only a group's creator may remove somebody from it — see the check itself. */
+        | 'NOT_THE_GROUP_ADMIN';
     };
 
 export async function removeParticipant(
@@ -326,6 +328,38 @@ export async function removeParticipant(
      */
     if (command.principalId === command.removedBy) {
       return { ok: false, reason: 'CANNOT_REMOVE_SELF' };
+    }
+
+    /**
+     * In a GROUP, only the creator may remove somebody.
+     *
+     * Asked for on 2026-09-04, and it closes a real hole rather than adding a courtesy:
+     * until now any participant could end any other participant's access, so the newest
+     * member of a twelve-person group could remove the other eleven, and only BR-05
+     * (which needs a live participant to re-add them) stood between that and permanent.
+     *
+     * `CREATOR` is the role `createInternalConversation` has always written for whoever
+     * started the conversation — migration 0023 explains why no second word was invented
+     * for it, and why there is deliberately no way to appoint a second admin.
+     *
+     * ## Why only for a group
+     *
+     * A one-to-one has no membership to administer. A CUSTOMER conversation runs on
+     * OWNERSHIP (§21) — a different model with an exclusion constraint behind it, where an
+     * owner or a lead removing a colleague is the ordinary case. Layering a creator rule
+     * on top would be a second authority over one object, which rule 11 forbids.
+     *
+     * ## Why it lives in the domain
+     *
+     * The controller is one caller. This is a rule about the operation, so it holds for
+     * every surface that ever performs it — the same reasoning as the two rules above.
+     */
+    const conversationType = await tx.loadConversationType(command.conversationId);
+    if (conversationType === 'INTERNAL_GROUP') {
+      const remover = participants.find((p) => p.principalId === command.removedBy);
+      if (remover?.role !== 'CREATOR') {
+        return { ok: false, reason: 'NOT_THE_GROUP_ADMIN' };
+      }
     }
 
     // Ends future access by dating the participation, never by deleting it: what a
