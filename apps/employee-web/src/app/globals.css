@@ -57,6 +57,16 @@
 @import './ds/radius.css';
 @import './ds/elevation.css';
 
+/*
+   PALETTE TRIAL — remove this ONE line to put the product back on CY Orange.
+
+   Asked for on 2026-09-04 as something to look at and possibly reject. It sits here, after
+   the design system and before the product's own rules, so it can override the ramp the
+   first supplies and be overridden by nothing. See the file for what it changes and why it
+   changes the ramp rather than the semantics.
+*/
+@import './palette-trial.css';
+
 /* -------------------------------------------------------------------------------------
    The bridge
 
@@ -6181,12 +6191,23 @@ input[type='search']::-webkit-search-cancel-button {
 .signin {
   /* The reference's ink, panel, disc and action. Named here so a change is one edit and
      so the next reader can see the whole palette at a glance rather than hunting it. */
+  /*
+     Lilac, pastel — a soft tint rather than the reference's saturated lavender.
+
+     The panel is now close enough to white that the WHITE fields inside it stop being the
+     obvious targets they were, so they carry a slightly firmer hairline to compensate. The
+     text goes the other way: a pastel ground takes a darker ink than a saturated one before
+     it reads as low contrast, so the ink stays as it was and the subtitle's mix moves up.
+
+     The pill and the disc keep their saturation deliberately. A pastel page with a pastel
+     button has nothing to press; the two strong colours are what the softness is FOR.
+  */
   --si-ink: #16162b;
-  --si-panel: #b9aef9;
+  --si-panel: #e7e1f8;
   --si-disc: #ffc61a;
   --si-action: #4a47e0;
   --si-field: #ffffff;
-  --si-page: #f4f3fb;
+  --si-page: #f7f5fc;
 
   display: flex;
   flex-direction: column;
@@ -6194,10 +6215,39 @@ input[type='search']::-webkit-search-cancel-button {
   justify-content: center;
   min-height: 100vh;
   padding: var(--space-6) var(--space-5);
-  /* A pale wash of the panel's own hue, so the lavender reads as the subject rather than
-     as the only colour on an unrelated grey. */
+  /*
+     A sky, not a flat fill.
+
+     Flat lavender behind a lavender panel gave the page nothing to be: the panel floated on
+     a slightly paler version of itself and the product's own figure was missing entirely
+     from the one screen that introduces it. So the constellation is back — the sparse
+     non-repeating trace, mirrored to both lower corners, over a wash that lifts towards the
+     top so the panel sits in light and the stars sit in the dark below it.
+
+     Still no tile. Two placed traces and a gradient, all `no-repeat`; the thing that made
+     the earlier version busy was the 250px repeat, not the stars.
+  */
   background-color: var(--si-page);
-  background-image: none;
+  /*
+     Order matters, and it is the reverse of reading order: the FIRST layer paints on top.
+
+     The gradient was listed first and buried both traces under an opaque wash — the stars
+     were there in the computed style and invisible on the screen. The wash is the backdrop,
+     so it goes last.
+  */
+  background-image:
+    var(--signin-trace),
+    var(--signin-trace),
+    linear-gradient(180deg, #ffffff 0%, var(--si-page) 44%, #ece7fa 100%);
+  background-repeat: no-repeat;
+  background-position:
+    left -4rem bottom -5rem,
+    right -4rem bottom -2rem,
+    0 0;
+  background-size:
+    30rem 30rem,
+    26rem 26rem,
+    100% 100%;
   color: var(--si-ink);
 }
 
@@ -6220,9 +6270,18 @@ input[type='search']::-webkit-search-cancel-button {
   width: 100%;
   max-width: 392px;
   padding: 36px 32px 32px;
-  border: 2px solid var(--si-ink);
+  border: 0;
   border-radius: 26px;
   background: var(--si-panel);
+  /*
+     A shadow in the panel's own hue, where the outline used to be.
+
+     With the border gone the panel needs SOMETHING to separate it from a page painted in
+     a paler version of the same colour, and a grey shadow under a lavender object reads
+     as dirt. Tinted and very soft: it lifts the panel without announcing that it is
+     floating.
+  */
+  box-shadow: 0 18px 44px -18px rgb(74 71 224 / 20%);
 }
 
 /* ---------------------------------------------------------------------- masthead ---- */
@@ -6251,7 +6310,7 @@ input[type='search']::-webkit-search-cancel-button {
 */
 .signin-masthead .brand-mark {
   margin-bottom: 22px;
-  border: 2px solid var(--si-ink);
+  border: 0;
   background: var(--si-disc);
   color: var(--si-ink);
 }
@@ -6269,9 +6328,9 @@ input[type='search']::-webkit-search-cancel-button {
   margin: 0;
   font-size: 13px;
   line-height: 1.5;
-  /* The ink at 72%, not a separate grey: a second neutral in a palette this committed
-     reads as a colour that wandered in from another design. */
-  color: color-mix(in srgb, var(--si-ink) 72%, transparent);
+  /* The ink at 78%, up from 72%: the ground lightened, so the same mix would have read
+     paler than it did rather than the same. */
+  color: color-mix(in srgb, var(--si-ink) 78%, transparent);
 }
 
 /* -------------------------------------------------------------------------- form ---- */
@@ -6317,7 +6376,10 @@ input[type='search']::-webkit-search-cancel-button {
   width: 100%;
   height: 46px;
   padding: 0 14px;
-  border: 2px solid var(--si-ink);
+  /* A firmer hairline than the saturated version needed. White on lavender was almost
+     enough on its own; white on pastel lilac is nearly white on white, so the edge has to
+     do the work the fill no longer does. */
+  border: 1px solid color-mix(in srgb, var(--si-ink) 16%, transparent);
   border-radius: 10px;
   background: var(--si-field);
   color: var(--si-ink);
@@ -6353,7 +6415,10 @@ input[type='search']::-webkit-search-cancel-button {
 */
 .signin-control:focus-within,
 .signin-control:focus-visible {
-  box-shadow: 3px 3px 0 0 var(--si-ink);
+  /* A soft ring in the accent, matching the rest of the product's focus treatment now that
+     the hard offset block has gone with the outlines. */
+  border-color: var(--si-action);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--si-action) 20%, transparent);
   outline: none;
 }
 
@@ -6381,7 +6446,7 @@ input[type='search']::-webkit-search-cancel-button {
 .signin-help {
   margin: -4px 0 0;
   padding: 10px 12px;
-  border: 2px solid var(--si-ink);
+  border: 0;
   border-radius: 10px;
   background: var(--si-field);
   font-size: 12px;
@@ -6425,7 +6490,7 @@ input[type='search']::-webkit-search-cancel-button {
   justify-content: center;
   width: 18px;
   height: 18px;
-  border: 2px solid var(--si-ink);
+  border: 1.5px solid color-mix(in srgb, var(--si-ink) 34%, transparent);
   border-radius: 5px;
   background: var(--si-field);
   color: transparent;
@@ -6438,7 +6503,7 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .signin-remember input:focus-visible + .signin-check {
-  box-shadow: 2px 2px 0 0 var(--si-ink);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--si-action) 22%, transparent);
 }
 
 /* ------------------------------------------------------------------------ action ---- */
@@ -6446,7 +6511,7 @@ input[type='search']::-webkit-search-cancel-button {
 .signin-error {
   margin: 0;
   padding: 10px 12px;
-  border: 2px solid var(--si-ink);
+  border: 0;
   border-radius: 10px;
   background: #ffe0dc;
   color: var(--si-ink);
@@ -6466,14 +6531,19 @@ input[type='search']::-webkit-search-cancel-button {
 .signin-submit {
   height: 50px;
   margin-top: 6px;
-  border: 2px solid var(--si-ink);
+  border: 0;
   border-radius: var(--radius-pill);
   background: var(--si-action);
   color: #ffffff;
   font-size: 15px;
   font-weight: 640;
   letter-spacing: -0.005em;
-  box-shadow: 3px 3px 0 0 var(--si-ink);
+  /*
+     A soft lift in the button's own colour, not the hard offset block the outlined version
+     used. That block was the same language as the 2px strokes; with the strokes gone it
+     read as a dropped shadow somebody forgot to delete.
+  */
+  box-shadow: 0 8px 20px -8px rgb(74 71 224 / 55%);
   transition:
     box-shadow 90ms var(--ease),
     transform 90ms var(--ease);
@@ -6486,9 +6556,10 @@ input[type='search']::-webkit-search-cancel-button {
    is the press: the object moves the exact distance its shadow occupied, so it reads as
    being pushed down rather than as a colour changing.
 */
+/* Pressed, it settles: down a pixel and the lift goes with it. */
 .signin-submit:active:not(:disabled) {
-  transform: translate(3px, 3px);
-  box-shadow: 0 0 0 0 var(--si-ink);
+  transform: translateY(1px);
+  box-shadow: 0 3px 10px -6px rgb(74 71 224 / 55%);
 }
 
 .signin-submit:disabled {

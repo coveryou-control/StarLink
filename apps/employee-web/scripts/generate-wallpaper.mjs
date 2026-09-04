@@ -142,9 +142,12 @@ const svgFor = (ink, lineAlpha, starAlpha) => {
  *
  * The alpha is baked in here rather than applied by the page: nothing fades this on the
  * way through, and the first version was drawn at 0.5 on the assumption that something
- * would. It rendered as a large piece of line art in the corner competing with the form —
- * the opposite of a whisper. A tenth is where it stops being a picture and starts being a
- * texture you notice on the second look.
+ * would. It rendered as line art competing with the form — the opposite of a whisper.
+ *
+ * 0.22 in the palette's own indigo, not 0.1 in the old cool grey. It sits on a lavender
+ * ground now rather than near-white, and a tenth of a colour close to the ground it is on
+ * is nothing at all — the stars were present in the computed style and invisible on the
+ * screen twice, once for this reason and once for the layer order.
  */
 const traceSvg = (ink, alpha) => {
   const points = [
@@ -260,7 +263,7 @@ writeFileSync(
      Its own coordinates rather than a crop of the tile: a crop lands wherever the tile's
      stars happen to fall, and half of them would be cut by the edge.
   */
-  --signin-trace: ${dataUri(traceSvg('#2b3a63', '0.1'))};
+  --signin-trace: ${dataUri(traceSvg('#4a47e0', '0.22'))};
 }
 
 :root[data-theme='dark'] {
