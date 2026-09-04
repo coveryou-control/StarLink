@@ -15,15 +15,24 @@ export default function SignInPage(): ReactNode {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   /**
-   * Defaults to ON, because the design shows it ticked.
+   * Defaults to OFF, even though the reference draws it ticked.
    *
-   * That is a real decision rather than a copied pixel: this is an internal product on
-   * company machines, and the alternative — signing everybody out twice a day — is the
-   * behaviour people work around by never closing the tab, which is worse than a longer
-   * session they know about. The wording names the DEVICE so somebody at a shared branch
-   * terminal has the information they need to untick it.
+   * The mock shows a checked box; a mock is showing what the control looks like, not
+   * legislating the default for a session that lasts a fortnight. Ticked by default, every
+   * sign-in on every machine — including the shared branch terminal — silently gets
+   * fourteen days unless somebody notices and unticks it, which is the wrong direction for
+   * a default nobody reads to fall.
+   *
+   * The server already takes this position: `rememberMe` is optional there and absent
+   * means short, "the safe answer rather than the convenient one". Defaulting the box the
+   * other way would have made the client disagree with the reasoning written into the
+   * route it calls.
+   *
+   * `security-baseline.spec.ts` asserts both halves — an ordinary sign-in gets twelve
+   * hours, and ticking the box gets fourteen days — so neither the default nor the
+   * capability can drift without a test saying so. It caught this one.
    */
-  const [remember, setRemember] = useState(true);
+  const [remember, setRemember] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);

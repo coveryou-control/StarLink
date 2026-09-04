@@ -137,7 +137,58 @@ test('the employee session cookie is HttpOnly, scoped, and lives its full length
 
   expect(
     secondsRemaining,
-    `session cookie lives ${Math.round(secondsRemaining / 86_400)} days. The configured ` +
-      'session is twelve hours; a cookie outliving its own token loiters on a shared machine.',
+    `session cookie lives ${Math.round(secondsRemaining / 86_400)} days. An ordinary sign-in ` +
+      'is twelve hours; a cookie outliving its own token loiters on a shared machine. If ' +
+      '"keep me signed in" has started ticking itself by default, that is this failure.',
   ).toBeLessThan(TWELVE_HOURS * 1.1);
+});
+
+/**
+ * "Keep me signed in on this device" — the other half of the lifetime guard.
+ *
+ * The test above pins the DEFAULT at twelve hours, and it caught the box being drawn
+ * pre-ticked: every sign-in on every machine, including a shared branch terminal, was
+ * quietly getting a fortnight. That guard only works while somebody can still get the long
+ * session deliberately, so this asserts the capability the default rules out.
+ *
+ * Both ends again. The token and the cookie are set from ONE number in the sign-in route,
+ * so a cookie that does not match the configured remember-TTL means they have come apart —
+ * which is the same class of defect as the ×1000 that shipped under the old one-sided
+ * assertion, just at the other end of the range.
+ */
+test('ticking "keep me signed in" lengthens the session, and only then (FR-AUTH-1)', async ({
+  browser,
+}) => {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+
+  await page.goto(`${ORIGINS.employeeWeb}/sign-in`);
+  await page.getByLabel('Work email').fill(CREDENTIALS.agent.username);
+  await page.getByLabel('Password', { exact: true }).fill(CREDENTIALS.agent.password);
+
+  const remember = page.getByLabel('Keep me signed in on this device');
+  await expect(remember, 'the box must start unticked — see the default guard above').not.toBeChecked();
+  await remember.check();
+
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page).toHaveURL(/\/conversations/);
+
+  const cookie = (await context.cookies()).find((c) => c.name === 'sl_emp_session');
+  expect(cookie, 'no employee session cookie was set').toBeDefined();
+
+  const FOURTEEN_DAYS = 14 * 24 * 60 * 60;
+  const secondsRemaining = (cookie?.expires ?? 0) - Date.now() / 1000;
+
+  expect(
+    secondsRemaining,
+    `ticked, the session is ${Math.round(secondsRemaining / 3600)}h — the checkbox did nothing`,
+  ).toBeGreaterThan(FOURTEEN_DAYS * 0.9);
+
+  expect(
+    secondsRemaining,
+    `ticked, the session is ${Math.round(secondsRemaining / 86_400)} days — longer than the ` +
+      'configured fortnight, so the cookie and its token have come apart',
+  ).toBeLessThan(FOURTEEN_DAYS * 1.1);
+
+  await context.close();
 });

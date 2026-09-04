@@ -42,6 +42,7 @@ export function ChatHeader({
   searchOpen = false,
   onToggleSearch,
   onMute,
+  onAddPeople,
   compact = false,
 }: {
   readonly conversation: ConversationSummary | undefined;
@@ -69,6 +70,8 @@ export function ChatHeader({
    * conversation to stop interrupting them is usually the moment they are reading it.
    */
   readonly onMute?: ((minutes: number | null) => void) | undefined;
+  /** Reveals membership on a one-to-one; absent on a group, which always shows it. */
+  readonly onAddPeople?: (() => void) | undefined;
   /** A phone. The header keeps the back control, the person and one action — see below. */
   readonly compact?: boolean;
 }): ReactNode {
@@ -403,6 +406,7 @@ export function ChatHeader({
             onSearch={onToggleSearch}
             onCloseChat={() => router.push('/conversations')}
             onMute={onMute}
+            onAddPeople={isGroup ? undefined : onAddPeople}
             onDismiss={() => setMenuAnchor(undefined)}
           />
         ) : null}

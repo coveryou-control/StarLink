@@ -23,6 +23,22 @@ import { MUTE_DURATIONS_MINUTES, muteDurationLabel } from '@starlink/shared-cont
  *   - **Mute notifications** — the same six durations the conversation's row offers, and
  *     the same second page rather than a submenu. It is here as well as on the row because
  *     the moment you want to quieten a conversation is usually the moment you are in it.
+ *   - **Add people**, on a one-to-one only. See below.
+ *
+ * ## Why "Add people" is here rather than in the panel
+ *
+ * The panel used to carry a permanent "Add a colleague" section on a one-to-one, and it was
+ * asked to go: on a direct message the panel is about the person you are talking to, and a
+ * search field under their face is clutter.
+ *
+ * Deleting the control outright took the CAPABILITY with it, which was more than the tidy-up
+ * intended. Adding a third person to an existing thread is not the same act as starting a
+ * new group — the new group has no history — and BR-07 exists precisely for the difference:
+ * the product must state how many earlier messages the new arrival will be able to read, and
+ * refuse until that is acknowledged. With the control gone, that rule was unreachable from a
+ * one-to-one and the journey asserting it failed.
+ *
+ * So the section is still absent by default and the capability is one deliberate click away.
  *
  * **Select messages** is absent for a different reason. A selection mode is only worth
  * having for a bulk action, and the two it exists for elsewhere — bulk forward, bulk
@@ -44,6 +60,7 @@ export function ChatHeaderMenu({
   onSearch,
   onCloseChat,
   onMute,
+  onAddPeople,
   onDismiss,
 }: {
   readonly isGroup: boolean;
@@ -56,6 +73,13 @@ export function ChatHeaderMenu({
   readonly onCloseChat: () => void;
   /** `null` unmutes. Minutes are always one of `MUTE_DURATIONS_MINUTES`. */
   readonly onMute: ((minutes: number | null) => void) | undefined;
+  /**
+   * Reveals the membership section, on a one-to-one where it is not shown by default.
+   *
+   * Absent for a group, which shows it permanently — a group's membership is what its
+   * panel is largely for.
+   */
+  readonly onAddPeople: (() => void) | undefined;
   readonly onDismiss: () => void;
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -133,6 +157,11 @@ export function ChatHeaderMenu({
           {onSearch !== undefined ? (
             <button type="button" role="menuitem" onClick={() => choose(onSearch)}>
               Search
+            </button>
+          ) : null}
+          {onAddPeople !== undefined ? (
+            <button type="button" role="menuitem" onClick={() => choose(onAddPeople)}>
+              Add people
             </button>
           ) : null}
           {onMute !== undefined ? (

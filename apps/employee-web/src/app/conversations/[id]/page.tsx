@@ -281,6 +281,23 @@ export default function ThreadPage(): ReactNode {
     [conversationId, refetch],
   );
   const [inspecting, setInspecting] = useState<MessageView | undefined>();
+  /**
+   * Whether the membership section is showing on a ONE-TO-ONE.
+   *
+   * A group shows it always. A direct message does not — the panel there is about the
+   * person you are talking to, and a permanent search field under their face is the
+   * clutter that was asked to go.
+   *
+   * But the CAPABILITY had to stay. Adding a third person to an existing thread is not
+   * the same act as starting a new group: the new group has no history, and BR-07 is
+   * entirely about the history the new arrival can suddenly read — the server refuses
+   * until the interface has said how many messages that is and had it acknowledged. With
+   * the control deleted, that rule was unreachable from a one-to-one, which the browser
+   * journey caught.
+   *
+   * So it is one click away, from the header's overflow, and closes with the panel.
+   */
+  const [addPeopleOpen, setAddPeopleOpen] = useState(false);
 
   /**
    * What is pinned here, for everybody.
@@ -657,6 +674,12 @@ export default function ThreadPage(): ReactNode {
            already past. `refreshConversations` because `mutedUntil` lives on the summary,
            and the shell hands that to the notification hook — a mute the list does not
            know about is a mute that still makes a noise. */
+        /* Reveals membership on a one-to-one, and opens the panel it lives in — asking
+           for it from a header whose panel is closed would otherwise do nothing visible. */
+        onAddPeople={() => {
+          setAddPeopleOpen(true);
+          if (!showDetails) toggleDetails();
+        }}
         onMute={(minutes) => {
           void api
             .setConversationPreferences(conversationId, { muteMinutes: minutes })
@@ -1225,7 +1248,7 @@ export default function ThreadPage(): ReactNode {
               React remounted it and the confirmation it had just rendered ("… they can now
               read 4 earlier messages") vanished in the same frame it appeared.
             */}
-            {isGroup ? (
+            {isGroup || addPeopleOpen ? (
               <Participants
                 conversationId={conversationId}
                 onChanged={() => {

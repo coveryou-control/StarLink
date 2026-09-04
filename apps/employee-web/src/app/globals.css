@@ -6373,6 +6373,8 @@ input[type='search']::-webkit-search-cancel-button {
    from its state with a sibling selector.
 */
 .signin-remember {
+  /* The transparent input is absolute against this, so it lands over the drawn box. */
+  position: relative;
   display: flex;
   align-items: center;
   gap: 9px;
@@ -6381,12 +6383,27 @@ input[type='search']::-webkit-search-cancel-button {
   cursor: pointer;
 }
 
+/*
+   Hidden from sight, NOT from the pointer.
+
+   The first version was the usual 1px `pointer-events: none` trick, which is right for an
+   input nothing ever touches directly and wrong here: it made the real control
+   unactuatable, so anything driving the page — the browser suite, a password manager, a
+   script — could not tick the box, and only a click that happened to land on the label
+   worked. A control that only responds to one of the ways it can be reached is broken in
+   the ways nobody tested.
+
+   So the input keeps its size and its hit area and is simply transparent, laid over the
+   drawn box it controls. Clicking the box clicks the input; clicking the words still works
+   through the label; and `.check()` finds something it can actually press.
+*/
 .signin-remember input {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  width: 16px;
+  height: 16px;
+  margin: 0;
   opacity: 0;
-  pointer-events: none;
+  cursor: pointer;
 }
 
 .signin-check {
