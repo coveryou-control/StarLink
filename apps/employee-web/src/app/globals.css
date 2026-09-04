@@ -4205,6 +4205,8 @@ input[type='search']::-webkit-search-cancel-button {
    ===================================================================================== */
 
 .details-drawer {
+  /* The dismiss cross is absolute against this. */
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -7500,4 +7502,57 @@ input[type='search']::-webkit-search-cancel-button {
 .rail-power:hover,
 .rail-power:focus-visible {
   opacity: 1;
+}
+
+/*
+   The details panel's own dismiss, at column width.
+
+   Absolute, because the panel opens with the avatar and the name rather than a title bar
+   — giving it a header row to hold this button would have cost it that. It sits in the
+   identity block's top padding, which is empty in every state the panel has.
+*/
+.details-dismiss {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  z-index: 2;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-subtle);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: color var(--dur) var(--ease);
+}
+
+.details-dismiss:hover,
+.details-dismiss:focus-visible {
+  color: var(--text);
+}
+
+/*
+   Inside a header the dismiss is a normal flex child, not an absolute one.
+
+   `.details-dismiss` is positioned against the drawer because the details panel opens
+   straight into the avatar and has no header to hang a button from. The search panel DOES
+   have one, and leaving the button absolute there would float it over the word it sits
+   beside at some widths.
+*/
+.details-head .details-dismiss {
+  position: static;
+  margin-left: auto;
+}
+
+/*
+   The search panel's results get the panel's width, not the list column's.
+
+   `ConversationSearch` was written for the 320px list and sets its own field width there;
+   in a 360px drawer that left a gutter down the right of every result.
+*/
+.details-body .search {
+  width: 100%;
 }

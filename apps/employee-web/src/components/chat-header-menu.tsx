@@ -1,0 +1,117 @@
+'use client';
+
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+
+/**
+ * The chat header's overflow menu.
+ *
+ * ## What is in it, and what is deliberately not
+ *
+ * The reference list was WhatsApp's header menu with ten of its items struck out. Of what
+ * remained, these three are things StarLink can actually do:
+ *
+ *   - **Contact info / Group info** — the same panel the identity block opens. It is here
+ *     as well because a menu that omits the one thing the header is mostly used for sends
+ *     people back out of it.
+ *   - **Search** — moved in from a fourth icon tile. Three 38px tiles beside a name on a
+ *     390px row is what the design does not do.
+ *   - **Close chat** — back to the list. On a phone the back chevron does this; at desk
+ *     width there was no way to leave a conversation without opening another one.
+ *
+ * **Mute notifications** belongs here and is absent: the column was dropped in migration
+ * 0018 and putting the item back before the schema is putting a control on the screen that
+ * does nothing.
+ *
+ * **Select messages** is absent for a different reason. A selection mode is only worth
+ * having for a bulk action, and the two it exists for elsewhere — bulk forward, bulk
+ * delete — are not built. A mode you can enter and not act in is a dead end with a
+ * cancel button.
+ *
+ * ## Why it is portalled
+ *
+ * Same reason as every other menu here: the header is 68px tall with `overflow` of its own
+ * and its own stacking context, so an absolutely-positioned menu inside it is clipped or
+ * painted over regardless of z-index. Portalled to the body and anchored to the button's
+ * measured position, it has no ancestor left to be trapped by.
+ */
+export function ChatHeaderMenu({
+  isGroup,
+  anchor,
+  onOpenDetails,
+  onSearch,
+  onCloseChat,
+  onDismiss,
+}: {
+  readonly isGroup: boolean;
+  /** The trigger's viewport rect, so the menu hangs under its right edge. */
+  readonly anchor: DOMRect;
+  readonly onOpenDetails: (() => void) | undefined;
+  readonly onSearch: (() => void) | undefined;
+  readonly onCloseChat: () => void;
+  readonly onDismiss: () => void;
+}): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ x: anchor.right, y: anchor.bottom + 6 });
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el === null) return;
+    const box = el.getBoundingClientRect();
+    const margin = 8;
+    /* Right-aligned to the trigger, which is how a menu hanging off the end of a toolbar
+       reads, then pulled back inside the viewport if that would overflow. */
+    setPosition({
+      x: Math.max(margin, Math.min(anchor.right - box.width, window.innerWidth - box.width - margin)),
+      y: Math.min(anchor.bottom + 6, window.innerHeight - box.height - margin),
+    });
+  }, [anchor]);
+
+  useEffect(() => {
+    const dismiss = (): void => onDismiss();
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onDismiss();
+    };
+    document.addEventListener('pointerdown', dismiss);
+    document.addEventListener('keydown', onKey);
+    window.addEventListener('resize', dismiss);
+    window.addEventListener('scroll', dismiss, true);
+    return () => {
+      document.removeEventListener('pointerdown', dismiss);
+      document.removeEventListener('keydown', onKey);
+      window.removeEventListener('resize', dismiss);
+      window.removeEventListener('scroll', dismiss, true);
+    };
+  }, [onDismiss]);
+
+  const choose = (action: () => void): void => {
+    action();
+    onDismiss();
+  };
+
+  return createPortal(
+    <div
+      ref={ref}
+      className="message-menu"
+      role="menu"
+      aria-label="Conversation actions"
+      style={{ left: position.x, top: position.y }}
+      onPointerDown={(event) => event.stopPropagation()}
+    >
+      {onOpenDetails !== undefined ? (
+        <button type="button" role="menuitem" onClick={() => choose(onOpenDetails)}>
+          {isGroup ? 'Group info' : 'Contact info'}
+        </button>
+      ) : null}
+      {onSearch !== undefined ? (
+        <button type="button" role="menuitem" onClick={() => choose(onSearch)}>
+          Search
+        </button>
+      ) : null}
+      <button type="button" role="menuitem" onClick={() => choose(onCloseChat)}>
+        Close chat
+      </button>
+    </div>,
+    document.body,
+  );
+}

@@ -11,6 +11,9 @@ import {
 } from './conversation-naming';
 import { PresenceDot } from './presence';
 import { GroupGlyph } from './group-glyph';
+import { ConversationRowMenu } from './conversation-row-menu';
+import { api } from '../lib/api-client';
+import { MAX_PINNED_CONVERSATIONS } from '@starlink/shared-contracts';
 import { deliveryTick } from '@starlink/shared-contracts';
 import type { ConversationSummary } from '../lib/api-client';
 
@@ -28,6 +31,13 @@ interface ConversationListProps {
    * the reader wrote.
    */
   readonly currentPrincipalId?: string;
+  /**
+   * Re-reads the list after a pin moves.
+   *
+   * The order is the SERVER's — pinned conversations come first in its own `ORDER BY` —
+   * so a row that reordered itself locally would disagree with the next page fetched.
+   */
+  readonly onPinChanged?: (() => void) | undefined;
 }
 
 /**
@@ -107,8 +117,35 @@ export function ConversationList({
   onLoadMore,
   loadingMore = false,
   currentPrincipalId,
+  onPinChanged,
 }: ConversationListProps): ReactNode {
   const [filter, setFilter] = useState<Filter>('all');
+  /** The row a right-click opened a menu for, and where the pointer was. */
+  const [rowMenu, setRowMenu] = useState<
+    { conversationId: string; label: string; pinned: boolean; x: number; y: number } | undefined
+  >();
+  /*
+     Shown when the server refuses a fourth pin. Held here rather than in the menu, which
+     has closed by the time the round trip returns — a message inside a component that no
+     longer exists is a message nobody reads.
+  */
+  const [pinProblem, setPinProblem] = useState<string | undefined>();
+
+  const togglePin = (conversationId: string, next: boolean): void => {
+    setPinProblem(undefined);
+    void api
+      .setConversationPreferences(conversationId, { pinned: next })
+      .then((result) => {
+        if (result.limitReached === true) {
+          setPinProblem(
+            `You can pin ${MAX_PINNED_CONVERSATIONS} chats. Unpin one to pin another.`,
+          );
+          return;
+        }
+        onPinChanged?.();
+      })
+      .catch(() => setPinProblem('That could not be saved.'));
+  };
 
   /**
    * Applied to what is loaded, and honest about that.
@@ -250,6 +287,18 @@ export function ConversationList({
                 href={`/conversations/${conversation.conversationId}`}
                 aria-current={active ? 'page' : undefined}
                 className="conversation-row"
+                /* `preventDefault` so the browser's own menu does not open on top of
+                   this one. Right-click does not follow the link either way. */
+                onContextMenu={(event) => {
+                  event.preventDefault();
+                  setRowMenu({
+                    conversationId: conversation.conversationId,
+                    label,
+                    pinned: conversation.pinned === true,
+                    x: event.clientX,
+                    y: event.clientY,
+                  });
+                }}
               >
                 {/*
                   The dot belongs to a PERSON, so it is shown only for a one-to-one. A
@@ -326,6 +375,25 @@ export function ConversationList({
           );
         })}
       </ul>
+
+      {rowMenu !== undefined ? (
+        <ConversationRowMenu
+          conversationId={rowMenu.conversationId}
+          label={rowMenu.label}
+          pinned={rowMenu.pinned}
+          at={{ x: rowMenu.x, y: rowMenu.y }}
+          onTogglePin={togglePin}
+          onClose={() => setRowMenu(undefined)}
+        />
+      ) : null}
+
+      {/* `role="alert"` because it appears in response to something the person just did
+          and there is nothing else on the screen to notice. */}
+      {pinProblem !== undefined ? (
+        <p className="state-note" role="alert">
+          {pinProblem}
+        </p>
+      ) : null}
 
       {loading ? <p className="state-note">Loading…</p> : null}
 

@@ -35,23 +35,9 @@ import { api, ApiError, type DirectoryEntry } from '../lib/api-client';
 export function Participants({
   conversationId,
   onChanged,
-  addOnly = false,
 }: {
   readonly conversationId: string;
   readonly onChanged: () => void;
-  /**
-   * Just the "add a colleague" half, for a one-to-one.
-   *
-   * On a direct message the information panel is about the person you are talking to — the
-   * member list would be the two of you, restating the identity block above it, and the
-   * rename is refused by the server anyway. What must NOT disappear with them is the way to
-   * add a third person: that is how a one-to-one becomes a group, and hiding it would take
-   * the capability away rather than tidy it.
-   *
-   * The section keeps its accessible name either way, so "reach membership in this
-   * conversation" is one question with one answer at both sizes.
-   */
-  readonly addOnly?: boolean;
 }): React.JSX.Element {
   const [term, setTerm] = useState('');
   const [found, setFound] = useState<readonly DirectoryEntry[]>([]);
@@ -219,7 +205,7 @@ export function Participants({
         that with something only one of the two chose — so a field here would be a control
         that always fails.
       */}
-      {isGroup && !addOnly ? (
+      {isGroup ? (
         <form
           className="rename-group"
           onSubmit={(e) => {
@@ -242,7 +228,7 @@ export function Participants({
         </form>
       ) : null}
 
-      {members.length > 0 && !addOnly ? (
+      {members.length > 0 ? (
         <div className="member-list">
           <h3>
             {members.length + 1} members

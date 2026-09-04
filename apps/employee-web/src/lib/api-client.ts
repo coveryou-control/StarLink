@@ -704,11 +704,23 @@ export const api = {
     }),
 
   /** Sets this reader's preference for one thread. Today that is where it sits. */
+  /**
+   * `limitReached` is a SUCCESSFUL response, not an error.
+   *
+   * The server caps pinning at `MAX_PINNED_CONVERSATIONS` inside the statement that writes,
+   * so the fourth pin is refused by the database rather than by a check that could race.
+   * That refusal comes back as `{ pinned: false, limitReached: true }` — the request was
+   * valid and the caller is allowed; they simply already have three. Throwing here would
+   * make the caller render "that could not be saved", which is both wrong and unhelpful.
+   */
   setConversationPreferences: (conversationId: string, preferences: { pinned: boolean }) =>
-    request<{ pinned: boolean }>(employeeRoutes.conversations.preferences(conversationId), {
-      method: 'PUT',
-      body: JSON.stringify(preferences),
-    }),
+    request<{ pinned: boolean; limitReached?: boolean; maxPinned?: number }>(
+      employeeRoutes.conversations.preferences(conversationId),
+      {
+        method: 'PUT',
+        body: JSON.stringify(preferences),
+      },
+    ),
 
   /** Ends every session this account holds, including this browser's. */
   signOutEverywhere: () =>

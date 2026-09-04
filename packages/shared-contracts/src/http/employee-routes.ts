@@ -62,6 +62,24 @@ export const EMPLOYEE_API_BASE = '/v1/employee';
 export const SEARCH_MINIMUM_TERM_LENGTH = 1;
 
 /**
+ * How many conversations one person may pin to the top of their list.
+ *
+ * ## Why there is a cap at all
+ *
+ * A pinned group is useful only while it is shorter than the list underneath it. Pin
+ * twenty and nothing has been prioritised — the list has just been reordered, and the
+ * person now has two lists to scan instead of one.
+ *
+ * ## Why it lives in the contract
+ *
+ * The same reason as the search floor above, which cost a working feature an outage
+ * message when the two sides disagreed by one. The server enforces this inside the INSERT
+ * that writes the preference; the client uses it to say "you already have three" before
+ * the round trip and to render the refusal when it loses the race. Both read this.
+ */
+export const MAX_PINNED_CONVERSATIONS = 3;
+
+/**
  * A `LIKE`/`ILIKE` pattern that matches the term as TEXT, not as a pattern.
  *
  * `%` and `_` are wildcards. A search box that interpolates the term straight into

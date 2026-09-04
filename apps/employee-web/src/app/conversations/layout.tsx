@@ -429,6 +429,9 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                     loading={loading}
                     loadingMore={loadingMore}
                     onLoadMore={nextCursor !== undefined ? () => void loadMore() : undefined}
+                    /* Pinned conversations sort first in the server's own ORDER BY, so a
+                       pin is a re-read rather than a local reorder. */
+                    onPinChanged={() => void refresh()}
                   />
                 )}
 

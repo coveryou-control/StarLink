@@ -22,6 +22,7 @@ import {
   type ReadStateStore,
 } from '@starlink/conversation-domain';
 import type { ConversationAuthzReader } from '@starlink/database';
+import { MAX_PINNED_CONVERSATIONS as MAX_PINNED } from '@starlink/shared-contracts';
 import type {
   EmployeeDirectoryProvider,
   IdentityAuthorizationClient,
@@ -47,6 +48,15 @@ import { recordDecision } from '../edge/authorization-metrics.js';
 import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
 
 const uuid = z.string().uuid();
+
+/**
+ * How many conversations one person may pin.
+ *
+ * Shared with the client through the contracts package rather than restated: a cap the
+ * server holds at three and the UI believes is five produces a control that fails with no
+ * explanation on the fourth press.
+ */
+const MAX_PINNED_CONVERSATIONS = MAX_PINNED;
 
 const createSchema = z.object({
   type: z.enum(['INTERNAL_DIRECT', 'INTERNAL_GROUP']),
@@ -662,14 +672,52 @@ export class EmployeeConversationsController {
       return refuse();
     }
 
-    await this.pool.query(
+    /*
+       At most three pinned conversations, counted in the same statement that writes.
+
+       A pinned list is only useful while it is shorter than the list it sits on top of;
+       pin twenty and the feature has done nothing but reorder. Three is the cap the
+       request named.
+
+       Enforced HERE and not in the panel that draws the control, for the ordinary reason:
+       a limit the client applies is a limit the next client forgets. And enforced inside
+       the INSERT rather than as a SELECT followed by an INSERT, because two tabs pinning
+       at the same moment would both read two and both write, leaving four.
+
+       `WHERE` on the insert makes the count and the write one statement: the row lands
+       only if fewer than three are already pinned for this person. `rowCount` then says
+       whether it did, so the refusal is a fact about the database rather than a guess.
+       Unpinning skips the guard entirely — taking one away can never breach a maximum.
+    */
+    const written = await this.pool.query(
       `INSERT INTO conversation.conversation_preferences
          (principal_id, conversation_id, pinned, updated_at)
-       VALUES ($1, $2, $3, now())
+       SELECT $1, $2, $3, now()
+        WHERE $3 = false
+           OR (SELECT count(*) FROM conversation.conversation_preferences
+                WHERE principal_id = $1
+                  AND pinned
+                  AND conversation_id <> $2) < $4
        ON CONFLICT (principal_id, conversation_id) DO UPDATE
          SET pinned = EXCLUDED.pinned, updated_at = now()`,
-      [session.principalId, conversationId.data, parsed.data.pinned],
+      [session.principalId, conversationId.data, parsed.data.pinned, MAX_PINNED_CONVERSATIONS],
     );
+
+    if (written.rowCount === 0) {
+      /*
+         Not `refuse()`. §27.3's uniform refusal exists so that a probe cannot tell "you
+         may not see this" from "this does not exist" — it is about concealing the
+         EXISTENCE of a conversation. This is neither: the caller has already passed the
+         object check on a conversation they are in, and the only thing being withheld is
+         their own fourth pin. Answering "you have three" is the honest reply, and a bare
+         404 here would send the panel looking for a conversation that is plainly there.
+      */
+      return {
+        pinned: false,
+        limitReached: true,
+        maxPinned: MAX_PINNED_CONVERSATIONS,
+      };
+    }
 
     return { pinned: parsed.data.pinned };
   }

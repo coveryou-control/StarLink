@@ -24,7 +24,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import pg from 'pg';
 import { assertDatabaseAllowed } from '@starlink/database';
 import { hashPassword } from '@starlink/security';
-import { employeeRoutes } from '@starlink/shared-contracts';
+import { MAX_PINNED_CONVERSATIONS, employeeRoutes } from '@starlink/shared-contracts';
 
 const CONNECTION =
   process.env.SL_DATABASE_URL ?? 'postgres://starlink:starlink_dev_only@localhost:5432/starlink';
@@ -151,9 +151,41 @@ afterAll(async () => {
   if (pool === undefined) return;
   try {
     await pool.query(`DELETE FROM conversation.outbox WHERE aggregate_id = ANY($1::uuid[])`, [created]);
-    for (const table of ['messages', 'participants', 'read_state']) {
+    /* `conversation_preferences` carries an FK to `conversations`, so a pin left behind
+       blocks the delete below — and the failure surfaces in afterAll, where it reads as
+       the suite breaking rather than as a row this file forgot. */
+    for (const table of ['messages', 'participants', 'read_state', 'conversation_preferences']) {
       await pool.query(`DELETE FROM conversation.${table} WHERE conversation_id = ANY($1::uuid[])`, [created]);
     }
+    /*
+       Anything these three CREATED, not only what this run recorded.
+
+       `created` misses a conversation whose id never made it into the array — a test that
+       failed between the POST and the push, or an earlier run whose teardown threw partway
+       through. Those rows keep an FK on `identity.principals.created_by`, so the delete
+       below fails, and the failure is reported by afterAll on a run whose tests all
+       passed. Two runs were spent on that. The principals are this file's alone, so
+       "created by them" is a safe net to cast.
+    */
+    await pool.query(
+      `DELETE FROM conversation.conversation_preferences
+        WHERE principal_id = ANY($1::uuid[])
+           OR conversation_id IN (SELECT conversation_id FROM conversation.conversations
+                                   WHERE created_by = ANY($1::uuid[]))`,
+      [[ALICE, BOB, CARA]],
+    );
+    for (const table of ['outbox', 'messages', 'participants', 'read_state']) {
+      const key = table === 'outbox' ? 'aggregate_id' : 'conversation_id';
+      await pool.query(
+        `DELETE FROM conversation.${table}
+          WHERE ${key} IN (SELECT conversation_id FROM conversation.conversations
+                            WHERE created_by = ANY($1::uuid[]))`,
+        [[ALICE, BOB, CARA]],
+      );
+    }
+    await pool.query(`DELETE FROM conversation.conversations WHERE created_by = ANY($1::uuid[])`, [
+      [ALICE, BOB, CARA],
+    ]);
     await pool.query(`DELETE FROM conversation.conversations WHERE conversation_id = ANY($1::uuid[])`, [created]);
     await pool.query(`DELETE FROM identity.team_memberships WHERE team_id = $1`, [TEAM_ID]);
     await pool.query(`DELETE FROM identity.role_assignments WHERE principal_id = ANY($1::uuid[])`, [
@@ -458,5 +490,97 @@ describe('read receipts — the second tick', () => {
      */
     const theirs = await rowFor(cara);
     expect(theirs.lastMessageSenderId).toBe(ALICE);
+  }, 120_000);
+});
+
+/**
+ * Pinning, and the ceiling on it.
+ *
+ * A pinned list is only worth having while it is shorter than the list underneath it, so
+ * the cap is three. What is actually under test is WHERE that three lives: the limit is
+ * applied inside the statement that writes the preference, not read-then-written around
+ * it, because two tabs pinning at the same moment would each read two and each write,
+ * leaving four.
+ *
+ * The last case is the one that would survive a naive implementation — unpinning has to
+ * skip the guard entirely, or somebody at the ceiling can never get back under it.
+ */
+describe('pinning a conversation', () => {
+  it(`stops at ${MAX_PINNED_CONVERSATIONS} and lets you trade one for another`, async (ctx) => {
+    if (skipUnlessReady(ctx, 'the pin ceiling is unproven.')) return;
+
+    const alice = await signIn('alice');
+
+    /*
+       Alice starts with no pins.
+
+       Not tidiness — correctness. The subject here is a CEILING, so the test's result
+       depends on how many pins the account already has, and a row left behind by an
+       earlier run (or by another test in this file) makes the first pin fail and the
+       whole thing report a bug that is not there. It did exactly that once, when the
+       teardown below was still missing this table.
+    */
+    await pool!.query(`DELETE FROM conversation.conversation_preferences WHERE principal_id = $1`, [
+      ALICE,
+    ]);
+
+    /* One more group than the ceiling allows, so the last pin has to be refused. */
+    const conversations: string[] = [];
+    for (let index = 0; index <= MAX_PINNED_CONVERSATIONS; index += 1) {
+      const started = await post(employeeRoutes.conversations.create, alice, {
+        type: 'INTERNAL_GROUP',
+        participantIds: [BOB, CARA],
+        title: `Pin ceiling ${index} ${crypto.randomUUID().slice(0, 8)}`,
+      });
+      expect(started.status).toBe(201);
+      const { conversationId } = (await started.json()) as { conversationId: string };
+      conversations.push(conversationId);
+      created.push(conversationId);
+    }
+
+    const pin = async (conversationId: string, pinned: boolean): Promise<{
+      pinned: boolean;
+      limitReached?: boolean;
+    }> => {
+      const response = await fetch(
+        `${BASE}${employeeRoutes.conversations.preferences(conversationId)}`,
+        {
+          method: 'PUT',
+          headers: { 'content-type': 'application/json', cookie: alice },
+          body: JSON.stringify({ pinned }),
+        },
+      );
+      expect(response.status, 'a pin within the allowance was rejected outright').toBe(200);
+      return (await response.json()) as { pinned: boolean; limitReached?: boolean };
+    };
+
+    for (let index = 0; index < MAX_PINNED_CONVERSATIONS; index += 1) {
+      expect(await pin(conversations[index]!, true)).toMatchObject({ pinned: true });
+    }
+
+    /*
+       The one over. Not an HTTP error: the caller is allowed and the conversation exists,
+       they simply already have three — see the controller for why §27.3's uniform refusal
+       is the wrong answer here.
+    */
+    const overflow = await pin(conversations[MAX_PINNED_CONVERSATIONS]!, true);
+    expect(overflow.limitReached, 'a fourth pin was accepted').toBe(true);
+    expect(overflow.pinned).toBe(false);
+
+    /* And the database agrees, which is the claim that matters — a response saying
+       "refused" over a row that was written would pass every assertion above. */
+    const counted = await pool!.query(
+      `SELECT count(*)::int AS pinned
+         FROM conversation.conversation_preferences
+        WHERE principal_id = $1 AND pinned`,
+      [ALICE],
+    );
+    expect(counted.rows[0].pinned).toBe(MAX_PINNED_CONVERSATIONS);
+
+    /* Unpinning must not consult the ceiling, or somebody at it is stuck there. */
+    expect(await pin(conversations[0]!, false)).toMatchObject({ pinned: false });
+    expect(await pin(conversations[MAX_PINNED_CONVERSATIONS]!, true)).toMatchObject({
+      pinned: true,
+    });
   }, 120_000);
 });

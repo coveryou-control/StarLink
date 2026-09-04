@@ -16,7 +16,6 @@ import { ChatHeader } from '../../../components/chat-header';
 import { avatarFor, conversationLabel } from '../../../components/conversation-naming';
 import {
   ColleagueRole,
-  ConversationControls,
   EmployeeDetails,
   SharedFiles,
 } from '../../../components/conversation-info';
@@ -522,9 +521,20 @@ export default function ThreadPage(): ReactNode {
     };
   }, [isAnnouncement]);
 
+  /*
+     Search and details share the right column, and search wins while it is open.
+
+     They are the same slot deliberately. Search-in-conversation is a temporary task with
+     an obvious end, details is a reference panel — stacking them would give the thread a
+     third column at 1400px and none at 1200px, and putting search OVER the messages is
+     the thing specifically ruled out: they have to stay visible. Dismissing search
+     returns the details panel to whatever it was doing before.
+  */
+  const rightColumn = searchOpen ? 'search' : showDetails ? 'details' : undefined;
+
   return (
     <div
-      className={`thread-stage${showDetails ? ' details-open' : ' details-hidden'}`}
+      className={`thread-stage${rightColumn !== undefined ? ' details-open' : ' details-hidden'}`}
     >
     {/*
       `one-to-one` on the pane, so the stylesheet can drop the per-message avatar on a phone.
@@ -677,16 +687,6 @@ export default function ThreadPage(): ReactNode {
         />
       ) : null}
 
-      {searchOpen ? (
-        <div className="thread-search">
-          <ConversationSearch
-            conversationId={conversationId}
-            conversations={activeConversation === undefined ? [] : [activeConversation]}
-            onOpenConversation={() => setSearchOpen(false)}
-          />
-        </div>
-      ) : null}
-
       {/*
         SL-010's typing signal, with the colleague's NAME when we already have it.
 
@@ -771,7 +771,48 @@ export default function ThreadPage(): ReactNode {
       It opens with the thing it is about: the avatar at size and the conversation's name.
       A details panel that opens with a search field is a form.
     */}
-    {showDetails ? (
+    {/*
+      Search inside this conversation, in the column beside it.
+
+      It used to render between the message list and the composer, inside a
+      `.thread-search` div the stylesheet had no rule for at all — so it pushed the thread
+      up, took the composer with it, and was laid out by whatever the cascade happened to
+      give a bare div. As a panel it sits still and the messages stay exactly where they
+      were, which is the whole of the request.
+
+      The same component the list uses, given a conversation — the server has accepted a
+      conversation scope since the route was written, and nothing ever sent one.
+    */}
+    {searchOpen ? (
+      <aside className="details-drawer" aria-label="Search this conversation">
+        <header className="details-head">
+          <h2>Search</h2>
+          <button
+            type="button"
+            className="details-dismiss"
+            onClick={() => setSearchOpen(false)}
+            aria-label="Close search"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path
+                d="M6 6l12 12M18 6L6 18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </header>
+        <div className="details-body">
+          <ConversationSearch
+            conversationId={conversationId}
+            conversations={activeConversation === undefined ? [] : [activeConversation]}
+            onOpenConversation={() => setSearchOpen(false)}
+          />
+        </div>
+      </aside>
+    ) : showDetails ? (
       <aside className="details-drawer" aria-label={detailsTitle}>
         {/*
           The panel has no header of its own in the design — it is a column, and a column
@@ -810,7 +851,36 @@ export default function ThreadPage(): ReactNode {
             </button>
             <h2>{detailsTitle}</h2>
           </header>
-        ) : null}
+        ) : (
+          /*
+             At column width the panel used to have no dismiss at all: it was opened from
+             the chat header and closed from the same control, which means the way out is a
+             button in a different part of the screen from the thing being closed. Every
+             panel that can be opened needs a cross where panels keep one — its own
+             top-right corner — and this is that cross.
+
+             Absolute rather than a header row: the panel deliberately opens with the
+             avatar and the name (see above), and giving it a title bar to hang a button
+             from would undo that. It floats over the identity block's top padding, which
+             is empty space in every state.
+          */
+          <button
+            type="button"
+            className="details-dismiss"
+            onClick={() => setColumnHidden(true)}
+            aria-label={`Close ${detailsTitle.toLowerCase()}`}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path
+                d="M6 6l12 12M18 6L6 18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        )}
 
         <div className="details-body">
         <div className="details-identity">
@@ -919,31 +989,39 @@ export default function ThreadPage(): ReactNode {
             {isOneToOne ? <EmployeeDetails principalId={others[0]!.principalId} /> : null}
 
             {/*
-              ONE `Participants`, at one position in the tree, whichever kind of thread this
-              is — only `addOnly` changes.
+              Membership belongs to a GROUP, so the section is a group's alone.
 
-              It used to be two: a full one in the group branch and an add-only one nested in
-              a fragment beside the colleague's details. Adding a third person turns a
-              one-to-one into a group, so the add moved the component from one branch to the
-              other, React remounted it, and the confirmation it had just been given —
-              "E2E Colleague was added, they can now read 4 earlier messages" — vanished in
-              the same frame it appeared. BR-07's whole point is that the person is told what
-              their click exposed, and they were told for about 16 milliseconds.
+              A one-to-one used to carry an add-only version of it, on the reasoning that
+              adding a third person is how a direct message becomes a group and hiding the
+              control would take the capability away rather than tidy it. The capability is
+              still there — "New group" in the start panel, which is also where somebody
+              looking to talk to three people goes first — and what the panel loses is a
+              search field, a button and a confirmation paragraph in a column that is
+              otherwise about one named colleague.
 
-              On a one-to-one the member list and the rename are still absent: those restate
-              what the panel already says, and the rename is refused by the server. What
-              stays is the add, because it is a capability and the only place it starts.
+              It also removes a surprise. On a one-to-one, "add" silently changes what the
+              thread IS: the type flips to a group, the name changes from a person to a
+              list, and BR-07 exposes the whole history to the new arrival. That is a
+              reasonable thing to do deliberately from a "new group" flow and a strange
+              thing to offer inside a panel headed with somebody's face.
+
+              It stays ONE component at ONE position in the tree for groups. It used to be
+              two — a full one here and an add-only one nested beside the colleague's
+              details — and adding a third person moved the component between branches, so
+              React remounted it and the confirmation it had just rendered ("… they can now
+              read 4 earlier messages") vanished in the same frame it appeared.
             */}
-            <Participants
-              conversationId={conversationId}
-              addOnly={isOneToOne}
-              onChanged={() => {
-                // Both: the messages gain a membership note, and the SUMMARY gains a
-                // participant — which is what the header above is named from.
-                void refetch();
-                refreshConversations();
-              }}
-            />
+            {isGroup ? (
+              <Participants
+                conversationId={conversationId}
+                onChanged={() => {
+                  // Both: the messages gain a membership note, and the SUMMARY gains a
+                  // participant — which is what the header above is named from.
+                  void refetch();
+                  refreshConversations();
+                }}
+              />
+            ) : null}
           </>
         )}
 
@@ -959,19 +1037,19 @@ export default function ThreadPage(): ReactNode {
         <SharedFiles conversationId={conversationId} revision={messages.length} />
 
         {/*
-          The design's last section. It draws two switches; there is one, and
-          `ConversationControls` says why the other is absent rather than unbuilt.
+          No "Conversation" section any more, and no "Pin to top" switch in it.
 
-          Drawn from the SUMMARY the shell already holds, so opening the panel costs no extra
-          request and the switch cannot disagree with the list it sorts.
+          Pinning did not go away — it moved to where the thing being pinned actually is.
+          A pin reorders the LIST, and the list is two columns to the left of this panel;
+          setting it from here meant opening the conversation, opening its details, moving
+          a switch, and then looking somewhere else to see what happened. Right-clicking
+          the row does the same thing where the effect is visible, which is also where
+          every other list in every other application puts it.
+
+          `ConversationControls` and the `Switch` it was the only caller of are deleted
+          rather than left exported-but-unused: a component nothing renders is a component
+          the next person has to read before they can be sure of that.
         */}
-        {activeConversation !== undefined ? (
-          <ConversationControls
-            conversationId={conversationId}
-            pinned={activeConversation.pinned}
-            onChanged={refreshConversations}
-          />
-        ) : null}
         </div>
       </aside>
     ) : null}
