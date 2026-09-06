@@ -144,10 +144,14 @@ const svgFor = (ink, lineAlpha, starAlpha) => {
  * way through, and the first version was drawn at 0.5 on the assumption that something
  * would. It rendered as line art competing with the form — the opposite of a whisper.
  *
- * 0.22 in the palette's own indigo, not 0.1 in the old cool grey. It sits on a lavender
- * ground now rather than near-white, and a tenth of a colour close to the ground it is on
- * is nothing at all — the stars were present in the computed style and invisible on the
- * screen twice, once for this reason and once for the layer order.
+ * 0.16 in the sign-in page's own coral, not 0.1 in a cool grey. It sits on cream rather
+ * than near-white, and a tenth of a colour that close to the ground it is on is nothing at
+ * all — the stars were present in the computed style and invisible on the screen twice,
+ * once for this reason and once for the layer order (the FIRST background layer paints on
+ * top, so the wash has to be listed last).
+ *
+ * This is the sign-in trace only. `svgFor` above draws the chat wallpaper, which the
+ * product palette governs and which this does not touch.
  */
 const traceSvg = (ink, alpha) => {
   const points = [
@@ -263,7 +267,7 @@ writeFileSync(
      Its own coordinates rather than a crop of the tile: a crop lands wherever the tile's
      stars happen to fall, and half of them would be cut by the edge.
   */
-  --signin-trace: ${dataUri(traceSvg('#4a47e0', '0.22'))};
+  --signin-trace: ${dataUri(traceSvg('#b8412f', '0.16'))};
 }
 
 :root[data-theme='dark'] {

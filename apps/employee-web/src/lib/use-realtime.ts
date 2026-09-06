@@ -236,9 +236,30 @@ export function useRealtime({
      * pending backoff timer on one that is waiting. Neither bypasses the backoff for a
      * server that is genuinely down: the reconnect attempt this triggers fails like any
      * other and the backoff resumes.
+     *
+     * ## And a re-read, whether or not the socket noticed
+     *
+     * `connect()` alone is not enough, and the gap it leaves is the one rule 9 exists to
+     * cover. A short interruption — a lift, a tunnel, a Wi-Fi handover — frequently does
+     * NOT close the WebSocket: the frames in flight are dropped by the network while the
+     * connection itself stays open. Socket.IO then has nothing to report, `connect` never
+     * fires a second time, and the page, which re-reads only on `connect`, never re-reads.
+     * A message pushed during those few hundred milliseconds is gone until something else
+     * happens to refetch — and the conversation page is the one surface with no polling
+     * fallback, so on that page nothing else does.
+     *
+     * The heartbeat does not save it either: at `pingInterval` 25s + `pingTimeout` 20s a
+     * genuinely dead socket takes up to 45 seconds to be declared dead, and a socket that
+     * is merely missing frames is never declared dead at all.
+     *
+     * So the browser's own signal is treated as what it is — "you were disconnected and
+     * now you are not" — and the thread is re-read unconditionally. That is exactly rule
+     * 9: no state exists only in an event, and recovery is re-fetch. It costs one GET on
+     * a transition the OS reports only when it really happened.
      */
     const reconnectNow = (): void => {
       if (!socket.connected) socket.connect();
+      handlers.current.onRefetch?.();
     };
     const onVisible = (): void => {
       if (document.visibilityState === 'visible') reconnectNow();

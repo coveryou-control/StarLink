@@ -57,16 +57,6 @@
 @import './ds/radius.css';
 @import './ds/elevation.css';
 
-/*
-   PALETTE TRIAL — remove this ONE line to put the product back on CY Orange.
-
-   Asked for on 2026-09-04 as something to look at and possibly reject. It sits here, after
-   the design system and before the product's own rules, so it can override the ramp the
-   first supplies and be overridden by nothing. See the file for what it changes and why it
-   changes the ramp rather than the semantics.
-*/
-@import './palette-trial.css';
-
 /* -------------------------------------------------------------------------------------
    The bridge
 
@@ -6168,46 +6158,51 @@ input[type='search']::-webkit-search-cancel-button {
 /* =====================================================================================
    Sign in
 
-   The reference's own palette and pattern, applied directly: a lavender panel, a yellow
-   disc for the mark, white fields, an indigo pill, and a dark outline on every one of
-   them. Asked for explicitly on 2026-09-04 — "use the exact same colours and design
-   pattern" — which supersedes the earlier instruction not to take a reference's colours.
+   Warm cream and ivory, with CY Orange on the mark and a deeper shade of it on the button.
 
-   ## This screen does not use the product palette
+   ## Why this screen states its own colours
 
-   Everywhere else CY Orange is the one signal colour and rule 1 bounds where it may
-   appear. Here it appears nowhere: the accent is the reference's indigo and the mark's
-   tile is its yellow. That is a deliberate, isolated departure, and it is worth knowing
-   that somebody signing in meets one colour world and lands in another.
+   Three earlier versions of it borrowed a palette — a saturated lavender taken from a
+   reference, then a pastel lilac, then a set of `--pt-*` tokens from a product-wide palette
+   trial. The trial was revoked on 2026-09-04 and this screen was kept, so the borrowing had
+   to stop: a page that reads a palette which no longer exists renders whatever its
+   fallbacks happen to say, which is a different page from the one that was approved.
+
+   Every value below is therefore literal, and this block is the whole palette of the
+   screen. It is a deliberate, isolated departure — the rest of the product runs on the
+   design system's cool neutrals, and somebody signing in meets one colour world and lands
+   in another. Rule 1 still holds: orange appears here on the mark and the action, which is
+   exactly what a signal colour is for.
 
    ## Single-theme, on purpose
 
-   The palette below is fixed rather than tokenised, so the dark theme does not repaint
-   half of it and leave the other half. A committed look painted explicitly is honest;
-   the same look with three of its colours swapped by a media query is a bug waiting to
-   be reported. Every value is stated, so the page holds whatever the OS asks for.
+   Fixed rather than tokenised, so the dark theme cannot repaint half of it and leave the
+   other half. A committed look painted explicitly is honest; the same look with three of
+   its colours swapped by a media query is a bug waiting to be reported.
    ===================================================================================== */
 
 .signin {
-  /* The reference's ink, panel, disc and action. Named here so a change is one edit and
-     so the next reader can see the whole palette at a glance rather than hunting it. */
+  /* Warm dark brown rather than the product's near-black: on cream, a cool ink reads as a
+     screenshot of a different application pasted onto this one. */
+  --si-ink: #3a2c26;
+  --si-panel: #f6f3ef;
+  --si-cream: #fdfbf8;
+  --si-peach: #fdeee9;
+  /* The mark keeps the brand proper. A 30px letter clears the large-text threshold, so the
+     3.3:1 that rules CY Orange out for a label is not a problem for a monogram. */
+  --si-disc: var(--accent);
   /*
-     Lilac, pastel — a soft tint rather than the reference's saturated lavender.
+     A deeper shade of the brand for the button, not a different colour.
 
-     The panel is now close enough to white that the WHITE fields inside it stop being the
-     obvious targets they were, so they carry a slightly firmer hairline to compensate. The
-     text goes the other way: a pastel ground takes a darker ink than a saturated one before
-     it reads as low contrast, so the ink stays as it was and the subtitle's mix moves up.
-
-     The pill and the disc keep their saturation deliberately. A pastel page with a pastel
-     button has nothing to press; the two strong colours are what the softness is FOR.
+     White on CY Orange (#f05d49) is 3.3:1 — below AA for a 14px label, and a property of
+     the brand colour rather than of this screen. It is why the accent is a SIGNAL: a dot, a
+     badge, an icon. Non-text contrast only needs 3:1, so the send arrow and the compose
+     button are fine on it; a word is not. #b8412f is the same hue two steps down, and 5.5:1
+     against white.
   */
-  --si-ink: #16162b;
-  --si-panel: #e7e1f8;
-  --si-disc: #ffc61a;
-  --si-action: #4a47e0;
+  --si-action: #b8412f;
   --si-field: #ffffff;
-  --si-page: #f7f5fc;
+  --si-page: var(--si-cream);
 
   display: flex;
   flex-direction: column;
@@ -6238,7 +6233,7 @@ input[type='search']::-webkit-search-cancel-button {
   background-image:
     var(--signin-trace),
     var(--signin-trace),
-    linear-gradient(180deg, #ffffff 0%, var(--si-page) 44%, #ece7fa 100%);
+    linear-gradient(180deg, #ffffff 0%, var(--si-page) 44%, var(--si-peach) 100%);
   background-repeat: no-repeat;
   background-position:
     left -4rem bottom -5rem,
@@ -6281,7 +6276,7 @@ input[type='search']::-webkit-search-cancel-button {
      as dirt. Tinted and very soft: it lifts the panel without announcing that it is
      floating.
   */
-  box-shadow: 0 18px 44px -18px rgb(74 71 224 / 20%);
+  box-shadow: 0 18px 44px -18px color-mix(in srgb, var(--si-action) 22%, transparent);
 }
 
 /* ---------------------------------------------------------------------- masthead ---- */
@@ -6312,7 +6307,9 @@ input[type='search']::-webkit-search-cancel-button {
   margin-bottom: 22px;
   border: 0;
   background: var(--si-disc);
-  color: var(--si-ink);
+  /* White, not the ink: the disc is the one saturated fill on this page and a dark letter
+     on it would be the only low-contrast thing here. */
+  color: #ffffff;
 }
 
 .signin-masthead h1 {
@@ -6385,6 +6382,26 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--si-ink);
   font-size: 14.5px;
   transition: box-shadow 130ms var(--ease);
+}
+
+/*
+   The email field, restated at matching specificity.
+
+   The design system styles every bare text box — `input[type='text'], input[type='password'],
+   select, textarea { background: var(--surface) }` — and an attribute selector is (0,1,1),
+   one step above `.signin-control` at (0,1,0). So the class lost, and in dark mode the email
+   field painted itself near-black inside a white panel.
+
+   Only the email field: the password input is transparent inside a `.signin-control-group`
+   wrapper, and `.signin-control-group input` is (0,2,1), so it already won. One field styled
+   and its twin not is exactly the shape of bug a single-theme page is supposed to prevent,
+   and it survived three redesigns because nobody opened this screen in dark mode.
+
+   `input.signin-control` is (0,1,1) and comes later in the sheet, so it takes the tie.
+*/
+input.signin-control {
+  background: var(--si-field);
+  color: var(--si-ink);
 }
 
 .signin-control::placeholder {
@@ -6543,7 +6560,7 @@ input[type='search']::-webkit-search-cancel-button {
      used. That block was the same language as the 2px strokes; with the strokes gone it
      read as a dropped shadow somebody forgot to delete.
   */
-  box-shadow: 0 8px 20px -8px rgb(74 71 224 / 55%);
+  box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--si-action) 45%, transparent);
   transition:
     box-shadow 90ms var(--ease),
     transform 90ms var(--ease);
@@ -6559,7 +6576,7 @@ input[type='search']::-webkit-search-cancel-button {
 /* Pressed, it settles: down a pixel and the lift goes with it. */
 .signin-submit:active:not(:disabled) {
   transform: translateY(1px);
-  box-shadow: 0 3px 10px -6px rgb(74 71 224 / 55%);
+  box-shadow: 0 3px 10px -6px color-mix(in srgb, var(--si-action) 45%, transparent);
 }
 
 .signin-submit:disabled {
