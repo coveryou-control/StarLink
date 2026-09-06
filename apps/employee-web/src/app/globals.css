@@ -6818,6 +6818,9 @@ input.signin-control {
      card's top near 264, so the two do not touch. */
   .signin-canvas {
     height: min(34%, 280px);
+    /* Nudged off the left edge. The star sits at 17% across the artwork, and at this scale
+       that lands its left point exactly on the viewport edge — visible, but shaved. */
+    left: 4%;
   }
 
   .signin-stage {

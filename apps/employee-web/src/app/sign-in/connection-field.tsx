@@ -40,7 +40,7 @@ const W = 1440;
 const H = 900;
 
 /** The star's centre, measured off the reference and scaled into this viewBox. */
-const STAR = { x: 286, y: 432 };
+const STAR = { x: 244, y: 432 };
 
 /**
  * Half-width and half-height of the sharp body.
@@ -48,8 +48,8 @@ const STAR = { x: 286, y: 432 };
  * `STAR_RY / STAR_RX` is 1.28 — only slightly taller than wide. Below 1 it stops being a
  * star; much above 1.4 it becomes a needle.
  */
-const STAR_RX = 146;
-const STAR_RY = 187;
+const STAR_RX = 128;
+const STAR_RY = 164;
 
 /** Deterministic, so server and client draw the same picture. */
 function mulberry32(seed: number): () => number {
@@ -266,28 +266,64 @@ export function ConnectionField(): ReactNode {
           <stop offset="100%" stopColor="#a99bee" stopOpacity="0" />
         </linearGradient>
 
-        {/* `userSpaceOnUse` with an explicit region: the default -10%/120% filter box clips
-            a blur this wide and leaves a visible square edge around the glow. */}
-        <filter id="sf-bloom" filterUnits="userSpaceOnUse" x="-40" y="60" width="720" height="760">
+        {/*
+           `userSpaceOnUse` with an explicit region: the default -10%/120% filter box clips a
+           blur this wide and leaves a visible square edge around the glow.
+
+           The regions are DERIVED from the star rather than written as literals. They were
+           literals, positioned around where the star happened to sit — so moving or resizing
+           it silently cropped the glow against an invisible box, which is a bug that looks
+           like a design decision. `PAD` is generous because a blur needs roughly three
+           standard deviations of room.
+        */}
+        <filter
+          id="sf-bloom"
+          filterUnits="userSpaceOnUse"
+          x={STAR.x - STAR_RX - 160}
+          y={STAR.y - STAR_RY - 160}
+          width={STAR_RX * 2 + 320}
+          height={STAR_RY * 2 + 320}
+        >
           <feGaussianBlur stdDeviation="26" />
         </filter>
-        <filter id="sf-soft" filterUnits="userSpaceOnUse" x="20" y="120" width="580" height="640">
+        <filter
+          id="sf-soft"
+          filterUnits="userSpaceOnUse"
+          x={STAR.x - STAR_RX - 40}
+          y={STAR.y - STAR_RY - 40}
+          width={STAR_RX * 2 + 80}
+          height={STAR_RY * 2 + 80}
+        >
           <feGaussianBlur stdDeviation="3.2" />
         </filter>
-        <filter id="sf-crisp" filterUnits="userSpaceOnUse" x="60" y="160" width="500" height="560">
+        <filter
+          id="sf-crisp"
+          filterUnits="userSpaceOnUse"
+          x={STAR.x - STAR_RX - 16}
+          y={STAR.y - STAR_RY - 16}
+          width={STAR_RX * 2 + 32}
+          height={STAR_RY * 2 + 32}
+        >
           <feGaussianBlur stdDeviation="1.1" />
         </filter>
         <filter id="sf-ribbon" filterUnits="userSpaceOnUse" x="0" y="-100" width={W + 220} height={H + 200}>
           <feGaussianBlur stdDeviation="16" />
         </filter>
-        <filter id="sf-streak" filterUnits="userSpaceOnUse" x="-60" y="180" width={W} height="520">
+        <filter
+          id="sf-streak"
+          filterUnits="userSpaceOnUse"
+          x={STAR.x - 520}
+          y={STAR.y - 300}
+          width="1100"
+          height="600"
+        >
           <feGaussianBlur stdDeviation="3.5" />
         </filter>
       </defs>
 
       {/* Light first, so everything else sits inside it. */}
-      <ellipse cx={STAR.x - 10} cy={STAR.y} rx="340" ry="270" fill="url(#sf-bloom-c)" />
-      <ellipse cx={STAR.x + 120} cy={STAR.y + 40} rx="270" ry="230" fill="url(#sf-bloom-v)" />
+      <ellipse cx={STAR.x - 10} cy={STAR.y} rx={STAR_RX * 2.3} ry={STAR_RY * 1.45} fill="url(#sf-bloom-c)" />
+      <ellipse cx={STAR.x + STAR_RX * 0.82} cy={STAR.y + 40} rx={STAR_RX * 1.85} ry={STAR_RY * 1.25} fill="url(#sf-bloom-v)" />
 
       {/*
          Faint orbital rings.
@@ -296,8 +332,8 @@ export function ConnectionField(): ReactNode {
          flat. They give the star somewhere to be.
       */}
       <g fill="none" stroke="#8f7bd8" strokeOpacity="0.09">
-        <circle cx={STAR.x + 40} cy={STAR.y} r="196" />
-        <circle cx={STAR.x + 40} cy={STAR.y} r="150" strokeOpacity="0.06" />
+        <circle cx={STAR.x + 40} cy={STAR.y} r={STAR_RY * 1.19} />
+        <circle cx={STAR.x + 40} cy={STAR.y} r={STAR_RY * 0.91} strokeOpacity="0.06" />
       </g>
 
       <g fill="none" strokeLinecap="round" filter="url(#sf-ribbon)" opacity="0.5">
@@ -353,12 +389,12 @@ export function ConnectionField(): ReactNode {
 
       {/* The flare through the core. */}
       <g filter="url(#sf-streak)">
-        <rect x={STAR.x - 430} y={STAR.y - 1.8} width="860" height="3.6" fill="url(#sf-streak-h)" />
-        <rect x={STAR.x - 2} y={STAR.y - 260} width="4" height="520" fill="url(#sf-streak-v)" />
+        <rect x={STAR.x - 380} y={STAR.y - 1.8} width="760" height="3.6" fill="url(#sf-streak-h)" />
+        <rect x={STAR.x - 2} y={STAR.y - 230} width="4" height="460" fill="url(#sf-streak-v)" />
       </g>
 
       {/* The core itself. */}
-      <ellipse cx={STAR.x} cy={STAR.y} rx="44" ry="44" fill="url(#sf-core)" opacity="0.8" />
+      <ellipse cx={STAR.x} cy={STAR.y} rx={STAR_RX * 0.3} ry={STAR_RX * 0.3} fill="url(#sf-core)" opacity="0.8" />
       <path
         d={sparkle(STAR.x, STAR.y, STAR_RX * 0.2, STAR_RY * 0.17, 0.1, 0.34)}
         fill="#ffffff"
