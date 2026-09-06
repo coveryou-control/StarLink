@@ -48,8 +48,8 @@ const STAR = { x: 202, y: 432 };
  * `STAR_RY / STAR_RX` is 1.28 — only slightly taller than wide. Below 1 it stops being a
  * star; much above 1.4 it becomes a needle.
  */
-const STAR_RX = 110;
-const STAR_RY = 141;
+const STAR_RX = 96;
+const STAR_RY = 123;
 
 /** Deterministic, so server and client draw the same picture. */
 function mulberry32(seed: number): () => number {
@@ -85,10 +85,24 @@ function strand(endY: number, sway: number, rng: () => number): Strand {
   const c2y = endY - sway * 0.55;
 
   const warm = rng() > 0.5;
-  // The pinch sits at the star's right point, as the reference has it. Started from the
-  // centre, the trails emerge from inside the body and the star looks punctured.
-  const startX = STAR.x + STAR_RX * 0.9 + rng() * 40;
-  const startY = STAR.y + (rng() - 0.5) * 16;
+  /*
+     Every trail begins at the star's right POINT — the same coordinate, no jitter.
+
+     It was `STAR_RX * 0.9` plus up to 40 units of randomness, which put some strands inside
+     the body and others clear of the tip with a gap between. The bundle then read as a
+     separate object floating beside the star rather than as light leaving it, and the join
+     was the first thing the eye went to.
+
+     Nothing is lost by pinning them: they diverge immediately afterwards because their
+     control points still vary, so the fan is as varied as before and only the origin is
+     shared. A shape and the lines leaving it have to actually touch.
+  */
+  // A shade INSIDE the point, not exactly on it. The flank is concave, so the last few
+  // units of the point are a hairline — ending the trails precisely at `STAR_RX` left a
+  // visible gap where the star had already tapered to nothing but the lines had not yet
+  // begun. Overlapping by seven per cent puts the convergence under solid colour.
+  const startX = STAR.x + STAR_RX * 0.93;
+  const startY = STAR.y;
 
   // The reference carries about fifteen nodes across the field; at one-in-three strands
   // there were six, and the right half read as empty line-work.
@@ -130,7 +144,7 @@ const RIBBONS: { d: string; stroke: string }[] = (() => {
     const endY = t * H;
     const sway = (i % 2 === 0 ? 1 : -1) * (140 + rng() * 220);
     return {
-      d: `M ${(STAR.x + 40).toFixed(1)} ${STAR.y} C ${(STAR.x + 420).toFixed(1)} ${(STAR.y + (rng() - 0.5) * 50).toFixed(1)}, ${(1000 + rng() * 200).toFixed(1)} ${(endY - sway).toFixed(1)}, ${(W + 170).toFixed(1)} ${endY.toFixed(1)}`,
+      d: `M ${(STAR.x + STAR_RX * 0.93).toFixed(1)} ${STAR.y} C ${(STAR.x + 420).toFixed(1)} ${(STAR.y + (rng() - 0.5) * 50).toFixed(1)}, ${(1000 + rng() * 200).toFixed(1)} ${(endY - sway).toFixed(1)}, ${(W + 170).toFixed(1)} ${endY.toFixed(1)}`,
       stroke: i % 2 === 0 ? 'url(#sf-warm)' : 'url(#sf-cool)',
     };
   });
