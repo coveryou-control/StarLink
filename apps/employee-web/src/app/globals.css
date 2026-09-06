@@ -6285,19 +6285,20 @@ input[type='search']::-webkit-search-cancel-button {
 /* ---------------------------------------------------------------------------- stage --- */
 
 /*
-   Three columns: the lede under the star, the form centre-right, and a narrower margin
-   beyond it. The third column is what makes it centre-RIGHT rather than right — flush to
-   the edge, a card stops floating and starts being a sidebar.
+   Three columns, and the outer two are now EQUAL, so the card sits on the page's centre
+   line rather than right of it. It was `0.46fr` on the right, which pushed it toward the
+   edge; the star moved further left to make room for the change instead of the card
+   staying put and the star being cropped.
 
    `minmax(0, …)` on the outer two because a grid track sized from content refuses to go
    below its longest word, and the lede's "CONVERSATIONS" would then set a floor that
-   pushes the card off-centre on a narrow window.
+   pushes the card off-centre on a narrow window — the exact fault this is meant to avoid.
 */
 .signin-stage {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 424px minmax(0, 0.46fr);
+  grid-template-columns: minmax(0, 1fr) 424px minmax(0, 1fr);
   align-items: center;
   gap: clamp(24px, 4vw, 64px);
   width: 100%;

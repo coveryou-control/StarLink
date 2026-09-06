@@ -40,7 +40,7 @@ const W = 1440;
 const H = 900;
 
 /** The star's centre, measured off the reference and scaled into this viewBox. */
-const STAR = { x: 244, y: 432 };
+const STAR = { x: 202, y: 432 };
 
 /**
  * Half-width and half-height of the sharp body.
@@ -48,8 +48,8 @@ const STAR = { x: 244, y: 432 };
  * `STAR_RY / STAR_RX` is 1.28 — only slightly taller than wide. Below 1 it stops being a
  * star; much above 1.4 it becomes a needle.
  */
-const STAR_RX = 128;
-const STAR_RY = 164;
+const STAR_RX = 110;
+const STAR_RY = 141;
 
 /** Deterministic, so server and client draw the same picture. */
 function mulberry32(seed: number): () => number {
