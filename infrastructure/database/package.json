@@ -27,7 +27,7 @@
     "@starlink/notifications": "workspace:*",
     "@starlink/shared-contracts": "workspace:*",
     "@starlink/sla": "workspace:*",
-    "drizzle-orm": "^0.38.2",
+    "drizzle-orm": "^0.45.2",
     "pg": "^8.13.1"
   },
   "devDependencies": {
