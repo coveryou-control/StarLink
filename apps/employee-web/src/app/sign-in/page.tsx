@@ -84,31 +84,25 @@ export default function SignInPage(): ReactNode {
     <main className="signin">
       <ConnectionField />
 
-      {/* The masthead belongs to the PAGE, not to the card: the product names itself once,
-          at the top left, the way a product does. Repeating the mark inside the card as
-          well would be the same logo twice on one screen. */}
+      {/* The wordmark, top left, as the reference places it. The mark appears again inside
+          the card — also as the reference places it, and the two are doing different jobs:
+          this one says whose product this is, the one on the card says what you are signing
+          in to. */}
       <header className="signin-brandbar">
         <span className="signin-wordmark">
           <BrandMark size={30} />
           StarLink
         </span>
-        {/* Three facts, not three claims. Each one is true of the product as built, and
-            none of them is a number nobody has signed off (rule 10). */}
-        <span className="signin-assurances">
-          <span>Internal only</span>
-          <span aria-hidden="true">·</span>
-          <span>Company directory</span>
-          <span aria-hidden="true">·</span>
-          <span>Encrypted in transit</span>
-        </span>
       </header>
 
       <div className="signin-stage">
         {/*
-          The left column reads as a caption to the star rather than as a second heading.
-          It is `aria-hidden`: it says nothing a screen reader needs and repeating the
-          product name three times before reaching the form is a worse experience, not a
-          richer one.
+          Four words beside the star, and nothing else in this column.
+
+          The larger "welcome" block that sat here is gone: it was marketing copy competing
+          with the star for the left third, and the graphic establishes the identity on its
+          own. `aria-hidden` because it says nothing a screen reader needs, and hearing the
+          product named three times before reaching the form is worse, not richer.
         */}
         <aside className="signin-lede" aria-hidden="true">
           <p className="signin-tags">
@@ -117,7 +111,6 @@ export default function SignInPage(): ReactNode {
             <span>Conversations</span>
             <span>All connected</span>
           </p>
-          <p className="signin-lede-title">A more connected way to work.</p>
         </aside>
 
         {/* Card and its footnote are one column, so the note sits under the form it
@@ -125,6 +118,7 @@ export default function SignInPage(): ReactNode {
         <div className="signin-column">
         <div className="signin-panel">
         <header className="signin-masthead">
+          <BrandMark size={46} />
           <h1>Welcome back</h1>
           <p>Sign in to your CoverYou work account to continue to StarLink.</p>
         </header>
@@ -326,14 +320,6 @@ export default function SignInPage(): ReactNode {
         </div>
       </div>
 
-      {/* The bottom-right anchor. Purely compositional — it balances the lede at the
-          opposite corner, and without it the lower half of a very wide window is empty on
-          one side and not the other. */}
-      <p className="signin-mark" aria-hidden="true">
-        Same people
-        <br />
-        Bigger possibilities
-      </p>
     </main>
   );
 }

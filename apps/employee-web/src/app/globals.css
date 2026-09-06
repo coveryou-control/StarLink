@@ -6228,9 +6228,16 @@ input[type='search']::-webkit-search-cancel-button {
   grid-template-rows: auto 1fr auto;
   min-height: 100vh;
   padding: 26px clamp(20px, 4vw, 56px) 28px;
-  /* The strands run off every edge by design; without this they would extend the document
-     and give a page with nothing to scroll a scrollbar. */
-  overflow: hidden;
+  /*
+     Horizontal only.
+
+     The trails run off both side edges by design, and without this they would widen the
+     document and fail NFR-MOB-4's no-sideways-scroll rule. `overflow: hidden` on both axes
+     did that too — and CLIPPED the page vertically, so on a small screen where the card is
+     pushed below the graphic the bottom of the form simply could not be reached. Vertical
+     resolves to auto, which is what a phone needs.
+  */
+  overflow-x: hidden;
   background: var(--si-page);
   color: var(--si-ink);
 }
@@ -6275,27 +6282,6 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--si-ink);
 }
 
-/*
-   Three facts about the product, set as quietly as possible.
-
-   Not a feature list and not a promise: "internal only" and "company directory" are true of
-   the build, and "encrypted in transit" is a property of the transport rather than a claim
-   about anything awaiting sign-off (rule 10). Anything about uptime or availability would
-   be a number nobody has agreed, so there is none.
-*/
-.signin-assurances {
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  font-size: 12px;
-  letter-spacing: 0.005em;
-  color: var(--si-muted);
-}
-
-.signin-assurances span[aria-hidden] {
-  color: var(--si-line-strong);
-}
-
 /* ---------------------------------------------------------------------------- stage --- */
 
 /*
@@ -6335,12 +6321,16 @@ input[type='search']::-webkit-search-cancel-button {
    with a caption fallen to the floor.
 */
 .signin-lede {
-  align-self: stretch;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
+  align-self: start;
   max-width: 300px;
-  padding: clamp(8px, 4vh, 40px) 0 clamp(12px, 6vh, 62px);
+  /*
+     Held well clear of the wordmark above it.
+
+     At 6px the four words sat directly under the logo and read as part of it — a strapline
+     nobody wrote. Dropped to roughly a fifth of the viewport they belong to the star
+     instead, which is what they are about, and the top-left corner has one thing in it.
+  */
+  padding-top: clamp(28px, 9vh, 96px);
 }
 
 .signin-tags {
@@ -6353,30 +6343,6 @@ input[type='search']::-webkit-search-cancel-button {
   letter-spacing: 0.17em;
   text-transform: uppercase;
   color: var(--si-muted);
-}
-
-/* A short rule instead of a bullet: the four words are one thought, and anything heavier
-   between them and the line below would make two. */
-.signin-lede-title {
-  position: relative;
-  margin: 0;
-  padding-top: 20px;
-  font-size: 21px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 1.32;
-  color: var(--si-ink);
-}
-
-.signin-lede-title::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 34px;
-  height: 2px;
-  border-radius: 2px;
-  background: var(--si-action);
 }
 
 /* --------------------------------------------------------------------------- column --- */
@@ -6422,13 +6388,18 @@ input[type='search']::-webkit-search-cancel-button {
 
 /* ------------------------------------------------------------------------- masthead --- */
 
-/*
-   No mark inside the card. It is already at the top left of the page, and a product that
-   names itself twice on one screen reads as a template with a logo slot.
-*/
 .signin-masthead {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   margin-bottom: 26px;
   text-align: center;
+}
+
+/* The mark sits above the heading, as the reference has it. `.brand-mark` sets its own
+   size inline, so only the spacing is set here. */
+.signin-masthead .brand-mark {
+  margin-bottom: 18px;
 }
 
 .signin-masthead h1 {
@@ -6729,30 +6700,7 @@ input.signin-control {
   color: var(--si-subtle);
 }
 
-/*
-   The bottom-right anchor.
 
-   Purely compositional: it balances the lede at the opposite corner, and on a very wide
-   window its absence leaves the lower half weighted to one side. Absolutely positioned so
-   it cannot affect the stage's centring, and dropped entirely below the width where the
-   two corners stop being corners.
-*/
-.signin-mark {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  max-width: var(--si-measure);
-  margin: 18px auto 0;
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  line-height: 1.7;
-  text-align: right;
-  text-transform: uppercase;
-  color: var(--si-subtle);
-}
-
-/* -------------------------------------------------------------- arriving on the page --- */
 
 /*
    One moment of motion: the card settles, and the graphic fades up behind it a little
@@ -6769,8 +6717,7 @@ input.signin-control {
   }
 
   .signin-lede,
-  .signin-brandbar,
-  .signin-mark {
+  .signin-brandbar {
     animation: signin-fade 520ms var(--ease) 80ms both;
   }
 }
@@ -6821,11 +6768,6 @@ input.signin-control {
     grid-column: 1;
   }
 
-  .signin-assurances,
-  .signin-mark {
-    display: none;
-  }
-
   /*
      The canvas becomes a BAND above the card, rather than a full-bleed layer.
 
@@ -6844,6 +6786,13 @@ input.signin-control {
     height: min(44%, 380px);
     width: 100%;
     opacity: 0.92;
+  }
+
+  /* The card clears the band rather than sitting on it. Centred in the leftover space it
+     rode up over the star's lower half, which reads as an accident rather than as depth. */
+  .signin-stage {
+    align-items: start;
+    padding-top: clamp(120px, 26vh, 270px);
   }
 }
 
@@ -6865,10 +6814,14 @@ input.signin-control {
     font-size: 22px;
   }
 
-  /* Shallower still, so the star clears the top of the card rather than sitting behind it:
-     on a 390x844 screen the card begins around 196px, and this puts the star near 150. */
+  /* Shallower still. On a 390x844 screen this puts the star's lower point near 190 and the
+     card's top near 264, so the two do not touch. */
   .signin-canvas {
-    height: min(38%, 320px);
+    height: min(34%, 280px);
+  }
+
+  .signin-stage {
+    padding-top: clamp(96px, 22vh, 200px);
   }
 }
 

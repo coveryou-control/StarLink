@@ -1,39 +1,49 @@
 /**
- * The sign-in canvas: conversations arriving from the right and converging into one star.
+ * The sign-in canvas: light trails flowing in from the right, converging into the StarLink
+ * star on the left.
  *
- * ## Why this is drawn rather than tiled
+ * ## The star is the subject, and its proportion is the whole thing
  *
- * Everywhere else in the product the constellation is a repeating 340px tile, because a
- * chat background has to survive being any size and must never draw attention. This is the
- * opposite brief: one composition, seen once, at a known scale, whose whole job is to be
- * looked at. A tile cannot converge on anything — every 340px it starts again — so the
- * figure the page is built around is impossible to express that way.
+ * A four-point star with deep concave flanks, TALLER than it is wide — about 1:1.7. That
+ * ratio is the thing to protect. An earlier version made it 3.5:1 the other way, reasoning
+ * that long horizontal arms would echo the trails arriving on the same axis. It was wrong:
+ * stretched horizontally the shape stops reading as a star and starts reading as a lens
+ * flare, and a mark nobody recognises at a glance is no foundation for a logo. The arms do
+ * still reach along the horizontal — as LIGHT (the wash below), not as geometry.
  *
- * ## Why the geometry is computed and not hand-authored path data
+ * One shape with a gradient across it, not two overlapping shapes. Coral enters at the left
+ * point, violet leaves at the right, and they meet at a white core, so the two brand colours
+ * are one object rather than a coral star sitting beside an indigo one.
  *
- * Fourteen curves with varying trajectories are unreadable and unmaintainable as literal
- * cubic Béziers, and hand-drawn ones would not actually converge: the reason the lines look
- * intentional is that every one of them genuinely terminates at the star's centre and
- * approaches it along a flattening tangent. That is three lines of arithmetic and a
- * paragraph of explanation, or four hundred characters of coordinates nobody can revise.
+ * ## The trails
  *
- * `mulberry32` seeded with a constant gives the variation without randomness: the same
- * fourteen curves on the server and on the client, every render. `Math.random()` here would
- * be a hydration mismatch, and a different picture on every reload.
+ * Nine, not fourteen, and light trails rather than a wireframe: broad smooth curves with a
+ * long, nearly-horizontal approach, over three very wide and very faint ribbons that give
+ * the field depth. A handful of nodes, no more — a node on every line is a network diagram.
  *
- * ## Scale
+ * ## Why the geometry is computed
  *
- * Authored in a 1440x900 viewBox and sliced, so the composition is anchored rather than
- * stretched — `preserveAspectRatio` keeps the star's proportions at every window shape and
- * lets the right-hand ends of the lines run off the edge, which is where they should go.
+ * `mulberry32` seeded with a constant gives variation without randomness: the same picture
+ * on the server and on the client, every render. `Math.random()` here would be a hydration
+ * mismatch and a different page on every reload. Nine hand-authored curves would be four
+ * hundred characters of coordinates nobody can revise.
  */
 import type { ReactNode } from 'react';
 
 const W = 1440;
 const H = 900;
 
-/** The point everything arrives at. Left third, slightly above centre. */
-const STAR = { x: 344, y: 430 };
+/** The star's centre. Left fifth, a little above the vertical middle. */
+const STAR = { x: 302, y: 438 };
+
+/**
+ * Half-width and half-height.
+ *
+ * `STAR_RY / STAR_RX` is about 1.7, and it must stay greater than one. This single ratio
+ * decides whether the mark reads as a star or as a smear.
+ */
+const STAR_RX = 108;
+const STAR_RY = 172;
 
 /** Deterministic, so server and client draw the same picture. */
 function mulberry32(seed: number): () => number {
@@ -52,66 +62,60 @@ interface Strand {
   width: number;
   opacity: number;
   stroke: string;
-  /** Where along the curve a node sits, or none. Nodes are punctuation, not decoration. */
   node?: number;
 }
 
 /**
- * One curve from off the right edge to the star.
+ * One light trail, from off the right edge to the star.
  *
- * The second control point is pinned near the star and on its horizontal axis, which is
- * what makes the arrival read as convergence: whatever the line did on its way across, it
- * flattens into the star's own axis in the last stretch. Without that they merely end in
- * the same place, like spokes, and the figure looks like a wheel instead of a confluence.
+ * The second control point sits far to the RIGHT of the star, and that distance is what
+ * makes the arrival read as convergence rather than as a starburst: whatever the curve did
+ * on its way across, its last stretch is long and nearly horizontal, so the nine run almost
+ * parallel as they close and merge into the star instead of pointing at it.
  */
 function strand(startY: number, sway: number, rng: () => number): Strand {
-  // The first control point stays near the start height, so a line keeps its own altitude
-  // across the right half instead of turning for the star the moment it appears.
-  const c1x = 1080 + rng() * 220;
-  const c1y = startY + sway * 0.5;
+  const c1x = 1000 + rng() * 240;
+  const c1y = startY + sway;
+  const c2x = STAR.x + 560 + rng() * 320;
+  const c2y = STAR.y + (rng() - 0.5) * 40;
+  const endX = STAR.x + 26 + rng() * 40;
+  const endY = STAR.y + (rng() - 0.5) * 22;
 
-  /*
-     The second control point is far to the RIGHT of the star — six to nine hundred units —
-     and that distance is the whole difference between convergence and a starburst.
-
-     Pinned close to the star (the first attempt used +150) every curve turns hard in its
-     last stretch and the fourteen of them arrive as spokes: the figure reads as an
-     explosion radiating outward rather than as traffic flowing in. Pushed far out, the
-     approach is long and nearly horizontal, the lines run almost parallel as they close,
-     and they merge into the star instead of pointing at it.
-  */
-  const c2x = STAR.x + 620 + rng() * 300;
-  const c2y = STAR.y + (rng() - 0.5) * 30;
-
-  const warm = rng() > 0.44;
-  // A shade short of the exact centre, spread slightly, so fourteen strokes do not stack
-  // into one dark knot at a single coordinate.
-  const endX = STAR.x + 6 + rng() * 26;
-  const endY = STAR.y + (rng() - 0.5) * 14;
-
+  const warm = rng() > 0.45;
   return {
-    d: `M ${W + 120} ${startY.toFixed(1)} C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${endX.toFixed(1)} ${endY.toFixed(1)}`,
-    width: 0.6 + rng() * 0.7,
-    opacity: 0.17 + rng() * 0.26,
+    d: `M ${W + 140} ${startY.toFixed(1)} C ${c1x.toFixed(1)} ${c1y.toFixed(1)}, ${c2x.toFixed(1)} ${c2y.toFixed(1)}, ${endX.toFixed(1)} ${endY.toFixed(1)}`,
+    width: 0.9 + rng() * 0.9,
+    opacity: 0.3 + rng() * 0.32,
     stroke: warm ? 'url(#sf-warm)' : 'url(#sf-cool)',
-    ...(rng() > 0.52 ? { node: 0.3 + rng() * 0.36 } : {}),
+    ...(rng() > 0.62 ? { node: 0.3 + rng() * 0.34 } : {}),
   };
 }
 
 const STRANDS: Strand[] = (() => {
   const rng = mulberry32(20260906);
   const out: Strand[] = [];
-  // Spread beyond the top and bottom edges: lines that all begin inside the frame look
-  // like a diagram of themselves. These come from somewhere off-screen.
-  for (let i = 0; i < 14; i += 1) {
-    const t = i / 13;
-    const startY = -140 + t * (H + 280);
-    // Alternating sway, scaled by distance from the vertical middle, so the curves nearest
-    // the star's own height stay calm and the outer ones take the long way round.
-    const sway = (i % 2 === 0 ? -1 : 1) * (90 + Math.abs(t - 0.5) * 460) * (0.55 + rng() * 0.7);
+  for (let i = 0; i < 9; i += 1) {
+    const t = i / 8;
+    const startY = -120 + t * (H + 240);
+    // Alternating sway, larger the further a trail starts from the star's own height, so
+    // the middle ones stay calm and the outer ones take the long way round.
+    const sway = (i % 2 === 0 ? -1 : 1) * (110 + Math.abs(t - 0.5) * 420) * (0.6 + rng() * 0.6);
     out.push(strand(startY, sway, rng));
   }
   return out;
+})();
+
+/** The wide, faint ribbons behind the trails. Depth, not detail. */
+const RIBBONS: { d: string; stroke: string }[] = (() => {
+  const rng = mulberry32(77001);
+  return [0.24, 0.5, 0.78].map((t, i) => {
+    const startY = t * H;
+    const sway = (i === 1 ? -1 : 1) * (160 + rng() * 200);
+    return {
+      d: `M ${W + 160} ${startY.toFixed(1)} C ${(1040 + rng() * 160).toFixed(1)} ${(startY + sway).toFixed(1)}, ${(STAR.x + 620).toFixed(1)} ${(STAR.y + (rng() - 0.5) * 60).toFixed(1)}, ${(STAR.x + 40).toFixed(1)} ${STAR.y}`,
+      stroke: i === 1 ? 'url(#sf-cool)' : 'url(#sf-warm)',
+    };
+  });
 })();
 
 /** Cubic Bézier evaluation, to place a node ON its line rather than near it. */
@@ -132,29 +136,26 @@ function pointAt(d: string, t: number): { x: number; y: number } {
 }
 
 /**
- * A four-point star with concave flanks, drawn from unit geometry.
+ * A four-point star with deep concave flanks, from a centre and two radii.
  *
- * The horizontal radius is much the larger of the two, which is what makes it read as a
- * star of light on an axis rather than a diamond — and it is the same axis the lines
- * arrive on, so the figure and the strands are one shape rather than two.
+ * `waist` is the fraction of each radius at which a flank passes closest to the centre.
+ * Small values pinch the shape to needle points; at 0.13 it bulges into a dented diamond.
+ * 0.045 is a star.
  */
-function sparkle(cx: number, cy: number, rx: number, ry: number): string {
-  /*
-     The waist. At 0.13 the flanks bulge and the shape reads as a diamond with dented
-     sides; at 0.05 they pinch to needle points and it reads as light. This single number
-     is the difference between a star and a blob, and it wants to be small.
-  */
-  const wx = rx * 0.05;
-  const wy = ry * 0.05;
+function sparkle(cx: number, cy: number, rx: number, ry: number, waist = 0.055): string {
+  const wx = rx * waist;
+  const wy = ry * waist;
   return [
     `M ${cx} ${cy - ry}`,
-    `C ${cx + wx} ${cy - wy * 2.4}, ${cx + rx * 0.28} ${cy - wy}, ${cx + rx} ${cy}`,
-    `C ${cx + rx * 0.28} ${cy + wy}, ${cx + wx} ${cy + wy * 2.4}, ${cx} ${cy + ry}`,
-    `C ${cx - wx} ${cy + wy * 2.4}, ${cx - rx * 0.28} ${cy + wy}, ${cx - rx} ${cy}`,
-    `C ${cx - rx * 0.28} ${cy - wy}, ${cx - wx} ${cy - wy * 2.4}, ${cx} ${cy - ry}`,
+    `C ${cx + wx} ${cy - wy * 2.6}, ${cx + rx * 0.26} ${cy - wy}, ${cx + rx} ${cy}`,
+    `C ${cx + rx * 0.26} ${cy + wy}, ${cx + wx} ${cy + wy * 2.6}, ${cx} ${cy + ry}`,
+    `C ${cx - wx} ${cy + wy * 2.6}, ${cx - rx * 0.26} ${cy + wy}, ${cx - rx} ${cy}`,
+    `C ${cx - rx * 0.26} ${cy - wy}, ${cx - wx} ${cy - wy * 2.6}, ${cx} ${cy - ry}`,
     'Z',
   ].join(' ');
 }
+
+const STAR_PATH = sparkle(STAR.x, STAR.y, STAR_RX, STAR_RY);
 
 export function ConnectionField(): ReactNode {
   return (
@@ -166,59 +167,90 @@ export function ConnectionField(): ReactNode {
       focusable="false"
     >
       <defs>
-        {/* Coral into indigo along the direction of travel, so a strand changes hue as it
-            approaches — the two brand colours meeting at the star rather than sitting
-            beside each other. */}
+        {/* Coral in, violet out, along the direction of travel — a trail changes hue as it
+            approaches and arrives the colour of the side of the star it meets. */}
         <linearGradient id="sf-warm" x1="1" y1="0" x2="0" y2="0">
           <stop offset="0%" stopColor="#f05d49" stopOpacity="0" />
-          <stop offset="32%" stopColor="#f05d49" stopOpacity="0.9" />
-          <stop offset="82%" stopColor="#e0533f" stopOpacity="1" />
+          <stop offset="30%" stopColor="#f05d49" stopOpacity="0.85" />
+          <stop offset="80%" stopColor="#ec5138" stopOpacity="1" />
           <stop offset="100%" stopColor="#7b5cd6" stopOpacity="1" />
         </linearGradient>
         <linearGradient id="sf-cool" x1="1" y1="0" x2="0" y2="0">
-          <stop offset="0%" stopColor="#6f5bd0" stopOpacity="0" />
-          <stop offset="38%" stopColor="#6f5bd0" stopOpacity="0.75" />
+          <stop offset="0%" stopColor="#7161d8" stopOpacity="0" />
+          <stop offset="36%" stopColor="#6f5bd0" stopOpacity="0.7" />
           <stop offset="100%" stopColor="#5b47c4" stopOpacity="1" />
         </linearGradient>
 
-        <radialGradient id="sf-bloom-warm">
-          <stop offset="0%" stopColor="#f05d49" stopOpacity="0.2" />
-          <stop offset="45%" stopColor="#f8a08f" stopOpacity="0.07" />
+        {/*
+           The star's own ramp, left to right across its extents.
+
+           `userSpaceOnUse` with the star's real coordinates, so the ramp is anchored to the
+           shape rather than to whatever bounding box each layer happens to have — the glow
+           copy is larger, and object-space coordinates would slide the colours across it
+           and leave the halo a different colour from the star inside it.
+        */}
+        <linearGradient
+          id="sf-star"
+          gradientUnits="userSpaceOnUse"
+          x1={STAR.x - STAR_RX}
+          y1={STAR.y}
+          x2={STAR.x + STAR_RX}
+          y2={STAR.y}
+        >
+          {/* Coral holds a little over half. Balanced at 50/50 the vertical arms both fell
+              on the transition and the whole body read violet, with coral surviving only in
+              the leftmost point — the reference gives coral the larger share and keeps the
+              violet concentrated to the right of the core. */}
+          <stop offset="0%" stopColor="#ee4726" />
+          <stop offset="30%" stopColor="#f35c3c" />
+          <stop offset="48%" stopColor="#f07a63" />
+          <stop offset="60%" stopColor="#a87ade" />
+          <stop offset="78%" stopColor="#6a4cd8" />
+          <stop offset="100%" stopColor="#4b33c0" />
+        </linearGradient>
+
+        {/* The horizontal light the star sits in: the arms reaching along the axis the
+            trails travel, as glow rather than as geometry. */}
+        <radialGradient id="sf-wash">
+          <stop offset="0%" stopColor="#f8836d" stopOpacity="0.4" />
+          <stop offset="42%" stopColor="#c9a9ec" stopOpacity="0.16" />
           <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
         </radialGradient>
-        <radialGradient id="sf-bloom-cool">
-          <stop offset="0%" stopColor="#6b52d8" stopOpacity="0.17" />
-          <stop offset="55%" stopColor="#a99bee" stopOpacity="0.06" />
+        <radialGradient id="sf-halo">
+          <stop offset="0%" stopColor="#8e6ce6" stopOpacity="0.26" />
           <stop offset="100%" stopColor="#ffffff" stopOpacity="0" />
         </radialGradient>
 
-        {/* The glow. `userSpaceOnUse` with an explicit region because the default -10%/120%
-            filter box clips a blur this wide and leaves a visible square edge. */}
-        <filter id="sf-glow" filterUnits="userSpaceOnUse" x="0" y="140" width="900" height="580">
-          <feGaussianBlur stdDeviation="9" />
+        {/* `userSpaceOnUse` with an explicit region: the default -10%/120% filter box clips
+            a blur this wide and leaves a visible square edge around the glow. */}
+        <filter id="sf-bloom" filterUnits="userSpaceOnUse" x="20" y="100" width="620" height="680">
+          <feGaussianBlur stdDeviation="22" />
         </filter>
-        <filter id="sf-glow-tight" filterUnits="userSpaceOnUse" x="60" y="230" width="700" height="400">
-          <feGaussianBlur stdDeviation="2.4" />
+        <filter id="sf-sharp" filterUnits="userSpaceOnUse" x="100" y="160" width="440" height="560">
+          <feGaussianBlur stdDeviation="2.2" />
+        </filter>
+        <filter id="sf-ribbon" filterUnits="userSpaceOnUse" x="0" y="0" width={W + 200} height={H}>
+          <feGaussianBlur stdDeviation="14" />
         </filter>
       </defs>
 
-      {/* Bloom first, so everything else sits in its light. */}
-      <ellipse cx={STAR.x + 10} cy={STAR.y} rx="360" ry="200" fill="url(#sf-bloom-warm)" />
-      <ellipse cx={STAR.x + 170} cy={STAR.y + 8} rx="320" ry="170" fill="url(#sf-bloom-cool)" />
+      {/* Light first, so everything else sits inside it. */}
+      <ellipse cx={STAR.x + 30} cy={STAR.y} rx="520" ry="120" fill="url(#sf-wash)" />
+      <ellipse cx={STAR.x + 96} cy={STAR.y} rx="250" ry="190" fill="url(#sf-halo)" />
 
-      <g fill="none" strokeLinecap="round">
-        {STRANDS.map((s, i) => (
-          <path
-            key={i}
-            d={s.d}
-            stroke={s.stroke}
-            strokeWidth={s.width}
-            strokeOpacity={s.opacity}
-          />
+      <g fill="none" strokeLinecap="round" filter="url(#sf-ribbon)" opacity="0.55">
+        {RIBBONS.map((r, i) => (
+          <path key={`r${i}`} d={r.d} stroke={r.stroke} strokeWidth="34" strokeOpacity="0.24" />
         ))}
       </g>
 
-      {/* Nodes: a handful of points where a line carries something. Placed ON the curve. */}
+      <g fill="none" strokeLinecap="round">
+        {STRANDS.map((s, i) => (
+          <path key={i} d={s.d} stroke={s.stroke} strokeWidth={s.width} strokeOpacity={s.opacity} />
+        ))}
+      </g>
+
+      {/* A few nodes, placed ON their curve. Punctuation, not annotation. */}
       <g>
         {STRANDS.map((s, i) => {
           if (s.node === undefined) return null;
@@ -229,37 +261,32 @@ export function ConnectionField(): ReactNode {
               key={`n${i}`}
               cx={p.x}
               cy={p.y}
-              r={2.6}
+              r={3}
               fill={warm ? '#f05d49' : '#6a54d4'}
-              fillOpacity={0.72}
+              fillOpacity={0.75}
             />
           );
         })}
       </g>
 
-      {/* The star: a blurred double underneath doing the glowing, a crisp one on top doing
-          the drawing. One shape trying to do both is either soft or hard, never lit. */}
       {/*
-         ONE star, lit from two sides — not a coral shape beside an indigo one.
+         The star: three passes of one path.
 
-         Two things make it read as a single object rather than a pair of fins. The centres
-         sit close together (±26, where ±100 read as two shapes that happen to touch), so
-         the lobes interpenetrate and the white core belongs to both. And the vertical
-         radius is roughly a quarter of the horizontal: a tall star is a diamond, and it
-         was the height, more than anything else, that made the first attempt look like a
-         butterfly rather than a point of light on the same axis the strands travel.
+         A wide blurred copy is the glow, a barely-blurred copy is the body, and a small
+         bright core sits on top. One shape trying to be all three is either soft or hard,
+         never lit.
       */}
-      <g filter="url(#sf-glow)" opacity="0.5">
-        <path d={sparkle(STAR.x - 26, STAR.y, 268, 80)} fill="#f0563f" />
-        <path d={sparkle(STAR.x + 30, STAR.y, 178, 70)} fill="#5f45d4" />
+      <g filter="url(#sf-bloom)" opacity="0.62">
+        <path d={sparkle(STAR.x, STAR.y, STAR_RX * 1.1, STAR_RY * 1.06)} fill="url(#sf-star)" />
       </g>
-      <g filter="url(#sf-glow-tight)">
-        <path d={sparkle(STAR.x - 20, STAR.y, 250, 70)} fill="#f4674f" fillOpacity="0.9" />
-        <path d={sparkle(STAR.x + 26, STAR.y, 164, 60)} fill="#6448d8" fillOpacity="0.86" />
+      <g filter="url(#sf-sharp)">
+        <path d={STAR_PATH} fill="url(#sf-star)" />
       </g>
-      {/* The core. Small and bright: the arms are the shape, this is the light source. */}
-      <path d={sparkle(STAR.x, STAR.y, 152, 40)} fill="#ffffff" fillOpacity="0.45" />
-      <path d={sparkle(STAR.x, STAR.y, 44, 19)} fill="#ffffff" fillOpacity="0.96" />
+      <path
+        d={sparkle(STAR.x, STAR.y, STAR_RX * 0.3, STAR_RY * 0.3, 0.07)}
+        fill="#ffffff"
+        fillOpacity="0.95"
+      />
     </svg>
   );
 }
