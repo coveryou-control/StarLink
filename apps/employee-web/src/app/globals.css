@@ -6158,91 +6158,80 @@ input[type='search']::-webkit-search-cancel-button {
 /* =====================================================================================
    Sign in
 
-   Warm cream and ivory, with CY Orange on the mark and a deeper shade of it on the button.
+   One wide, quiet canvas. Connections arrive from the right edge and converge into a
+   single star on the left; the form sits centre-right, floating above them.
 
-   ## Why this screen states its own colours
+   ## The composition, and why the thirds are where they are
 
-   Three earlier versions of it borrowed a palette — a saturated lavender taken from a
-   reference, then a pastel lilac, then a set of `--pt-*` tokens from a product-wide palette
-   trial. The trial was revoked on 2026-09-04 and this screen was kept, so the borrowing had
-   to stop: a page that reads a palette which no longer exists renders whatever its
-   fallbacks happen to say, which is a different page from the one that was approved.
+   The star sits at 24% across and the card's centre at about 62%. They occupy different
+   thirds on purpose — a focal graphic and a form competing for the same part of the page
+   is the failure mode of every "illustrated" sign-in screen, and the usual fix, dimming
+   the graphic until it is wallpaper, wastes it. Separated, both can be at full strength:
+   the eye lands on the star, travels the lines, and arrives at the form.
 
-   Every value below is therefore literal, and this block is the whole palette of the
-   screen. It is a deliberate, isolated departure — the rest of the product runs on the
-   design system's cool neutrals, and somebody signing in meets one colour world and lands
-   in another. Rule 1 still holds: orange appears here on the mark and the action, which is
-   exactly what a signal colour is for.
+   The card is translucent with a blur behind it rather than opaque. That is what makes it
+   read as floating AMONG the lines instead of a rectangle pasted on top of them — the
+   strands stay faintly visible through it and the page is one image rather than two.
+
+   ## This screen states its own palette
+
+   Literal values, as they have been since the palette trial was revoked. The ink is a deep
+   indigo-black rather than the product's neutral, because the graphic is coral and indigo
+   and a neutral grey beside them looks like a third, accidental colour.
 
    ## Single-theme, on purpose
 
-   Fixed rather than tokenised, so the dark theme cannot repaint half of it and leave the
-   other half. A committed look painted explicitly is honest; the same look with three of
-   its colours swapped by a media query is a bug waiting to be reported.
+   Fixed rather than tokenised, so a dark OS cannot repaint half of it and leave the other
+   half. `e2e/sign-in-appearance.spec.ts` holds that to be true in both themes.
+
+   ## Contrast
+
+   Every pair here is measured, not judged. Two are worth knowing about:
+
+   - The action is `#cf4429`, not CY Orange. White on `#f05d49` is 3.30:1 and fails AA for
+     a label at any weight this size — a property of the brand colour, not of this screen,
+     and the reason the accent is a signal rather than a surface. `#cf4429` is the same hue
+     deepened to 4.65:1 and still unmistakably coral.
+   - "Forgot password?" is `#c8402b` at 4.97:1, for the same reason.
+
+   The mark and the graphic keep CY Orange at full strength: neither carries text.
    ===================================================================================== */
 
 .signin {
-  /* Warm dark brown rather than the product's near-black: on cream, a cool ink reads as a
-     screenshot of a different application pasted onto this one. */
-  --si-ink: #3a2c26;
-  --si-panel: #f6f3ef;
-  --si-cream: #fdfbf8;
-  --si-peach: #fdeee9;
-  /* The mark keeps the brand proper. A 30px letter clears the large-text threshold, so the
-     3.3:1 that rules CY Orange out for a label is not a problem for a monogram. */
-  --si-disc: var(--accent);
-  /*
-     A deeper shade of the brand for the button, not a different colour.
-
-     White on CY Orange (#f05d49) is 3.3:1 — below AA for a 14px label, and a property of
-     the brand colour rather than of this screen. It is why the accent is a SIGNAL: a dot, a
-     badge, an icon. Non-text contrast only needs 3:1, so the send arrow and the compose
-     button are fine on it; a word is not. #b8412f is the same hue two steps down, and 5.5:1
-     against white.
-  */
-  --si-action: #b8412f;
+  --si-ink: #1c1a2e;
+  --si-muted: #5f5c73;
+  --si-subtle: #6e6a80;
+  --si-line: rgb(28 26 46 / 10%);
+  --si-line-strong: rgb(28 26 46 / 20%);
+  --si-card: rgb(255 255 255 / 92%);
   --si-field: #ffffff;
-  --si-page: var(--si-cream);
+  --si-page: #fbfbfd;
+  --si-action: #cf4429;
+  --si-link: #c8402b;
 
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  position: relative;
+  /* Its own stacking context, so the canvas at z-index 0 cannot slide behind the page's
+     background and vanish, and nothing outside has to know these z-indexes exist. */
+  isolation: isolate;
+  /*
+     One measure for the whole page.
+
+     The brand bar used to run the full width while the stage was capped at 1360 and
+     centred, so on a 1920 window the wordmark sat at the page's edge and the lede beneath
+     it started 220px further in. Two different left margins on the same screen read as a
+     mistake, because they are one. Everything now shares `--si-measure`, so the wordmark,
+     the tags and the closing line all begin on the same vertical.
+  */
+  --si-measure: 1360px;
+
+  display: grid;
+  grid-template-rows: auto 1fr auto;
   min-height: 100vh;
-  padding: var(--space-6) var(--space-5);
-  /*
-     A sky, not a flat fill.
-
-     Flat lavender behind a lavender panel gave the page nothing to be: the panel floated on
-     a slightly paler version of itself and the product's own figure was missing entirely
-     from the one screen that introduces it. So the constellation is back — the sparse
-     non-repeating trace, mirrored to both lower corners, over a wash that lifts towards the
-     top so the panel sits in light and the stars sit in the dark below it.
-
-     Still no tile. Two placed traces and a gradient, all `no-repeat`; the thing that made
-     the earlier version busy was the 250px repeat, not the stars.
-  */
-  background-color: var(--si-page);
-  /*
-     Order matters, and it is the reverse of reading order: the FIRST layer paints on top.
-
-     The gradient was listed first and buried both traces under an opaque wash — the stars
-     were there in the computed style and invisible on the screen. The wash is the backdrop,
-     so it goes last.
-  */
-  background-image:
-    var(--signin-trace),
-    var(--signin-trace),
-    linear-gradient(180deg, #ffffff 0%, var(--si-page) 44%, var(--si-peach) 100%);
-  background-repeat: no-repeat;
-  background-position:
-    left -4rem bottom -5rem,
-    right -4rem bottom -2rem,
-    0 0;
-  background-size:
-    30rem 30rem,
-    26rem 26rem,
-    100% 100%;
+  padding: 26px clamp(20px, 4vw, 56px) 28px;
+  /* The strands run off every edge by design; without this they would extend the document
+     and give a page with nothing to scroll a scrollbar. */
+  overflow: hidden;
+  background: var(--si-page);
   color: var(--si-ink);
 }
 
@@ -6252,85 +6241,214 @@ input[type='search']::-webkit-search-cancel-button {
   }
 }
 
-/*
-   The panel.
+/* The drawn field. Decorative, inert, and behind everything. */
+.signin-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
 
-   A 2px outline in the ink, a generous radius, and no shadow — the outline IS the
-   elevation in this language, and adding a shadow underneath would be two different
-   systems saying the same thing.
+/* ------------------------------------------------------------------------ brand bar --- */
+
+.signin-brandbar {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: var(--si-measure);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.signin-wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 640;
+  letter-spacing: -0.015em;
+  color: var(--si-ink);
+}
+
+/*
+   Three facts about the product, set as quietly as possible.
+
+   Not a feature list and not a promise: "internal only" and "company directory" are true of
+   the build, and "encrypted in transit" is a property of the transport rather than a claim
+   about anything awaiting sign-off (rule 10). Anything about uptime or availability would
+   be a number nobody has agreed, so there is none.
+*/
+.signin-assurances {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12px;
+  letter-spacing: 0.005em;
+  color: var(--si-muted);
+}
+
+.signin-assurances span[aria-hidden] {
+  color: var(--si-line-strong);
+}
+
+/* ---------------------------------------------------------------------------- stage --- */
+
+/*
+   Three columns: the lede under the star, the form centre-right, and a narrower margin
+   beyond it. The third column is what makes it centre-RIGHT rather than right — flush to
+   the edge, a card stops floating and starts being a sidebar.
+
+   `minmax(0, …)` on the outer two because a grid track sized from content refuses to go
+   below its longest word, and the lede's "CONVERSATIONS" would then set a floor that
+   pushes the card off-centre on a narrow window.
+*/
+.signin-stage {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 424px minmax(0, 0.46fr);
+  align-items: center;
+  gap: clamp(24px, 4vw, 64px);
+  width: 100%;
+  max-width: var(--si-measure);
+  margin: 0 auto;
+}
+
+/*
+   The lede sits BELOW the star, not beside it.
+
+   Level with the star it would be text laid over a glow — unreadable at the top of its
+   range and fighting the focal point for the same square inches. Underneath, it reads as
+   the caption the star does not have.
+*/
+/*
+   The lede is split, not stacked.
+
+   Both halves at the bottom made one block of text in a corner, disconnected from the star
+   it is meant to caption. Held apart — the four words high, the line low — they bracket the
+   star instead, and the left third reads as one composed column rather than as a graphic
+   with a caption fallen to the floor.
+*/
+.signin-lede {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  max-width: 300px;
+  padding: clamp(8px, 4vh, 40px) 0 clamp(12px, 6vh, 62px);
+}
+
+.signin-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--si-muted);
+}
+
+/* A short rule instead of a bullet: the four words are one thought, and anything heavier
+   between them and the line below would make two. */
+.signin-lede-title {
+  position: relative;
+  margin: 0;
+  padding-top: 20px;
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.32;
+  color: var(--si-ink);
+}
+
+.signin-lede-title::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 34px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--si-action);
+}
+
+/* --------------------------------------------------------------------------- column --- */
+
+.signin-column {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+/*
+   The card.
+
+   Translucent over a blur, so the strands remain faintly visible through it. The border is
+   almost nothing and the shadow is three layers rather than one: a hairline contact shadow,
+   a short mid shadow, and a very wide soft one. A single large blur reads as a sticker;
+   the stack is what makes an object look like it is a few millimetres off the page.
 */
 .signin-panel {
   display: flex;
   flex-direction: column;
-  width: 100%;
-  max-width: 392px;
-  padding: 36px 32px 32px;
-  border: 0;
-  border-radius: 26px;
-  background: var(--si-panel);
-  /*
-     A shadow in the panel's own hue, where the outline used to be.
-
-     With the border gone the panel needs SOMETHING to separate it from a page painted in
-     a paler version of the same colour, and a grey shadow under a lavender object reads
-     as dirt. Tinted and very soft: it lifts the panel without announcing that it is
-     floating.
-  */
-  box-shadow: 0 18px 44px -18px color-mix(in srgb, var(--si-action) 22%, transparent);
+  padding: 38px 34px 30px;
+  border: 1px solid rgb(255 255 255 / 70%);
+  border-radius: 20px;
+  background: var(--si-card);
+  backdrop-filter: blur(20px) saturate(1.35);
+  box-shadow:
+    0 0 0 1px rgb(28 26 46 / 4%),
+    0 2px 4px rgb(28 26 46 / 3%),
+    0 14px 30px -14px rgb(28 26 46 / 12%),
+    0 46px 90px -40px rgb(28 26 46 / 20%);
 }
 
-/* ---------------------------------------------------------------------- masthead ---- */
+/* Where the blur is unavailable the card must not become a pale ghost of itself: it goes
+   opaque instead, which is the honest fallback rather than a translucent card over an
+   un-blurred graphic. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .signin-panel {
+    background: rgb(255 255 255 / 98%);
+  }
+}
 
+/* ------------------------------------------------------------------------- masthead --- */
+
+/*
+   No mark inside the card. It is already at the top left of the page, and a product that
+   names itself twice on one screen reads as a template with a logo slot.
+*/
 .signin-masthead {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
   margin-bottom: 26px;
-}
-
-/*
-   The mark becomes the reference's yellow disc.
-
-   `.brand-mark` is a near-black squircle with a coral letter, and it is overridden only
-   here — the rail, the panel masthead and every other place it appears keep the product's
-   own mark. A circle rather than the squircle because the reference draws a circle, and
-   the letter takes the ink so it reads on yellow.
-*/
-/*
-   Colours only. The size and the radius come from the component's own inline style —
-   `<BrandMark size={64} round />` — because inline beats a class, and a stylesheet trying
-   to resize or round this off does nothing at all. The first attempt did exactly that and
-   produced a yellow tile at the wrong size and the wrong shape.
-*/
-.signin-masthead .brand-mark {
-  margin-bottom: 22px;
-  border: 0;
-  background: var(--si-disc);
-  /* White, not the ink: the disc is the one saturated fill on this page and a dark letter
-     on it would be the only low-contrast thing here. */
-  color: #ffffff;
+  text-align: center;
 }
 
 .signin-masthead h1 {
   margin: 0 0 8px;
-  font-size: 23px;
-  font-weight: 680;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
+  font-size: 25px;
+  font-weight: 660;
+  letter-spacing: -0.024em;
+  line-height: 1.18;
   color: var(--si-ink);
 }
 
 .signin-masthead p {
-  margin: 0;
-  font-size: 13px;
+  margin: 0 auto;
+  max-width: 30ch;
+  font-size: 13.5px;
   line-height: 1.5;
-  /* The ink at 78%, up from 72%: the ground lightened, so the same mix would have read
-     paler than it did rather than the same. */
-  color: color-mix(in srgb, var(--si-ink) 78%, transparent);
+  color: var(--si-muted);
 }
 
-/* -------------------------------------------------------------------------- form ---- */
+/* ----------------------------------------------------------------------------- form --- */
 
 .signin-form {
   display: flex;
@@ -6341,24 +6459,18 @@ input[type='search']::-webkit-search-cancel-button {
 .signin-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
 }
 
-/*
-   Labels, which the reference does not have.
-
-   It draws two bare boxes. Placeholders are not labels — they vanish the moment somebody
-   types, they are announced inconsistently, and a form relying on them fails NFR-ACC-1.
-   So the labels stay, in the ink, sized down so they sit under the pattern rather than
-   fighting it.
-*/
 .signin-label {
   font-size: 12.5px;
-  font-weight: 620;
+  font-weight: 600;
   letter-spacing: -0.005em;
   color: var(--si-ink);
 }
 
+/* `baseline`, not `center`: the label and the link differ in size and weight, and centring
+   them leaves the smaller one looking as though it has slipped. */
 .signin-label-row {
   display: flex;
   align-items: baseline;
@@ -6366,46 +6478,39 @@ input[type='search']::-webkit-search-cancel-button {
   gap: var(--space-3);
 }
 
+/*
+   Both fields wear this, and both are now wrappers rather than one wrapper and one bare
+   input — see the note in `page.tsx`. The surface is drawn here; the input inside is
+   transparent.
+*/
 .signin-control {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   width: 100%;
   height: 46px;
-  padding: 0 14px;
-  /* A firmer hairline than the saturated version needed. White on lavender was almost
-     enough on its own; white on pastel lilac is nearly white on white, so the edge has to
-     do the work the fill no longer does. */
-  border: 1px solid color-mix(in srgb, var(--si-ink) 16%, transparent);
-  border-radius: 10px;
+  padding: 0 13px;
+  border: 1px solid var(--si-line);
+  border-radius: 11px;
   background: var(--si-field);
   color: var(--si-ink);
   font-size: 14.5px;
-  transition: box-shadow 130ms var(--ease);
+  box-shadow: 0 1px 2px rgb(28 26 46 / 4%);
+  transition:
+    border-color 140ms var(--ease),
+    box-shadow 140ms var(--ease);
 }
 
-/*
-   The email field, restated at matching specificity.
-
-   The design system styles every bare text box — `input[type='text'], input[type='password'],
-   select, textarea { background: var(--surface) }` — and an attribute selector is (0,1,1),
-   one step above `.signin-control` at (0,1,0). So the class lost, and in dark mode the email
-   field painted itself near-black inside a white panel.
-
-   Only the email field: the password input is transparent inside a `.signin-control-group`
-   wrapper, and `.signin-control-group input` is (0,2,1), so it already won. One field styled
-   and its twin not is exactly the shape of bug a single-theme page is supposed to prevent,
-   and it survived three redesigns because nobody opened this screen in dark mode.
-
-   `input.signin-control` is (0,1,1) and comes later in the sheet, so it takes the tie.
-*/
+/* Kept for a bare input, should one ever return: the design system styles those at (0,1,1)
+   and would otherwise win. Structurally unnecessary today, one line, and the difference
+   between the bug being impossible and being one refactor away. */
 input.signin-control {
   background: var(--si-field);
   color: var(--si-ink);
 }
 
 .signin-control::placeholder {
-  color: color-mix(in srgb, var(--si-ink) 42%, transparent);
+  color: var(--si-subtle);
 }
 
 .signin-control-group input {
@@ -6420,39 +6525,64 @@ input.signin-control {
 }
 
 .signin-control-group input::placeholder {
-  color: color-mix(in srgb, var(--si-ink) 42%, transparent);
+  color: var(--si-subtle);
+}
+
+/* The glyph at the head of each field. Decorative — the label says what the field is. */
+.signin-adornment {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--si-subtle);
+  transition: color 140ms var(--ease);
 }
 
 /*
-   Focus is a hard offset shadow, not a soft ring.
+   Focus: the border takes the action colour, a soft ring appears outside it, and the glyph
+   lights with it. Three quiet signals rather than one loud one — a border colour alone is a
+   change somebody with low colour acuity may miss, and a ring alone reads as a browser
+   default.
 
-   A blurred halo is the wrong grammar for a palette drawn in flat colour and 2px strokes —
-   it reads as a different design system leaking in. An offset block in the ink is the same
-   language as the outlines, and it moves the field rather than glowing around it.
+   This is the one place the product keeps a ring on a text field. `data-pointer` suppresses
+   them elsewhere because `:focus-visible` matches a MOUSE click on an input (see
+   `input-modality.ts`); the two fields that are the entire point of the screen are the
+   exception.
 */
-.signin-control:focus-within,
-.signin-control:focus-visible {
-  /* A soft ring in the accent, matching the rest of the product's focus treatment now that
-     the hard offset block has gone with the outlines. */
-  border-color: var(--si-action);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--si-action) 20%, transparent);
-  outline: none;
+.signin-control:focus-within {
+  border-color: color-mix(in srgb, var(--si-action) 55%, transparent);
+  box-shadow:
+    0 1px 2px rgb(28 26 46 / 4%),
+    0 0 0 3.5px color-mix(in srgb, var(--si-action) 13%, transparent);
+}
+
+.signin-control:focus-within .signin-adornment {
+  color: var(--si-action);
 }
 
 .signin-control-group input:focus-visible {
+  /* The GROUP shows focus; a second ring inside the first reads as two controls. */
   outline: none;
 }
 
+/*
+   A text button that is not a link and does not want to be noticed.
+
+   "Show" stays a word rather than becoming the reference's eye glyph. An eye is ambiguous
+   in exactly the place ambiguity is expensive — it shows the same icon whether the password
+   is visible or hidden unless it is carefully crossed — and the word is both the state and
+   the action. `aria-pressed` carries it for a screen reader either way.
+*/
 .signin-quiet {
   flex: none;
   padding: 0;
   height: auto;
   border: 0;
   background: transparent;
-  color: color-mix(in srgb, var(--si-ink) 70%, transparent);
-  font-size: 12px;
-  font-weight: 600;
-  transition: color 120ms var(--ease);
+  color: var(--si-muted);
+  font-size: 12.5px;
+  font-weight: 550;
+  transition: color 130ms var(--ease);
 }
 
 .signin-quiet:hover,
@@ -6460,36 +6590,48 @@ input.signin-control {
   color: var(--si-ink);
 }
 
-.signin-help {
-  margin: -4px 0 0;
-  padding: 10px 12px;
-  border: 0;
-  border-radius: 10px;
-  background: var(--si-field);
-  font-size: 12px;
-  line-height: 1.5;
+/* "Forgot password?" carries the action's hue, because it is the only other thing on the
+   card somebody might be looking for. Deepened to 4.97:1 — CY Orange as text is 3.30:1. */
+.signin-label-row .signin-quiet {
+  color: var(--si-link);
+}
+
+.signin-label-row .signin-quiet:hover,
+.signin-label-row .signin-quiet:focus-visible {
   color: var(--si-ink);
 }
 
-/* --------------------------------------------------------------------- remember ---- */
+.signin-help {
+  margin: -4px 0 0;
+  padding: 11px 13px;
+  border: 1px solid var(--si-line);
+  border-radius: 10px;
+  background: rgb(255 255 255 / 72%);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--si-muted);
+}
+
+/* ------------------------------------------------------------------------- remember --- */
 
 .signin-remember {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 10px;
+  margin-top: 2px;
   font-size: 12.5px;
-  font-weight: 500;
-  color: var(--si-ink);
+  color: var(--si-muted);
   cursor: pointer;
 }
 
 /*
    Hidden from sight, NOT from the pointer.
 
-   The 1px `pointer-events: none` version made the real control unactuatable: only a click
-   landing on the label worked, and nothing driving the page could tick it. It keeps its hit
-   area and is simply transparent, over the box it controls.
+   The usual 1px `pointer-events: none` trick made the real control unactuatable: only a
+   click landing on the label worked, and nothing driving the page — the browser suite, a
+   password manager — could tick it at all. It keeps its hit area and is simply transparent,
+   laid over the box it controls.
 */
 .signin-remember input {
   position: absolute;
@@ -6507,134 +6649,226 @@ input.signin-control {
   justify-content: center;
   width: 18px;
   height: 18px;
-  border: 1.5px solid color-mix(in srgb, var(--si-ink) 34%, transparent);
-  border-radius: 5px;
+  border: 1px solid var(--si-line-strong);
+  border-radius: 6px;
   background: var(--si-field);
   color: transparent;
-  transition: background 120ms var(--ease);
+  transition:
+    background 130ms var(--ease),
+    border-color 130ms var(--ease);
 }
 
 .signin-remember input:checked + .signin-check {
+  border-color: var(--si-action);
   background: var(--si-action);
   color: #ffffff;
 }
 
+/* The hidden input cannot show focus, so the drawn box shows it — otherwise this control is
+   invisible to a keyboard. */
 .signin-remember input:focus-visible + .signin-check {
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--si-action) 22%, transparent);
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--si-action) 20%, transparent);
 }
 
-/* ------------------------------------------------------------------------ action ---- */
+/* --------------------------------------------------------------------------- action --- */
 
 .signin-error {
   margin: 0;
-  padding: 10px 12px;
-  border: 0;
+  padding: 11px 13px;
+  border: 1px solid color-mix(in srgb, var(--si-action) 26%, transparent);
   border-radius: 10px;
-  background: #ffe0dc;
-  color: var(--si-ink);
+  background: color-mix(in srgb, var(--si-action) 7%, #ffffff);
+  color: var(--si-link);
   font-size: 12.5px;
   line-height: 1.45;
   font-weight: 500;
 }
 
 /*
-   The indigo pill, outlined like everything else.
+   The one saturated control on the page.
 
    No hover shade: `hover-highlighting.test.ts` refuses one, and the rule behind it — that
-   nothing paints behind the pointer — was asked for across the whole application. The
-   press interaction below carries the whole response instead, and in this language it is a
-   better one anyway: the button moves onto its own shadow.
+   nothing paints a box behind the pointer — was asked for across the whole application. The
+   press below carries the response instead, and on a raised object it is the better signal
+   anyway: it settles onto the page.
 */
 .signin-submit {
-  height: 50px;
-  margin-top: 6px;
+  height: 48px;
+  margin-top: 8px;
   border: 0;
-  border-radius: var(--radius-pill);
+  border-radius: 11px;
   background: var(--si-action);
   color: #ffffff;
-  font-size: 15px;
-  font-weight: 640;
+  font-size: 14.5px;
+  font-weight: 600;
   letter-spacing: -0.005em;
-  /*
-     A soft lift in the button's own colour, not the hard offset block the outlined version
-     used. That block was the same language as the 2px strokes; with the strokes gone it
-     read as a dropped shadow somebody forgot to delete.
-  */
-  box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--si-action) 45%, transparent);
+  box-shadow:
+    0 1px 2px rgb(28 26 46 / 8%),
+    0 8px 18px -8px color-mix(in srgb, var(--si-action) 55%, transparent);
   transition:
-    box-shadow 90ms var(--ease),
-    transform 90ms var(--ease);
+    transform 110ms var(--ease),
+    box-shadow 110ms var(--ease);
 }
 
-/*
-   Pressed, the button travels onto its shadow and the shadow disappears.
-
-   The whole micro-interaction budget for this page. In a flat-and-outlined language this
-   is the press: the object moves the exact distance its shadow occupied, so it reads as
-   being pushed down rather than as a colour changing.
-*/
-/* Pressed, it settles: down a pixel and the lift goes with it. */
 .signin-submit:active:not(:disabled) {
   transform: translateY(1px);
-  box-shadow: 0 3px 10px -6px color-mix(in srgb, var(--si-action) 45%, transparent);
+  box-shadow: 0 1px 2px rgb(28 26 46 / 10%);
 }
 
 .signin-submit:disabled {
-  opacity: 0.62;
+  opacity: 0.6;
 }
 
-/* -------------------------------------------------------------------------- foot ---- */
+/* ----------------------------------------------------------------------------- foot --- */
 
 .signin-foot {
-  max-width: 392px;
-  margin: 18px auto 0;
-  text-align: center;
+  margin: 18px 4px 0;
   font-size: 11.5px;
   line-height: 1.55;
-  color: color-mix(in srgb, var(--si-ink) 60%, transparent);
+  text-align: center;
+  color: var(--si-subtle);
 }
 
-/* --------------------------------------------------------------- arriving on it ---- */
+/*
+   The bottom-right anchor.
 
+   Purely compositional: it balances the lede at the opposite corner, and on a very wide
+   window its absence leaves the lower half weighted to one side. Absolutely positioned so
+   it cannot affect the stage's centring, and dropped entirely below the width where the
+   two corners stop being corners.
+*/
+.signin-mark {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: var(--si-measure);
+  margin: 18px auto 0;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  line-height: 1.7;
+  text-align: right;
+  text-transform: uppercase;
+  color: var(--si-subtle);
+}
+
+/* -------------------------------------------------------------- arriving on the page --- */
+
+/*
+   One moment of motion: the card settles, and the graphic fades up behind it a little
+   slower. Two durations rather than one, so the page assembles rather than appearing —
+   and both are short enough that nobody waits for them.
+*/
 @media (prefers-reduced-motion: no-preference) {
-  .signin-panel {
-    animation: signin-rise 240ms var(--ease) both;
+  .signin-column {
+    animation: signin-rise 260ms var(--ease) both;
+  }
+
+  .signin-canvas {
+    animation: signin-fade 620ms var(--ease) both;
+  }
+
+  .signin-lede,
+  .signin-brandbar,
+  .signin-mark {
+    animation: signin-fade 520ms var(--ease) 80ms both;
   }
 }
 
 @keyframes signin-rise {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(10px);
   }
 }
 
-/* ---------------------------------------------------------------------- narrower ---- */
+@keyframes signin-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ------------------------------------------------------------------------ narrower --- */
 
 /*
-   The panel survives on a phone in this language, unlike the tinted one it replaced.
+   Below 1140px the lede goes.
 
-   A 2px outline and a lavender fill are legible at any width — what was wrong before was a
-   near-invisible tint inside a bordered box inside a padded page. Only the insets come
-   down, and the masthead stays centred because the outline gives the centring something to
-   be measured against.
+   Not because it does not fit — it could be squeezed — but because the star it captions is
+   being cropped by the same narrowing, and a caption to something half off the screen is
+   worse than no caption. The card takes the middle and the graphic keeps the left.
 */
-@media (max-width: 480px) {
+@media (max-width: 1140px) {
+  .signin-stage {
+    grid-template-columns: minmax(0, 1fr) 424px minmax(0, 1fr);
+  }
+
+  .signin-lede {
+    display: none;
+  }
+
+  .signin-column {
+    grid-column: 2;
+  }
+}
+
+@media (max-width: 900px) {
+  .signin-stage {
+    grid-template-columns: minmax(0, 424px);
+    justify-content: center;
+  }
+
+  .signin-column {
+    grid-column: 1;
+  }
+
+  .signin-assurances,
+  .signin-mark {
+    display: none;
+  }
+
+  /*
+     The canvas becomes a BAND above the card, rather than a full-bleed layer.
+
+     `slice` crops whichever axis is in surplus, and on a portrait window that is the
+     horizontal one — cropped from the centre, so the first thing to go is the star at 24%
+     across. Both earlier attempts fought this by widening the element and dragging it
+     left, and both were guesses: one pushed the star off the screen entirely, the other
+     left half an indigo lobe smeared against the edge with the coral half gone.
+
+     A short, wide band has the surplus on the other axis. It crops the top and bottom of
+     a composition that is mostly empty there and keeps the full width — so the star, the
+     convergence and the strands all survive, above the card instead of behind it.
+  */
+  .signin-canvas {
+    inset: 0 0 auto;
+    height: min(44%, 380px);
+    width: 100%;
+    opacity: 0.92;
+  }
+}
+
+@media (max-width: 560px) {
   .signin {
-    padding: var(--space-5) var(--space-4);
+    padding: 20px 18px 24px;
   }
 
   .signin-panel {
     padding: 30px 22px 26px;
-    border-radius: 22px;
+    border-radius: 18px;
+  }
+
+  .signin-masthead {
+    margin-bottom: 22px;
   }
 
   .signin-masthead h1 {
-    font-size: 21px;
+    font-size: 22px;
   }
 
-  .signin-masthead .brand-mark {
-    margin-bottom: 18px;
+  /* Shallower still, so the star clears the top of the card rather than sitting behind it:
+     on a 390x844 screen the card begins around 196px, and this puts the star near 150. */
+  .signin-canvas {
+    height: min(38%, 320px);
   }
 }
 

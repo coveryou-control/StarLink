@@ -5,40 +5,37 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { BrandMark } from '../../components/brand';
+import { ConnectionField } from './connection-field';
 import { useSession } from '../../components/session-provider';
 import { ApiError } from '../../lib/api-client';
 
 /**
  * Sign in.
  *
- * ## The reference's own palette, applied directly
+ * ## The composition
  *
- * Lavender panel, yellow disc, white fields, indigo pill, and a 2px ink outline on every
- * one of them. Asked for on 2026-09-04 — "use the exact same colours and design pattern" —
- * which supersedes the earlier instruction not to take a reference's colours.
+ * A wide, quiet canvas with the form set centre-right, and a drawn field of connections
+ * arriving from the right edge to converge into a single star on the left. The star is the
+ * focal point and the form is the subject; they occupy different thirds so neither has to
+ * compete with the other for the same glance.
  *
- * ## This screen does not use the product palette
+ * The graphic lives in `connection-field.tsx` and the reasoning about its geometry is
+ * there. What matters here is that it is BEHIND everything, `aria-hidden`, and entirely
+ * decorative: remove it and the page still works, still reads and still passes.
  *
- * Worth knowing rather than discovering: everywhere else in StarLink, CY Orange is the one
- * signal colour and rule 1 bounds where it may appear. Here it appears nowhere. Somebody
- * signing in meets one colour world and lands in another, which is a deliberate, isolated
- * departure and not a drift.
+ * ## What is NOT on this page
  *
- * ## What the reference does that this does not
+ * The reference composition includes a "Sign in with Microsoft" button. There is no SSO in
+ * StarLink today — the sign-in note says as much, two lines further down — so a button
+ * offering it would be a control that cannot do the thing it names. It is omitted rather
+ * than drawn and disabled.
  *
- * It has no labels — two bare boxes under two placeholder lines. Placeholders are not
- * labels: they vanish the moment somebody types, they are announced inconsistently, and a
- * form relying on them fails NFR-ACC-1. The labels stay, set small and in the ink so they
- * sit inside the pattern rather than fighting it.
+ * ## What survives from every earlier version
  *
- * It also has no "Forgot password?", no show/hide and no remember box, because it is a
- * thumbnail rather than a product. All three are real controls here and all three stay.
- *
- * ## The mark
- *
- * The reference's yellow disc, carrying StarLink's own letter. `.brand-mark` is overridden
- * for this page only — the rail and every other surface keep the product's near-black
- * squircle, so the override cannot leak into them.
+ * The form itself, unchanged: the same labels the browser suite types into, the same
+ * "Forgot password?" that answers rather than navigates, the same show/hide, the same
+ * remember box defaulting to off, the same single error message that never distinguishes
+ * a bad password from an unknown account.
  */
 export default function SignInPage(): ReactNode {
   const { state, signIn } = useSession();
@@ -85,11 +82,51 @@ export default function SignInPage(): ReactNode {
 
   return (
     <main className="signin">
-      <div className="signin-panel">
+      <ConnectionField />
+
+      {/* The masthead belongs to the PAGE, not to the card: the product names itself once,
+          at the top left, the way a product does. Repeating the mark inside the card as
+          well would be the same logo twice on one screen. */}
+      <header className="signin-brandbar">
+        <span className="signin-wordmark">
+          <BrandMark size={30} />
+          StarLink
+        </span>
+        {/* Three facts, not three claims. Each one is true of the product as built, and
+            none of them is a number nobody has signed off (rule 10). */}
+        <span className="signin-assurances">
+          <span>Internal only</span>
+          <span aria-hidden="true">·</span>
+          <span>Company directory</span>
+          <span aria-hidden="true">·</span>
+          <span>Encrypted in transit</span>
+        </span>
+      </header>
+
+      <div className="signin-stage">
+        {/*
+          The left column reads as a caption to the star rather than as a second heading.
+          It is `aria-hidden`: it says nothing a screen reader needs and repeating the
+          product name three times before reaching the form is a worse experience, not a
+          richer one.
+        */}
+        <aside className="signin-lede" aria-hidden="true">
+          <p className="signin-tags">
+            <span>People</span>
+            <span>Ideas</span>
+            <span>Conversations</span>
+            <span>All connected</span>
+          </p>
+          <p className="signin-lede-title">A more connected way to work.</p>
+        </aside>
+
+        {/* Card and its footnote are one column, so the note sits under the form it
+            qualifies rather than under the middle of the page. */}
+        <div className="signin-column">
+        <div className="signin-panel">
         <header className="signin-masthead">
-          <BrandMark size={64} round />
-          <h1>Sign in to StarLink</h1>
-          <p>CoverYou&rsquo;s internal workspace. Conversations stay inside the company.</p>
+          <h1>Welcome back</h1>
+          <p>Sign in to your CoverYou work account to continue to StarLink.</p>
         </header>
 
         <form onSubmit={(event) => void submit(event)} className="signin-form">
@@ -104,16 +141,49 @@ export default function SignInPage(): ReactNode {
           */}
           <label className="signin-field">
             <span className="signin-label">Work email</span>
-            <input
-              className="signin-control"
-              type="text"
-              inputMode="email"
-              autoComplete="username"
-              required
-              placeholder="name@coveryou.co.in"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-            />
+            {/*
+              Wrapped like the password field rather than left bare, and that symmetry is
+              load-bearing as well as visual.
+
+              The design system styles a bare `input[type='text']` at specificity (0,1,1),
+              one step above `.signin-control` at (0,1,0) — which is how this field, and
+              only this field, painted itself near-black in dark mode while its twin stayed
+              white. Inside a group the input is transparent at (0,2,1) and the wrapper
+              draws the surface, so both fields now get their appearance the same way and
+              neither can lose that argument alone.
+            */}
+            <span className="signin-control signin-control-group">
+              <span className="signin-adornment" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="15" height="15" focusable="false">
+                  <rect
+                    x="3"
+                    y="5.5"
+                    width="18"
+                    height="13"
+                    rx="2.4"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                  />
+                  <path
+                    d="m3.8 7 7.3 5.4a1.5 1.5 0 0 0 1.8 0L20.2 7"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
+              <input
+                type="text"
+                inputMode="email"
+                autoComplete="username"
+                required
+                placeholder="name@coveryou.co.in"
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+              />
+            </span>
           </label>
 
           <div className="signin-field">
@@ -148,6 +218,27 @@ export default function SignInPage(): ReactNode {
             </div>
 
             <div className="signin-control signin-control-group">
+              <span className="signin-adornment" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="15" height="15" focusable="false">
+                  <rect
+                    x="4.5"
+                    y="10.5"
+                    width="15"
+                    height="9.5"
+                    rx="2.2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                  />
+                  <path
+                    d="M8 10.5V8a4 4 0 0 1 8 0v2.5"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.7"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </span>
               <input
                 id="signin-password"
                 type={showPassword ? 'text' : 'password'}
@@ -218,19 +309,30 @@ export default function SignInPage(): ReactNode {
           </button>
         </form>
 
+        </div>
+
+        {/*
+          Outside the panel, deliberately.
+
+          Inside it, this paragraph was a third of the panel's height and turned a compact
+          object into a tall one with its weight at the bottom. It is also not part of the
+          form: it is a note about who may use the product, which belongs to the page
+          rather than to the thing you fill in. Out here it reads as a footnote.
+        */}
+        <p className="signin-foot">
+          Access is limited to active employees. Single sign-on becomes available once
+          StarLink is connected to the company directory.
+        </p>
+        </div>
       </div>
 
-      {/*
-        Outside the panel, deliberately.
-
-        Inside it, this paragraph was a third of the panel's height and turned a compact
-        object into a tall one with its weight at the bottom. It is also not part of the
-        form: it is a note about who may use the product, which belongs to the page rather
-        than to the thing you fill in. Out here it reads as a footnote, which is what it is.
-      */}
-      <p className="signin-foot">
-        Access is limited to active employees. Single sign-on becomes available once
-        StarLink is connected to the company directory.
+      {/* The bottom-right anchor. Purely compositional — it balances the lede at the
+          opposite corner, and without it the lower half of a very wide window is empty on
+          one side and not the other. */}
+      <p className="signin-mark" aria-hidden="true">
+        Same people
+        <br />
+        Bigger possibilities
       </p>
     </main>
   );

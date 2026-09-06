@@ -58,26 +58,33 @@ for (const scheme of ['light', 'dark'] as const) {
     test('the sign-in fields stay light and identical', async ({ page }) => {
       await page.goto(`${ORIGINS.employeeWeb}/sign-in`);
 
-      // The email box is a bare `input.signin-control`; the password box is the wrapper
-      // that draws the field, with a transparent input inside it. Both are "the field".
-      const email = page.locator('input.signin-control');
-      const password = page.locator('.signin-control-group');
-      await expect(email).toBeVisible();
-      await expect(password).toBeVisible();
+      /*
+        Every field surface on the page, whatever the markup underneath.
 
-      const emailBg = await email.evaluate((el) => getComputedStyle(el).backgroundColor);
-      const passwordBg = await password.evaluate((el) => getComputedStyle(el).backgroundColor);
+        Both fields are wrappers now — the email box was made symmetric with the password
+        box when the screen was redesigned, which is also what makes the original defect
+        structurally impossible rather than merely fixed. Locating them by the class that
+        DRAWS the surface, rather than by tag, means this keeps testing the thing it is
+        about if the markup moves again.
+      */
+      const fields = page.locator('.signin-control');
+      await expect(fields).toHaveCount(2);
+
+      const backgrounds = await fields.evaluateAll((els) =>
+        els.map((el) => getComputedStyle(el).backgroundColor),
+      );
 
       // Light: a field somebody can see they are typing into. 0.7 is comfortably below
       // white (1.0) and far above the near-black `--surface` (~0.01) this used to inherit.
-      expect(backgroundOf(emailBg), `email field in ${scheme}: ${emailBg}`).toBeGreaterThan(0.7);
-      expect(
-        backgroundOf(passwordBg),
-        `password field in ${scheme}: ${passwordBg}`,
-      ).toBeGreaterThan(0.7);
+      for (const background of backgrounds) {
+        expect(
+          backgroundOf(background),
+          `a field is not light in ${scheme}: ${background}`,
+        ).toBeGreaterThan(0.7);
+      }
 
       // And the same as each other — the half-correct state is the one that hid for so long.
-      expect(emailBg, `the two fields disagree in ${scheme}`).toBe(passwordBg);
+      expect(new Set(backgrounds).size, `the fields disagree in ${scheme}: ${backgrounds.join(' vs ')}`).toBe(1);
     });
   });
 }
