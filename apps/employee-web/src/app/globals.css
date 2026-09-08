@@ -94,7 +94,7 @@
      chrome. A few steps up keeps it clearly the darkest surface — so the eye still travels
      rightward into the content — without the edge being the loudest thing in the window.
   */
-  --rail-bg: #353440;
+  --rail-bg: #4f4e5c;
   --rail-fg: rgb(255 255 255 / 50%);
   --rail-fg-active: #ffffff;
   --rail-item-active: rgb(255 255 255 / 10%);
@@ -159,7 +159,7 @@
      to be read. This is the same hue two steps lighter: still unmistakably "mine", still
      white text at well over AA, and no longer a hole in the page.
   */
-  --bubble-mine: #4d4c59;
+  --bubble-mine: #676676;
   --bubble-mine-ink: var(--btn-primary-label);
   --bubble-them: var(--base-surface-primary);
 
@@ -9358,4 +9358,217 @@ input.signin-control {
    small step down rather than the overlap the bubble afforded. */
 .message-row.sole-emoji .reactions {
   margin-top: 0;
+}
+
+/* -------------------------------------------------------------- pictures and video --- */
+
+/*
+   An attachment that IS the message, rather than a note about one.
+
+   A picture in a thread should read as the thing that was sent — so it gets the bubble's
+   own corners and none of its padding, and the words below it (if any) keep theirs. A
+   photo inset by 12px of bubble on every side reads as a photo of a photo.
+*/
+.attachment-visual {
+  margin: 0;
+}
+
+.attachments:has(.attachment-visual) {
+  gap: 6px;
+}
+
+.attachment-media {
+  display: block;
+  overflow: hidden;
+  border-radius: 10px;
+  /*
+     A plain pixel bound, deliberately NOT `min(320px, 100%)`.
+
+     A percentage here makes the whole chain's intrinsic size indeterminate: the media asks
+     the list, the list asks the bubble, the bubble is trying to shrink-wrap the media, and
+     the browser settles the loop at the available width — 620px of bubble around a 320px
+     photo. The phone rule below restates 100%, where the bubble is full width anyway and
+     there is no loop to close.
+  */
+  max-width: 320px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+}
+
+.attachment-media img,
+.attachment-media video {
+  display: block;
+  width: 100%;
+  max-height: 340px;
+  object-fit: cover;
+  border-radius: 10px;
+}
+
+/* A video is watched in place, so it is never cropped — letterboxed inside its own box. */
+.attachment-media[data-kind='video'] video {
+  object-fit: contain;
+  background: #000;
+}
+
+/*
+   A box of the right shape while the grant is in flight.
+
+   The grant is fetched only when the picture scrolls into view, so without this the thread
+   would jump by the height of every image as it arrived — under the reader's eye, which is
+   the worst possible moment.
+*/
+.attachment-media-pending {
+  width: 240px;
+  height: 160px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, currentColor 7%, transparent) 30%,
+    color-mix(in srgb, currentColor 12%, transparent) 50%,
+    color-mix(in srgb, currentColor 7%, transparent) 70%
+  );
+  background-size: 220% 100%;
+  animation: attachment-shimmer 1.4s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attachment-media-pending {
+    animation: none;
+  }
+}
+
+@keyframes attachment-shimmer {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
+  }
+}
+
+.attachment-media-problem {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--critical-label, var(--danger));
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+/* On a phone the measure is the screen, so the picture takes it. */
+@media (max-width: 640px) {
+  .attachment-media {
+    max-width: 100%;
+  }
+
+  .attachment-media img,
+  .attachment-media video {
+    max-height: 300px;
+  }
+}
+
+/*
+   The masthead's compose button is desktop-only redundant now.
+
+   The sidebar carries "New chat" as a labelled control, so the coral tile above the list
+   was a second door to the same room, six inches away and unlabelled. It stays on a PHONE,
+   where there is no sidebar at all — the bottom bar has four destinations and none of them
+   is compose, so removing it there would take the action away entirely rather than
+   de-duplicate it.
+*/
+@media (min-width: 641px) {
+  .fab-new {
+    display: none;
+  }
+}
+
+/*
+   A bubble carrying a picture shrinks to the picture.
+
+   `.message-main > .attachments` takes `flex-basis: 100%`, which is right for a file card
+   list — it forces the row break so a quote or a card does not sit shoulder to shoulder
+   with the words. But 100% of a shrink-to-fit bubble resolves against its max-width, so a
+   320px photo arrived inside a 630px slab of bubble with 300px of nothing beside it.
+
+   `width: fit-content` makes the bubble measure its widest child instead. The break still
+   happens — the basis is unchanged — it simply has less to fill.
+*/
+.message-main:has(.attachment-visual) {
+  width: fit-content;
+  max-width: 100%;
+  /*
+     `align-self` is the half that actually does it.
+
+     `.message-main` is a flex ITEM of `.message-stack`, a column — so its width is the
+     cross axis, and the default `stretch` pinned it to the stack's full 620px however
+     small its content was. `width: fit-content` alone changed nothing, which is why the
+     first attempt at this measured 620px around a 320px photo.
+  */
+  align-self: flex-start;
+}
+
+.message-row.mine .message-main:has(.attachment-visual) {
+  /* Your own messages hang from the other edge. */
+  align-self: flex-end;
+}
+
+/*
+   And the child gives up its `flex-basis: 100%`, which is what was actually inflating it.
+
+   `.message-main > .attachments` takes `flex: 1 1 100%` so a card list breaks onto its own
+   row instead of sitting beside the words. But 100% inside a shrink-to-fit parent is
+   circular — the parent wants to measure the child, the child is asking for all of the
+   parent — and the browser settles it at the max-width. That is the same trap this
+   stylesheet already documents on `.message-body`, where it collapsed the other way and
+   rendered one character per line.
+
+   `.message-meta` is on the list too, and it is the one that was actually doing it: an
+   invisible, screen-reader-only author label, zero height, carrying `flex-basis: 100%` and
+   therefore demanding the whole 620px on behalf of nothing. Measuring the children is what
+   found it — three attempts before this fixed `.attachments`, which was not the culprit.
+
+   A picture is the only visible thing on this row, so nothing needs a forced break:
+   `0 0 auto` lets each child measure itself and the bubble finally measures the picture.
+*/
+.message-main:has(.attachment-visual) > .attachments,
+.message-main:has(.attachment-visual) > .message-meta {
+  flex: 0 0 auto;
+  width: auto;
+  align-self: flex-start;
+}
+
+/* `.attachments` is a flex COLUMN, so its items stretch across it by default — which made
+   the row full width even once the list itself had stopped asking for it. */
+.message-main:has(.attachment-visual) > .attachments,
+.attachments:has(.attachment-visual) {
+  align-items: flex-start;
+}
+
+/*
+   And when the picture IS the message, the bubble gets out of its way.
+
+   A photo inset by 12px of bubble on every side reads as a photo of a photo. With no text
+   beside it the padding has nothing to protect, so the media takes the bubble's own corners
+   and the stamp sits over the foot of the picture, as it does everywhere else this pattern
+   appears.
+*/
+.message-row.media-only .message-main {
+  padding: 0;
+  overflow: hidden;
+}
+
+.message-row.media-only .message-main .attachment-media,
+.message-row.media-only .message-main .attachment-media img,
+.message-row.media-only .message-main .attachment-media video {
+  border-radius: 0;
+}
+
+.message-row.media-only .message-main .bubble-meta {
+  position: absolute;
+  right: 8px;
+  bottom: 6px;
+  padding: 2px 7px;
+  border-radius: 10px;
+  /* Its own scrim: a timestamp over a photograph is unreadable against whatever happens to
+     be in that corner, and tinting the whole picture to fix one label is the wrong trade. */
+  background: rgb(0 0 0 / 42%);
+  color: #fff;
 }

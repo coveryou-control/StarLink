@@ -447,7 +447,16 @@ export class EmployeeMessagesController {
      * time, after §28.4's full ladder, and is audited at issuance (ADR-012, FR-ATT-5), so
      * putting one in a list response would be handing out grants nobody asked for.
      */
-    const attachmentsByMessage = new Map<string, { attachmentId: string; originalFilename?: string; declaredBytes: number; state: string }[]>();
+    const attachmentsByMessage = new Map<
+      string,
+      {
+        attachmentId: string;
+        originalFilename?: string;
+        declaredBytes: number;
+        state: string;
+        sniffedMime?: string;
+      }[]
+    >();
     for (const record of await this.attachments.forMessages(messages.map((m) => m.messageId))) {
       const list = attachmentsByMessage.get(record.messageId!) ?? [];
       list.push(record);
@@ -618,6 +627,20 @@ export class EmployeeMessagesController {
                 attachmentId: a.attachmentId,
                 filename: a.originalFilename ?? 'attachment',
                 declaredBytes: a.declaredBytes,
+                /*
+                   The SNIFFED type, never the declared one.
+
+                   `declared_mime` is whatever the uploading client said. The client is
+                   about to decide, from this value, whether to render the bytes as an
+                   image or a video — so a caller who claims `image/png` for something else
+                   would be choosing how their file is interpreted in everybody's browser.
+                   `sniffed_mime` is what the scanner read out of the bytes themselves, and
+                   it is the only one that may make that decision.
+
+                   Absent until the scan has run, which is correct: an unscanned attachment
+                   is not BOUND and is not offered for download either.
+                */
+                ...(a.sniffedMime !== undefined ? { contentType: a.sniffedMime } : {}),
                 /**
                  * §28.1: BOUND is the only state a recipient may reach. Sent so the
                  * interface can say "still being checked" rather than offering a download

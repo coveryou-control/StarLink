@@ -211,6 +211,14 @@ export interface AttachmentView {
   readonly declaredBytes: number;
   /** Only BOUND is downloadable (§28.1); anything else is still being checked. */
   readonly state: string;
+  /**
+   * What the scanner read out of the bytes — not what the uploader claimed.
+   *
+   * The thread decides from this whether to draw a picture, a player or a file card, so it
+   * has to be the sniffed type: a client that could name its own content type could choose
+   * how its file is interpreted in every recipient's browser. Absent until the scan runs.
+   */
+  readonly contentType?: string;
 }
 
 /** A structured mention, exactly as stored. Offsets index into `body`. */

@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 
 import { api, ApiError, type AttachmentView } from '../lib/api-client';
 import { extensionOf, formatBytes } from './attachment-picker';
+import { AttachmentMedia, mediaKindOf } from './attachment-media';
 import { deliveryTick, type DeliveryTick } from '@starlink/shared-contracts';
 import { initialsFor, senderColour } from './conversation-naming';
 import { crossesDay, daySeparatorLabel, unreadDividerIndex } from './timeline';
@@ -308,6 +309,20 @@ function MessageRow({
         grouped ? ' grouped' : ''
       }${showHead ? ' with-head' : ''}${
         message.redactedAt === undefined && isSoleEmoji(message.body) ? ' sole-emoji' : ''
+      }${
+        /*
+           A message that is ONLY a picture, decided here rather than in CSS.
+
+           The stylesheet tried `:not(:has(.message-body:not(:empty)))` and never matched:
+           `.message-body` renders mention-split spans, so it has child nodes and is not
+           `:empty` even when the text is blank. The component knows the difference between
+           "no words" and "an element containing no words", and it is the only one that
+           does.
+        */
+        message.body.trim() === '' &&
+        (message.attachments ?? []).some((file) => mediaKindOf(file) !== undefined)
+          ? ' media-only'
+          : ''
       }`}
       /* The anchor the pinned bar scrolls to. An id attribute rather than a ref map: the
          list is virtualised by nothing and remounts freely, and a map of refs would need
@@ -502,11 +517,26 @@ function MessageRow({
       */}
       {message.attachments !== undefined && message.attachments.length > 0 ? (
         <ul className="attachments" aria-label="Attached files">
-          {message.attachments.map((file) => (
-            <li key={file.attachmentId}>
-              <AttachmentLink file={file} />
-            </li>
-          ))}
+          {message.attachments.map((file) => {
+            /*
+               A picture is shown; everything else is listed.
+
+               `mediaKindOf` decides from the SNIFFED content type, so a file named `.png`
+               that is not one gets a card rather than being handed to an <img>. Anything
+               still being scanned is a card too — it has no trustworthy type yet, and it
+               is not downloadable either.
+            */
+            const kind = mediaKindOf(file);
+            return (
+              <li key={file.attachmentId} className={kind === undefined ? undefined : 'attachment-visual'}>
+                {kind === undefined ? (
+                  <AttachmentLink file={file} />
+                ) : (
+                  <AttachmentMedia file={file} kind={kind} />
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
 
