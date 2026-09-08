@@ -90,6 +90,35 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandle {
     connectionString: options.connectionString,
     max: options.maxConnections ?? 10,
     connectionTimeoutMillis: options.connectionTimeoutMillis ?? 10_000,
+    /**
+     * `search_path` and `statement_timeout`, applied by the SERVER as the connection is
+     * established.
+     *
+     * These used to be two `SET` statements fired from a `pool.on('connect')` handler.
+     * `pg` does not await that handler, so the statements raced the caller's first query
+     * ON THE SAME CLIENT — pg's own warning says it plainly: "Calling client.query() when
+     * the client is already executing a query". Under any concurrency the loser errors,
+     * and the caller sees its first query fail on a connection that had just been handed
+     * to it as ready.
+     *
+     * That is not theoretical. It is why opening a conversation could fail to establish
+     * the thread's realtime socket: the gateway runs a five-connection pool, three sockets
+     * authorise at once on page load, and the socket whose authorisation lost the race was
+     * closed before its handshake completed. The thread then never received an event and
+     * went on displaying LIVE, because the status is set from the transport.
+     *
+     * As a connection parameter there is no second statement, no race, and no extra round
+     * trip. It also closes the hole the old comment admitted to — a "best-effort" statement
+     * timeout is absent on exactly the connections created under load, which is when a
+     * runaway query matters most.
+     *
+     * The trade is that a connection pooler which refuses the `options` parameter now fails
+     * the connection rather than quietly running without these settings. That is the right
+     * failure here, and it is not a configuration this product supports anyway: CLAUDE.md
+     * requires the DIRECT endpoint, because the pooled one breaks the session-level
+     * advisory locks and LISTEN/NOTIFY the outbox relay depends on.
+     */
+    options: `-c search_path=${ALLOWED_SCHEMAS.join(',')} -c statement_timeout=${statementTimeout}`,
     // Verify the provider's certificate. `rejectUnauthorized: false` would make TLS
     // theatre — it encrypts, but authenticates nothing.
     ...(useTls ? { ssl: { rejectUnauthorized: true } } : {}),
@@ -122,15 +151,6 @@ export function createDatabase(options: DatabaseOptions): DatabaseHandle {
       // the listener exists to prevent. Swallowed deliberately and without a second
       // reporting attempt, because the reporter is what just failed.
     }
-  });
-
-  pool.on('connect', (client) => {
-    // Best-effort hardening. A pooler that refuses these must not take the app down,
-    // because correctness does not depend on them.
-    void client
-      .query(`SET search_path TO ${ALLOWED_SCHEMAS.join(', ')}`)
-      .then(() => client.query(`SET statement_timeout TO ${statementTimeout}`))
-      .catch(() => undefined);
   });
 
   return {
