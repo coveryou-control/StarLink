@@ -113,6 +113,7 @@ export type DenyReason =
   | 'CUSTOMER_INTERNAL_CONTENT'
   | 'CUSTOMER_PRE_VERIFICATION_HISTORY'
   | 'NOT_PARTICIPANT_NO_SCOPE'
+  | 'PRIVATE_CONVERSATION_NOT_A_PARTICIPANT'
   | 'PARTICIPATION_DOES_NOT_GRANT_ACTION'
   | 'SENSITIVITY_SEGMENTATION'
   | 'NO_MATCHING_GRANT';
@@ -464,6 +465,44 @@ export function decide(request: DecisionRequest): Decision {
     ) {
       return { allow: true, basis: 'TEMPORARY_GRANT', privileged, grantRef: grant.grantId };
     }
+  }
+
+  /*
+     6a. A private internal conversation is reachable by PARTICIPATION, never by standing scope.
+
+     Gated on NOT being a participant, and that qualifier is the whole difference between a
+     fix and an outage. A participant frequently needs a role grant for an action that
+     participation alone does not carry — renaming the group, editing, deleting — and rung 5
+     deliberately falls through to rungs 7 and 8 to find it ("being in the room is not being
+     in charge of it"). The first draft of this rung omitted the qualifier and took four
+     journey tests down with it: rename, react, edit and delete all became 404 for the
+     person who had just created the conversation.
+
+     This is the rule rule 3 states — "participation grants that conversation and nothing
+     else" — and until now it was stated nowhere in code. An `INTERNAL_DIRECT` or
+     `INTERNAL_GROUP` thread has no case, so `owning_team_id` and `owning_department` are
+     NULL and TEAM- and DEPARTMENT-scoped grants correctly failed to match it. `GLOBAL`
+     matched unconditionally, and GLOBAL is what every seeder issues and what the admin API
+     offers first — so the lowest-privilege AGENT in the product could read every private
+     message between colleagues by id, and react to and star them. Confirmed against the
+     running system on 2026-09-08, not theorised.
+
+     Placed AFTER rung 6 on purpose. A temporary grant is explicit, time-boxed, names this
+     conversation and is audited — it is the lawful way to reach a private thread for a
+     compliance investigation, and removing it would leave no lawful way at all. What is
+     refused here is the STANDING kind of authority: a delegation or a role×scope grant
+     that was never about this conversation and quietly covers every one of them.
+
+     Ownership is not consulted because these conversations have no owner: rule 6's
+     exclusion constraint is on CUSTOMER conversations, and rung 4 has already returned for
+     anything that does have one.
+  */
+  if (!isLiveParticipant && PARTICIPANT_MANAGED_TYPES.has(resource.conversationType)) {
+    return {
+      allow: false,
+      reason: 'PRIVATE_CONVERSATION_NOT_A_PARTICIPANT',
+      privilegedAttempt: privileged,
+    };
   }
 
   // 7. Delegations received from another principal.
