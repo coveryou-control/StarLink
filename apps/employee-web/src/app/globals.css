@@ -94,7 +94,7 @@
      chrome. A few steps up keeps it clearly the darkest surface — so the eye still travels
      rightward into the content — without the edge being the loudest thing in the window.
   */
-  --rail-bg: #24232b;
+  --rail-bg: #353440;
   --rail-fg: rgb(255 255 255 / 50%);
   --rail-fg-active: #ffffff;
   --rail-item-active: rgb(255 255 255 / 10%);
@@ -159,7 +159,7 @@
      to be read. This is the same hue two steps lighter: still unmistakably "mine", still
      white text at well over AA, and no longer a hole in the page.
   */
-  --bubble-mine: #34333d;
+  --bubble-mine: #4d4c59;
   --bubble-mine-ink: var(--btn-primary-label);
   --bubble-them: var(--base-surface-primary);
 
@@ -9055,12 +9055,21 @@ input.signin-control {
    the body is clamped and the name and time carry the rest. A starred essay must not push
    the next bookmark off the screen.
 */
+/*
+   A flex CHILD of the list column, not a free-standing list.
+
+   It stands where `.conversation-nav` normally does, and that element carries
+   `flex: 1 1 auto; min-height: 0`. Without the same, the panel took its natural height
+   inside a flex parent and every row after the first was clipped by the column — which is
+   what "the chat is not visible at all" was.
+*/
 .favourites {
   list-style: none;
   margin: 0;
   padding: 4px 0;
-  overflow-y: auto;
+  flex: 1 1 auto;
   min-height: 0;
+  overflow-y: auto;
 }
 
 .favourite-row {
@@ -9068,7 +9077,18 @@ input.signin-control {
   align-items: flex-start;
   gap: 11px;
   width: 100%;
-  padding: 10px 14px;
+  /*
+     `height: auto` is load-bearing.
+
+     A bare `button { height: var(--row) }` — 34px — applies to every button in the product
+     that does not say otherwise. This row is a button containing two lines of text, so it
+     was pinned at 34px while its content measured 40px and overflowed into the row below:
+     the name of one bookmark sat on the body of the last. The same rule is what made the
+     reaction chip render 34px tall for a 12px glyph.
+  */
+  height: auto;
+  min-height: 0;
+  padding: 12px 14px;
   border: 0;
   border-radius: 0;
   background: transparent;
@@ -9076,7 +9096,14 @@ input.signin-control {
   cursor: pointer;
 }
 
-.favourite-row + .favourite-row {
+/*
+   The rule goes between the LIST ITEMS, not between the buttons.
+
+   `.favourite-row + .favourite-row` never matched: each row is wrapped in its own `<li>`,
+   so the buttons are not siblings and the separator silently did nothing — which is why
+   the bookmarks ran together into one block of text.
+*/
+.favourites li + li .favourite-row {
   box-shadow: inset 0 1px 0 0 var(--border);
 }
 
@@ -9120,6 +9147,8 @@ input.signin-control {
 
 .favourite-body {
   display: -webkit-box;
+  /* Both spellings: the standard property is what modern engines read, and the -webkit
+     pair is what still does the clamping in Chromium. */
   -webkit-line-clamp: 3;
   line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -9256,4 +9285,77 @@ input.signin-control {
    than as one clipped shape. */
 .typing-faces .typing-avatar {
   box-shadow: 0 0 0 2px var(--thread-ground, var(--surface));
+}
+
+/* ------------------------------------------------------------ a starred message --- */
+
+/*
+   The mark that tells a favourite apart from anything else in the thread.
+
+   Beside the time rather than on the bubble's face: the body is the message, and a glyph
+   laid over it would be the only thing in the thread that decorates what somebody wrote.
+   It takes the accent because a star is a signal about this message, which is exactly what
+   rule 1 reserves the colour for.
+*/
+.message-starred {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent);
+}
+
+.message-row.mine .message-starred {
+  /* On the dark own-bubble the accent at full strength is the one thing that still reads. */
+  color: color-mix(in srgb, var(--accent) 88%, #fff);
+}
+
+/* ------------------------------------------------------------- a message that is one emoji --- */
+
+/*
+   One emoji, sent alone, gets no bubble and gets bigger.
+
+   A bubble is a container for words. A single emoji is a gesture — the whole message is the
+   picture — and wrapping it says "here is some text" about something that is not text. Every
+   messenger of the last decade does this, and for once the convention is right rather than
+   merely common.
+
+   Two or more stay in a bubble. At display size a row of them crowds the thread, which is
+   why the rule is "a single emoji" and not "a short message".
+*/
+.message-row.sole-emoji .message-main {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.message-row.sole-emoji .message-body {
+  font-size: 40px;
+  line-height: 1.15;
+  /* The emoji font, stated: the body already asks for it, but at this size a fallback is
+     the difference between a picture and an outline. */
+  font-family: var(--font-with-emoji);
+}
+
+/*
+   The time and ticks stand on the thread's own ground now, not on a bubble.
+
+   They keep the page's subtle ink rather than the bubble's, because the bubble they were
+   tuned against is gone — on a wallpaper a translucent white would disappear.
+*/
+.message-row.sole-emoji .bubble-meta,
+.message-row.sole-emoji.mine .bubble-meta {
+  color: var(--text-subtle);
+  transform: translateY(-4px);
+}
+
+/* No tail to square off, and no fill to sit inside. */
+.message-row.sole-emoji .message-main,
+.message-row.sole-emoji.mine .message-main {
+  border-radius: 0;
+}
+
+/* A reaction still hangs off it, and with no bubble edge to tuck under it needs its own
+   small step down rather than the overlap the bubble afforded. */
+.message-row.sole-emoji .reactions {
+  margin-top: 0;
 }

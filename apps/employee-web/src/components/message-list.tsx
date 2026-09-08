@@ -306,7 +306,9 @@ function MessageRow({
     <li
       className={`message-row${isCustomerNote ? ' internal' : ''}${isMine ? ' mine' : ''}${
         grouped ? ' grouped' : ''
-      }${showHead ? ' with-head' : ''}`}
+      }${showHead ? ' with-head' : ''}${
+        message.redactedAt === undefined && isSoleEmoji(message.body) ? ' sole-emoji' : ''
+      }`}
       /* The anchor the pinned bar scrolls to. An id attribute rather than a ref map: the
          list is virtualised by nothing and remounts freely, and a map of refs would need
          clearing on every page load to avoid pointing at detached nodes. */
@@ -533,6 +535,24 @@ function MessageRow({
             edited
           </span>
         ) : null}
+        {/*
+          A starred message says so, on the message.
+
+          Favourites is a list somewhere else; without a mark here, the only way to know
+          whether you had already starred something was to open the menu and read whether
+          it offered "Add" or "Remove". The star is private — nobody else sees it — which
+          is why it carries no count, unlike a reaction.
+        */}
+        {message.starred === true ? (
+          <span className="message-starred" title="In your favourites" aria-label="In your favourites" role="img">
+            <svg viewBox="0 0 24 24" width="11" height="11" focusable="false">
+              <path
+                d="M12 4.2l2.3 4.9 5.2.7-3.8 3.7.9 5.3-4.6-2.5-4.6 2.5.9-5.3L4.5 9.8l5.2-.7L12 4.2Z"
+                fill="currentColor"
+              />
+            </svg>
+          </span>
+        ) : null}
         <time dateTime={message.createdAt}>{formatTimestamp(message.createdAt)}</time>
         <DeliveryTicks tick={deliveryTick({ isMine, seq: message.seq, readWatermark })} />
       </span>
@@ -751,6 +771,34 @@ function PendingRow({
  * ago it was, and printing a bare clock time on it would put yesterday's message on
  * today's footing.
  */
+/**
+ * Is this message a single emoji and nothing else?
+ *
+ * ## Why graphemes and not characters
+ *
+ * "👍" is two code units, "👨‍👩‍👧" is eight, and a flag is two code points that mean one
+ * picture. Counting `length`, or even `[...body]`, splits all three into several
+ * "characters" and the test never fires for exactly the emoji people send most. `Intl
+ * .Segmenter` counts what a reader would call one symbol.
+ *
+ * ## Why only one
+ *
+ * The rule is a single emoji, not a short message. Two of them go back in a bubble: at
+ * display size a row of them stops reading as a gesture and starts crowding the thread,
+ * which is why every product with this behaviour caps it.
+ */
+export function isSoleEmoji(body: string): boolean {
+  const text = body.trim();
+  if (text === '') return false;
+  /* Older engines without `Intl.Segmenter` simply never get the treatment — a plain
+     bubble is the correct fallback, and guessing with a regex over code units is how the
+     family emoji ends up rendered as four. */
+  if (typeof Intl === 'undefined' || typeof Intl.Segmenter !== 'function') return false;
+  const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)];
+  if (graphemes.length !== 1) return false;
+  return /\p{Extended_Pictographic}/u.test(graphemes[0]?.segment ?? '');
+}
+
 export function formatTimestamp(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
