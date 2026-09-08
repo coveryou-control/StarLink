@@ -5,6 +5,8 @@ import type { ReactNode } from 'react';
 
 import { BrandMark } from './brand';
 import { initialsFor } from './conversation-naming';
+import { AvatarImage } from './avatar-image';
+import { useSession } from './session-provider';
 import { ConfirmDialog } from './confirm-dialog';
 
 /**
@@ -428,6 +430,7 @@ function AccountControls({
   readonly onSettings: () => void;
 }): ReactNode {
   const [confirming, setConfirming] = useState(false);
+  const me = useOwnPrincipalId();
 
   return (
     <div className="rail-account">
@@ -438,6 +441,7 @@ function AccountControls({
         aria-label={`Settings for ${displayName}`}
       >
         <span aria-hidden="true">{initialsFor(displayName)}</span>
+        <AvatarImage principalId={me} alt="" />
       </button>
 
       <button
@@ -497,6 +501,18 @@ function AccountControls({
  * Appearance, settings and sign-out are the three things touched least and wanted in the
  * same place every time. At the bottom they never move as the list above them grows.
  */
+/**
+ * The signed-in principal, or `undefined` before the session resolves.
+ *
+ * `AvatarImage` takes `undefined` and renders nothing, so the two account tiles need no
+ * loading state of their own — they show initials until the session and the stamp are both
+ * in, which is what they showed before regardless.
+ */
+function useOwnPrincipalId(): string | undefined {
+  const { state } = useSession();
+  return state.status === 'SIGNED_IN' ? state.me.principalId : undefined;
+}
+
 function DesktopSidebar({
   active,
   onSelect,
@@ -517,6 +533,7 @@ function DesktopSidebar({
   readonly onNewChat?: () => void;
 }): ReactNode {
   const [confirmSignOut, setConfirmSignOut] = useState(false);
+  const me = useOwnPrincipalId();
   /**
    * Collapsed to icons — by the reader's choice, or because the window is too narrow.
    *
@@ -689,6 +706,11 @@ function DesktopSidebar({
         >
           <span className="sidenav-you-avatar" aria-hidden="true">
             {initialsFor(displayName)}
+            {/* Your own face, in the one place you look to confirm who you are signed in
+                as. Both account tiles drew initials unconditionally, so the person who had
+                just set a picture was the only person in the product whose picture they
+                could not see. */}
+            <AvatarImage principalId={me} alt="" />
           </span>
           <span className="sidenav-you-name">{displayName}</span>
         </button>

@@ -142,6 +142,19 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
     () => conversations.flatMap((c) => (c.participants ?? []).map((participant) => participant.principalId)),
     [conversations],
   );
+  /*
+     The same faces, plus your own.
+
+     Your avatar is in the rail foot on every screen and at the top of Settings, but you
+     are not necessarily in this list — it is built from conversation PARTICIPANTS, and a
+     summary need not list the reader among them. The effect was that everybody else's
+     picture appeared and yours did not: you could upload one, watch it appear, reload, and
+     be back to initials with the bytes sitting in the database the whole time.
+  */
+  const stampedPrincipals = useMemo(
+    () => (signedInId === '' ? listedPrincipals : [signedInId, ...listedPrincipals]),
+    [signedInId, listedPrincipals],
+  );
   const online = usePresence(listedPrincipals);
   /* The same faces, asked a different question — see `use-declared-status.ts` for why
      presence and a declared status are never merged. */
@@ -152,7 +165,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
      Thirty rows each firing a request to discover a 404 is thirty round trips to draw
      initials. Same shape as presence: the shell asks, the tree reads.
   */
-  const avatarStamps = useAvatarStamps(listedPrincipals);
+  const avatarStamps = useAvatarStamps(stampedPrincipals);
   /*
      Typing in conversations the person is NOT looking at, so the list row can say so.
 

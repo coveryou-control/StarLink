@@ -5,9 +5,10 @@ import type { ReactNode } from 'react';
 
 import { initialsFor } from './conversation-naming';
 import { AvatarImage, useAvatarStamp } from './avatar-image';
-import { AvatarPicker } from './avatar-picker';
+import { ProfilePhoto } from './profile-photo';
 import { employeeRoutes } from '@starlink/shared-contracts';
 import { runtimeOrigins } from '../lib/runtime-origins';
+import { announceAvatarChange } from '../lib/use-avatar-stamps';
 import { useColleague } from './conversation-info';
 import { useSession } from './session-provider';
 import { applyTheme, type Theme } from '../lib/theme';
@@ -318,19 +319,32 @@ function Profile({
 }): ReactNode {
   const entry = useColleague(principalId);
   /**
-   * The uploaded picture's own timestamp, held locally so the tile above updates at once.
+   * What this page knows about your picture that the shared stamp map does not yet.
    *
-   * The shell's stamp poll will discover it within two minutes, which is the right cadence
-   * for everybody ELSE's picture and much too slow for your own the instant after you set
-   * it. `undefined` means "ask the shared stamp map", which is the state on first render.
+   * The shell's stamp poll discovers a change within two minutes, which is the right
+   * cadence for everybody ELSE's picture and much too slow for your own the instant after
+   * you set it. So three states rather than a timestamp and a boolean:
+   *
+   *   `undefined`      — nothing has happened here; the shared stamp is the truth.
+   *   `{ version }`    — just uploaded; use this timestamp, which the poll has not seen.
+   *   `'none'`         — just removed; show initials even though the stale stamp still says
+   *                      there is a picture. Without this case the avatar reappears on the
+   *                      next render after a removal.
    */
-  const [version, setVersion] = useState<string | undefined>();
+  const [override, setOverride] = useState<{ version: string } | 'none' | undefined>();
   const stamp = useAvatarStamp(principalId);
-  const [hasPicture, setHasPicture] = useState(false);
 
-  useEffect(() => {
-    if (stamp !== undefined) setHasPicture(true);
-  }, [stamp]);
+  /* `?v=` makes a changed picture a different URL, which is what lets the response be
+     cached immutable for a year — see `avatar-image.tsx`. */
+  const photoUrl =
+    principalId === undefined || override === 'none'
+      ? undefined
+      : (() => {
+          const version = override?.version ?? stamp;
+          return version === undefined
+            ? undefined
+            : `${runtimeOrigins().api}${employeeRoutes.avatar(principalId, version)}`;
+        })();
 
   const rows: { label: string; value: string }[] = [];
   if (entry !== undefined) {
@@ -345,53 +359,33 @@ function Profile({
 
   return (
     <div className="settings-rows">
-      <div className="settings-identity">
-        <span className="row-avatar" aria-hidden="true">
-          {initialsFor(displayName)}
-          {/* Keyed on `version`, so the tile re-renders the moment a new picture is
-              uploaded rather than after the shell's next stamp poll. */}
-          {version === undefined ? (
-            <AvatarImage principalId={principalId} alt="" />
-          ) : (
-            <img
-              className="avatar-photo"
-              src={`${runtimeOrigins().api}${employeeRoutes.avatar(principalId ?? '', version)}`}
-              alt=""
-              crossOrigin="use-credentials"
-            />
-          )}
-        </span>
-        <span className="settings-identity-text">
-          <strong>{displayName}</strong>
-          <span className="muted">
-            {entry?.authority === 'TEMPORARY_AUTHORITY'
-              ? 'From the interim directory'
-              : 'From the company directory'}
-          </span>
-        </span>
-      </div>
-
       {/*
         The one thing on this page somebody can change.
-        
+
         Everything below it comes from the company directory and is read-only — rule 11
         keeps StarLink from holding a second copy of who somebody is. A picture is not part
         of that: HRMS does not supply one, so there is no upstream to disagree with.
       */}
-      <AvatarPicker
-        label="Choose a profile picture"
-        hasPicture={hasPicture}
-        onChosen={async (base64) => {
+      <ProfilePhoto
+        initials={initialsFor(displayName)}
+        photoUrl={photoUrl}
+        displayName={displayName}
+        subtitle={
+          entry?.authority === 'TEMPORARY_AUTHORITY'
+            ? 'From the interim directory'
+            : 'From the company directory'
+        }
+        onSave={async (base64) => {
           const saved = await api.setMyAvatar(base64);
-          setVersion(saved.updatedAt);
-          setHasPicture(true);
+          setOverride({ version: saved.updatedAt });
+          /* So the rail foot, the thread and every other avatar on screen re-read now
+             rather than at the next two-minute poll. */
+          announceAvatarChange();
         }}
         onRemove={async () => {
           await api.removeMyAvatar();
-          setHasPicture(false);
-          /* A changed version with no picture is harmless — nothing renders it — and it
-             makes the tile re-render back to initials immediately. */
-          setVersion(new Date().toISOString());
+          setOverride('none');
+          announceAvatarChange();
         }}
       />
 
@@ -626,6 +620,10 @@ function YouPage({
       <button type="button" className="you-profile" onClick={() => onOpen('profile')}>
         <span className="row-avatar" aria-hidden="true">
           {initialsFor(displayName)}
+          {/* This row drew initials even for somebody who had uploaded a picture — the one
+              place in the product that did. Your own face is the last avatar that should be
+              missing from your own page. */}
+          <AvatarImage principalId={principalId} alt="" />
         </span>
         <span className="you-profile-text">
           <strong>{displayName}</strong>

@@ -8713,7 +8713,8 @@ input.signin-control {
 
 .row-avatar,
 .chat-avatar,
-.rail-avatar {
+.rail-avatar,
+.sidenav-you-avatar {
   position: relative;
   overflow: hidden;
 }
@@ -9582,4 +9583,534 @@ input.signin-control {
      be in that corner, and tinting the whole picture to fix one label is the wrong trade. */
   background: rgb(0 0 0 / 42%);
   color: #fff;
+}
+
+/* ------------------------------------------------------------- who reacted --- */
+
+/*
+   A panel anchored to the message, not a dialog over the page.
+
+   Seeing who reacted is a glance, not a task — it should not dim the thread or take the
+   focus somewhere else. It sits against `.message-stack`, which is already a positioning
+   context for the hover actions, so it travels with its own message when the thread moves.
+*/
+.reaction-details {
+  position: absolute;
+  z-index: 20;
+  /*
+     Opens UPWARD, above the chip.
+
+     Downward put the panel on top of the messages that came AFTER the one being asked
+     about, so the answer buried the conversation it was about — and on the last message in
+     a thread it opened past the bottom of the scroller and had to be scrolled to. The
+     chips sit under a bubble with the whole thread above them, so up is where the room is.
+  */
+  bottom: calc(100% + 6px);
+  left: 0;
+  width: min(260px, calc(100vw - 32px));
+  padding: 10px 4px 6px;
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 12px 28px -12px rgb(24 22 40 / 26%);
+}
+
+/* Your own messages sit on the right, so their panel hangs from that edge instead of
+   running off the far side of the thread. */
+.message-row.mine .reaction-details {
+  left: auto;
+  right: 0;
+}
+
+.reaction-details-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 10px 8px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.reaction-details-close {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-subtle);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.reaction-details-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 8px 8px;
+}
+
+.reaction-details-tabs button {
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.reaction-details-tabs button.active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent-ink, var(--accent));
+  font-weight: 620;
+}
+
+.reaction-details-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.reaction-details-list li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 10px;
+}
+
+.reaction-details-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  font-size: 10.5px;
+  font-weight: 640;
+}
+
+.reaction-details-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* `height: auto` for the same reason the favourites row needs it: a bare
+   `button { height: var(--row) }` would give this 12px link a 34px box. */
+.reaction-details-remove {
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent-ink, var(--accent));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.reaction-details-emoji {
+  flex: none;
+  font-size: 15px;
+  font-family: var(--font-with-emoji);
+  line-height: 1;
+}
+
+.reaction-details-note {
+  margin: 0;
+  padding: 4px 10px 6px;
+  font-size: 11.5px;
+  color: var(--text-subtle);
+}
+
+/* On a phone the panel takes the width it can and stays inside the thread — the spec's one
+   hard requirement for this view is that it never causes sideways scroll. */
+@media (max-width: 640px) {
+  .reaction-details {
+    left: 0;
+    right: 0;
+    width: auto;
+  }
+
+  .message-row.mine .reaction-details {
+    left: 0;
+    right: 0;
+  }
+}
+
+/* =====================================================================================
+   Profile photo — the avatar as a control, its menu, and the three dialogs behind it.
+
+   Every button here sets its own `height`. The base `button` rule a few thousand lines up
+   sets `height: var(--row)` (34px) on every button in the product that does not override
+   it, which is right for a row of actions and wrong for a 72px circle, a 24px badge and a
+   168px drop zone. That rule has already caught the favourites row and the reaction chip;
+   it is cheap to obey and expensive to rediscover.
+   ===================================================================================== */
+.profile-photo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.profile-photo-figure {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+/* The circle and its badge. Transparent and unpadded — the avatar is the whole button. */
+.profile-photo-button {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 72px;
+  height: 72px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+}
+
+.profile-photo-button .row-avatar {
+  width: 72px;
+  height: 72px;
+  font-size: 24px;
+}
+
+.profile-photo-button .avatar-photo {
+  border-radius: 50%;
+}
+
+/*
+   The camera badge.
+
+   Sits on the ring rather than inside it, so it never covers a face. It is decoration on a
+   button, not a button of its own — a nested button would be invalid HTML and would give
+   the keyboard two stops for one action.
+*/
+.profile-photo-badge {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid var(--surface-2);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  transition:
+    transform var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+/* A lift, not a shade — `transform` is not paint, so this passes the hover law and still
+   says the badge is live. */
+.profile-photo-button:hover .profile-photo-badge,
+.profile-photo-button:focus-visible .profile-photo-badge {
+  transform: scale(1.08);
+}
+
+.profile-photo-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* The menu, anchored under the avatar. */
+.profile-photo-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(var(--space-3) + 78px);
+  left: var(--space-3);
+  min-width: 178px;
+  padding: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  animation: modal-in var(--dur) var(--ease);
+}
+
+.profile-photo-menu button {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  height: 32px;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-align: left;
+}
+
+/*
+   Menu items shift their ink on hover rather than lighting a row.
+
+   This is the first menu in the sheet, so there was no convention to copy — and the hover
+   law settles it: the accent on the label is enough to say which item the pointer is on,
+   and it is what the rest of the product does everywhere a row responds to a pointer.
+*/
+.profile-photo-menu button:hover:not(:disabled) {
+  color: var(--accent-ink);
+}
+
+.profile-photo-menu button.danger {
+  color: var(--danger);
+}
+
+.profile-photo-menu button.danger:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.profile-photo-menu button:disabled {
+  opacity: 0.5;
+}
+
+/* The confirmation under the tile. Quiet on purpose: it is a report, not a call to action. */
+.profile-photo-done {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* ---- The three dialogs ------------------------------------------------------------ */
+.photo-dialog {
+  width: min(400px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: var(--space-4);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-float);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.photo-dialog-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.photo-dialog-head h2 {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+}
+
+.photo-dialog-close {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--text-muted);
+}
+
+.photo-dialog-close:hover {
+  color: var(--text);
+}
+
+.photo-dialog-full {
+  width: 256px;
+  height: 256px;
+  max-width: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
+/*
+   The drop zone.
+
+   A dashed rectangle is the one place in this sheet that draws one, and it earns the
+   exception: it is the established shape for "put something here", and it reads as an
+   empty container rather than a button — which is what it is until a file lands in it.
+*/
+.photo-drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  height: 168px;
+  padding: var(--space-3);
+  border: 1.5px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: center;
+  transition:
+    border-color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+/*
+   The DRAG-OVER state paints; hover does not.
+
+   These were one rule, which the hover law refuses and is right to: a shaded box under the
+   pointer is the thing it exists to prevent. They are also genuinely different events — a
+   pointer passing over the zone is not a file being carried into it — and only the second
+   deserves to light up. Hover shifts the ink instead.
+*/
+.photo-drop:hover {
+  color: var(--accent-ink);
+}
+
+.photo-drop.over {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.photo-drop strong {
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.photo-drop .muted,
+.photo-drop-limits {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+
+.photo-drop-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 2px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+/*
+   The crop square.
+
+   `touch-action: none` so that dragging on a phone moves the picture instead of scrolling
+   the dialog out from under the finger.
+*/
+.photo-crop {
+  display: block;
+  max-width: 100%;
+  border-radius: var(--radius);
+  background: var(--neutral-200);
+  cursor: grab;
+  touch-action: none;
+}
+
+.photo-crop:active {
+  cursor: grabbing;
+}
+
+.photo-crop:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.photo-zoom {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: 264px;
+}
+
+.photo-zoom button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 50%;
+  color: var(--text-muted);
+}
+
+.photo-zoom button:hover {
+  color: var(--text);
+}
+
+.photo-zoom input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+
+.photo-dialog-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+/* `.confirm-cancel` carries a `margin-top` for the stacked confirm dialog. This foot is a
+   row, so it is removed rather than left to push one button out of line with the other. */
+.photo-dialog-foot .confirm-cancel {
+  margin-top: 0;
+}
+
+.photo-dialog-foot button.primary {
+  border-color: transparent;
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-label);
+}
+
+.photo-dialog-foot button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+@media (max-width: 640px) {
+  .photo-dialog {
+    padding: var(--space-3);
+  }
+
+  /* Full width rather than a 178px card floating in a narrow tile. */
+  .profile-photo-menu {
+    left: var(--space-2);
+    right: var(--space-2);
+    min-width: 0;
+  }
 }

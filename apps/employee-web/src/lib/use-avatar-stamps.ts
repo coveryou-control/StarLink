@@ -22,6 +22,26 @@ import { api } from './api-client';
 const POLL_MS = 120_000;
 const MAX_IDS = 50;
 
+/**
+ * Fired by whatever just changed a picture, to pull the poll forward.
+ *
+ * Two minutes is the right cadence for discovering that a COLLEAGUE changed theirs, and far
+ * too slow for the person who just pressed Save: they set a photo, and their own face in
+ * the rail stayed as initials for up to two minutes. The page that made the change knows
+ * the moment it lands, so it says so, and the one poll everybody already shares runs again.
+ *
+ * A window event rather than shared state because the emitter and the listener are on
+ * opposite sides of the tree with no common owner below the shell — and this carries no
+ * data, so there is nothing for the two to disagree about. It is a nudge; the answer still
+ * comes from the server.
+ */
+export const AVATAR_CHANGED_EVENT = 'starlink:avatar-changed';
+
+/** Call after an avatar is set or removed, so every avatar on screen re-reads at once. */
+export function announceAvatarChange(): void {
+  window.dispatchEvent(new Event(AVATAR_CHANGED_EVENT));
+}
+
 export function useAvatarStamps(principalIds: readonly string[]): ReadonlyMap<string, string> {
   const [stamps, setStamps] = useState<ReadonlyMap<string, string>>(new Map());
 
@@ -52,9 +72,11 @@ export function useAvatarStamps(principalIds: readonly string[]): ReadonlyMap<st
 
     poll();
     const timer = setInterval(poll, POLL_MS);
+    window.addEventListener(AVATAR_CHANGED_EVENT, poll);
     return () => {
       live = false;
       clearInterval(timer);
+      window.removeEventListener(AVATAR_CHANGED_EVENT, poll);
     };
   }, [key]);
 
