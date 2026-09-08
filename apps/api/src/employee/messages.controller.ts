@@ -64,7 +64,10 @@ import type {
 } from '@starlink/database';
 
 /** Structural, not the class: the controller needs the two methods, not the pool. */
-type ReactionStore = Pick<PgReactionStore, 'forMessages' | 'add' | 'remove' | 'conversationOf'>;
+type ReactionStore = Pick<
+  PgReactionStore,
+  'forMessages' | 'forMessage' | 'add' | 'remove' | 'conversationOf'
+>;
 type StarStore = Pick<PgStarStore, 'add' | 'remove' | 'minedOn' | 'conversationOf'>;
 
 const uuid = z.string().uuid();
@@ -996,8 +999,45 @@ export class EmployeeMessagesController {
       target.messageId,
       request.session!.principalId,
       target.emoji,
+      /* Already verified above to be the conversation this message is IN, so the frame
+         cannot be published to a conversation the message does not belong to. */
+      target.conversationId,
     );
     return { changed };
+  }
+
+  /**
+   * Who reacted to this message, and with what.
+   *
+   * ## Authorized as a READ of the conversation
+   *
+   * Reacting needs `mayReactTo`; seeing who reacted needs only what the thread already
+   * shows you — the chips are on the page. `mayReadIn` is therefore the right check, and
+   * the same one the star routes use.
+   *
+   * ## Ids, not names
+   *
+   * The client already holds the conversation's participants and resolves the name from
+   * them, exactly as the typing indicator does. Resolving here would mean a directory
+   * lookup per reactor on a request that fires every time somebody opens a popover, to
+   * produce names the caller can already see in the same thread.
+   */
+  @Get(':messageId/reactions')
+  async reactors(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    if (!conversationId.success || !messageId.success) return refuse();
+    /* The message must be IN the named conversation — the same guard the write routes
+       carry, so a caller cannot read one thread's reactors by authorizing against another. */
+    const owner = await this.reactions.conversationOf(messageId.data);
+    if (owner === undefined || owner !== conversationId.data) return refuse();
+    if (!(await this.mayReadIn(conversationId.data, request))) return refuse();
+
+    return { reactors: await this.reactions.forMessage(messageId.data) };
   }
 
   @Delete(':messageId/reactions')
@@ -1016,6 +1056,9 @@ export class EmployeeMessagesController {
       target.messageId,
       request.session!.principalId,
       target.emoji,
+      /* Already verified above to be the conversation this message is IN, so the frame
+         cannot be published to a conversation the message does not belong to. */
+      target.conversationId,
     );
     return { changed };
   }

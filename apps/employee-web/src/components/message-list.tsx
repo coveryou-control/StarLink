@@ -12,6 +12,7 @@ import { crossesDay, daySeparatorLabel, unreadDividerIndex } from './timeline';
 import { splitBody } from '../lib/mention-draft';
 import { MessageActions } from './message-actions';
 import { MessageContextMenu } from './message-context-menu';
+import { ReactionDetails } from './reaction-details';
 
 import type { MessageView } from '../lib/api-client';
 import type { PendingSend } from './composer';
@@ -77,6 +78,9 @@ interface MessageListProps {
   readonly onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
   readonly onForward?: ((message: MessageView) => void) | undefined;
   readonly onToggleStar?: ((message: MessageView, next: boolean) => void) | undefined;
+  /** Needed to fetch who reacted, which is a per-message read the page does not carry. */
+  readonly conversationId?: string | undefined;
+  readonly participants?: readonly { principalId: string; displayName: string }[] | undefined;
   readonly onMessageInfo?: ((message: MessageView) => void) | undefined;
   /**
    * How far every OTHER participant has read. Zero means nobody, or somebody has not.
@@ -112,6 +116,8 @@ export function MessageList({
   onTogglePin,
   onForward,
   onToggleStar,
+  conversationId,
+  participants,
   onMessageInfo,
   readWatermark = 0,
 }: MessageListProps): ReactNode {
@@ -175,6 +181,8 @@ export function MessageList({
           onTogglePin={onTogglePin}
           onForward={onForward}
           onToggleStar={onToggleStar}
+          conversationId={conversationId}
+          participants={participants}
           onMessageInfo={onMessageInfo}
           conversationIsInternal={conversationIsInternal}
           isGroup={isGroup}
@@ -238,6 +246,8 @@ function MessageRow({
   onTogglePin,
   onForward,
   onToggleStar,
+  conversationId,
+  participants,
   onMessageInfo,
   readWatermark,
 }: {
@@ -258,6 +268,8 @@ function MessageRow({
   onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
   onForward?: ((message: MessageView) => void) | undefined;
   onToggleStar?: ((message: MessageView, next: boolean) => void) | undefined;
+  conversationId?: string | undefined;
+  participants?: readonly { principalId: string; displayName: string }[] | undefined;
   onMessageInfo?: ((message: MessageView) => void) | undefined;
   readWatermark: number;
 }): ReactNode {
@@ -302,6 +314,8 @@ function MessageRow({
 
   /** Where the context menu was summoned, or absent when it is closed. */
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | undefined>();
+  /** Which chip's detail panel is open, if any. */
+  const [detailsFor, setDetailsFor] = useState<string | undefined>();
 
   return (
     <li
@@ -638,9 +652,22 @@ function MessageRow({
               <button
                 type="button"
                 className={`reaction${reaction.mine ? ' mine' : ''}`}
-                onClick={() => onReact?.(message.messageId, reaction.emoji, !reaction.mine)}
-                aria-pressed={reaction.mine}
-                aria-label={`${reaction.emoji} ${reaction.count}${reaction.mine ? ', including you' : ''}`}
+                /*
+                   The chip OPENS the detail panel; it does not toggle.
+
+                   Adding, changing and removing all live in the hover picker, where the
+                   emoji you already chose is highlighted and tapping it again removes it —
+                   so the chip is free to answer the question a chip actually raises, which
+                   is "who?". Toggling here as well would mean the same click both removed
+                   your reaction and asked about it.
+                */
+                onClick={() =>
+                  setDetailsFor(detailsFor === reaction.emoji ? undefined : reaction.emoji)
+                }
+                aria-haspopup="dialog"
+                aria-label={`${reaction.emoji} ${reaction.count}${
+                  reaction.mine ? ', including you' : ''
+                } — see who reacted`}
                 disabled={onReact === undefined}
               >
                 <span aria-hidden="true">{reaction.emoji}</span>
@@ -651,6 +678,29 @@ function MessageRow({
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {/*
+        Anchored to the message rather than portalled.
+
+        `.message-stack` is already a positioning context — the hover action bar uses it —
+        and a panel that scrolls with its own message is one the reader never has to hunt
+        for after the thread moves under it.
+      */}
+      {detailsFor !== undefined && conversationId !== undefined ? (
+        <ReactionDetails
+          conversationId={conversationId}
+          messageId={message.messageId}
+          participants={participants ?? []}
+          currentPrincipalId={currentPrincipalId}
+          initialEmoji={detailsFor}
+          onClose={() => setDetailsFor(undefined)}
+          onRemoveOwn={() => {
+            const own = message.reactions?.find((entry) => entry.mine);
+            if (own !== undefined) onReact?.(message.messageId, own.emoji, false);
+            setDetailsFor(undefined);
+          }}
+        />
       ) : null}
 
       {/*

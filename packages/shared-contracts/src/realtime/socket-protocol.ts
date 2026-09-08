@@ -225,6 +225,28 @@ export function toConversationEvent(frame: RealtimeFrame): ConversationEvent | u
   return { conversationId: conversationId as UUID, seq: frame.seq, kind };
 }
 
+/**
+ * Is this frame a reaction change, and if so in which conversation?
+ *
+ * ## Why it is not a {@link ConversationEvent}
+ *
+ * `toConversationEvent` classifies frames against the conversation's message SEQUENCE, and
+ * a reaction has none — nothing is inserted into the thread, so there is no position for it
+ * to occupy. Run through that path it would be discarded as already-seen (its seq is one
+ * the client has) or, worse, treated as a gap and used to tear the paging. So it is
+ * interpreted here instead, before the sequence logic, and the answer is not "apply this"
+ * but "re-read that conversation".
+ *
+ * Shared rather than written in the client for the same reason the mapper above is: the
+ * gateway's integration test can then assert on the interpretation the UI actually applies.
+ */
+export function reactionChangeIn(frame: RealtimeFrame): UUID | undefined {
+  if (frame.name !== 'message.reacted.v1') return undefined;
+  const conversationId = frame.payload.conversationId;
+  if (typeof conversationId !== 'string' || conversationId === '') return undefined;
+  return conversationId as UUID;
+}
+
 /** The subscribe payload for one conversation. Typed so the `kind` cannot be forgotten. */
 export const conversationChannel = (conversationId: UUID): RealtimeChannel => ({
   kind: 'CONVERSATION',

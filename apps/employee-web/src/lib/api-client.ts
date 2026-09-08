@@ -822,6 +822,18 @@ export const api = {
       method: 'DELETE',
     }),
 
+  /**
+   * Who reacted to one message, and with what.
+   *
+   * Fetched on demand rather than sent with the page: the listing carries only counts, so
+   * that "who is paying attention to whom" is not on the wire for every message somebody
+   * scrolls past. Ids only — the caller resolves names from the participants it holds.
+   */
+  reactors: (conversationId: string, messageId: string) =>
+    request<{ reactors: readonly { principalId: string; emoji: string; at: string }[] }>(
+      employeeRoutes.conversations.reactions(conversationId, messageId),
+    ),
+
   unreact: (conversationId: string, messageId: string, emoji: string) =>
     request<{ changed: boolean }>(employeeRoutes.conversations.reactions(conversationId, messageId), {
       method: 'DELETE',

@@ -5,6 +5,7 @@ import { io, type Socket } from 'socket.io-client';
 import {
   conversationChannel,
   SOCKET_EVENTS,
+  reactionChangeIn,
   toConversationEvent,
   type ConversationEvent,
   type RealtimeFrame,
@@ -95,6 +96,10 @@ export function useRealtime({
 
   // Hold the callbacks in refs so a re-render does not tear down and rebuild the
   // socket — reconnect storms are something we are explicitly trying to avoid.
+  /* Read inside the socket handler, which is registered once — a captured `conversationId`
+     would still name the thread that was open when the socket connected. */
+  const conversationIdRef = useRef(conversationId);
+  conversationIdRef.current = conversationId;
   const handlers = useRef({ onRefetch, onEvent, onSessionRevoked, onTyping, onRead });
   handlers.current = { onRefetch, onEvent, onSessionRevoked, onTyping, onRead };
 
@@ -172,6 +177,21 @@ export function useRealtime({
        * an unknown event name, a missing sequence — is ignored rather than applied at a
        * guessed position; the next re-fetch reconciles it (invariant 9).
        */
+      /*
+         A reaction is handled BEFORE the sequence logic, and only ever as a nudge.
+
+         It carries no `seq` because it does not advance the thread — see
+         `reactionChangeIn`. Re-reading is the whole response: the frame says which message
+         changed and nothing about how, so a client that misses one ends up in the same
+         place as one that receives it, which is invariant 9 working rather than being
+         worked around.
+      */
+      const reacted = reactionChangeIn(frame);
+      if (reacted !== undefined) {
+        if (reacted === conversationIdRef.current) handlers.current.onRefetch();
+        return;
+      }
+
       const event = toConversationEvent(frame);
       if (event === undefined) return;
 
