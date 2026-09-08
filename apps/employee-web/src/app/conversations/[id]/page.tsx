@@ -873,6 +873,10 @@ export default function ThreadPage(): ReactNode {
               unreadOnOpen={unreadOnOpen.current}
               readWatermark={readWatermark}
               onReact={react}
+              conversationId={conversationId}
+              /* The detail panel resolves reactor ids against these rather than asking the
+                 server for names it would only be re-deriving. */
+              participants={activeConversation?.participants ?? []}
               onEdit={editMessage}
               onDelete={setDeleting}
               pinnedIds={pinnedIds}
