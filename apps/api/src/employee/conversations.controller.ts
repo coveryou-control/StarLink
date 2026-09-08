@@ -21,7 +21,10 @@ import {
   type ConversationStore,
   type ReadStateStore,
 } from '@starlink/conversation-domain';
-import type { ConversationAuthzReader, PgPinStore } from '@starlink/database';
+import type { ConversationAuthzReader, PgPinStore,
+  PgArchiveStore,
+  PgStarStore,
+} from '@starlink/database';
 import {
   MAX_PINNED_CONVERSATIONS as MAX_PINNED,
   MUTE_DURATIONS_MINUTES,
@@ -46,10 +49,15 @@ import {
   LOGGER,
   PIN_STORE,
   READ_STATE_STORE,
+  ARCHIVE_STORE,
+  STAR_STORE,
 } from '../tokens.js';
 import type { AuditWriter } from '../audit/audit-writer.js';
 import { recordDecision } from '../edge/authorization-metrics.js';
 import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
+
+type ArchiveStore = Pick<PgArchiveStore, 'set' | 'archivedIds'>;
+type StarListStore = Pick<PgStarStore, 'listFor'>;
 
 const uuid = z.string().uuid();
 
@@ -132,6 +140,17 @@ const listSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
   cursor: z.string().min(1).optional(),
   /**
+   * Which side of the archive to return. Defaults to the live list.
+   *
+   * A filter rather than a second endpoint: it is the same relation, the same authorization
+   * and the same cursor — only the predicate differs. Defaulted so every existing caller
+   * keeps exactly the list it already had.
+   */
+  archived: z
+    .union([z.literal('true'), z.literal('false'), z.boolean()])
+    .transform((v) => v === true || v === 'true')
+    .default(false),
+  /**
    * Which list this is — conversations, or announcements.
    *
    * Two destinations over one relation. An announcement is a conversation the caller is a
@@ -148,6 +167,8 @@ export class EmployeeConversationsController {
   constructor(
     @Inject(CONVERSATION_STORE) private readonly store: ConversationStore,
     @Inject(CONVERSATION_READER) private readonly reader: ConversationReader,
+    @Inject(ARCHIVE_STORE) private readonly archive: ArchiveStore,
+    @Inject(STAR_STORE) private readonly stars: StarListStore,
     @Inject(READ_STATE_STORE) private readonly readState: ReadStateStore,
     @Inject(IDENTITY_CLIENT) private readonly identity: IdentityAuthorizationClient,
     @Inject(CONVERSATION_LIST_CURSOR_CODEC) private readonly listCursors: ConversationListCursorCodec,
@@ -235,9 +256,29 @@ export class EmployeeConversationsController {
       parsed.data.scope === 'announcements' ? 'ANNOUNCEMENTS' : 'CHATS',
     );
 
+    /*
+       The archive is applied here rather than in the query, and that is a deliberate
+       trade rather than an oversight.
+
+       `listForPrincipal` is shared with the announcements list and paged by a signed
+       cursor over `(lastActivityAt, id)`. Filtering inside it would mean a second
+       predicate in a query several callers depend on, and a page that returns fewer rows
+       than it asked for — which this handler reads as "no more pages" and stops.
+
+       Filtering after keeps the cursor arithmetic honest: the page is still whole, the
+       cursor still points at the last row that was actually read, and a page that
+       happens to be all archived simply comes back short. The cost is that an archive-heavy
+       list may need an extra round trip, which is the right thing to trade for correctness
+       in paging.
+    */
+    const archivedIds = await this.archive.archivedIds(session.principalId);
+    const visible = conversations.filter(
+      (c) => archivedIds.has(c.conversationId) === parsed.data.archived,
+    );
+
     const last = conversations[conversations.length - 1];
     return {
-      conversations,
+      conversations: visible,
       // A cursor is offered only when the page was full. Emitting one for a short page
       // would invite a client into an extra round trip that can only come back empty.
       ...(conversations.length === parsed.data.limit && last !== undefined
@@ -250,6 +291,58 @@ export class EmployeeConversationsController {
           }
         : {}),
     };
+  }
+
+  /**
+   * Archives one conversation for the caller, or restores it.
+   *
+   * ## Not a permission change
+   *
+   * Participation is untouched: the thread stays readable, `decide()` returns exactly what
+   * it returned before, and a colleague sees no difference. This only decides which of the
+   * caller's own two lists it appears in. That is why the check is `mayReadIn` — if you can
+   * read a thread, you can tidy it off your own list.
+   */
+  @Post(':conversationId/archive')
+  async archiveConversation(
+    @Param('conversationId') conversationIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.setArchived(conversationIdRaw, request, true);
+  }
+
+  @Delete(':conversationId/archive')
+  async restoreConversation(
+    @Param('conversationId') conversationIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    return this.setArchived(conversationIdRaw, request, false);
+  }
+
+  private async setArchived(
+    conversationIdRaw: string,
+    request: AuthenticatedRequest,
+    archived: boolean,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    if (!conversationId.success) return refuse();
+    /*
+       `mayActOn` with `conversation.read` — this controller's own object check, rather
+       than a second helper written beside it. Reading is the right action: archiving
+       changes nothing about the thread, only which of the caller's two lists it appears
+       in, so anyone who may read it may tidy it away.
+    */
+    if (!(await this.mayActOn(request.session!.principalId, conversationId.data, 'conversation.read'))) {
+      return refuse();
+    }
+
+    const changed = await this.archive.set(
+      conversationId.data,
+      request.session!.principalId,
+      archived,
+      new Date().toISOString(),
+    );
+    return { changed };
   }
 
   @Post()

@@ -253,6 +253,8 @@ export interface MessageView {
   readonly createdAt: string;
   readonly mentions?: readonly MentionView[];
   readonly reactions?: readonly ReactionView[];
+  /** Present only when the reader has starred it. Private — never another reader's. */
+  readonly starred?: boolean;
   /**
    * This client's own id for the message, echoed back by the server.
    *
@@ -419,12 +421,17 @@ export const api = {
    * Two destinations over one relation, split by the server so a page is a page. Defaulted,
    * so every existing call site keeps exactly the list it had.
    */
-  conversations: (options: { cursor?: string; limit?: number; scope?: 'announcements' } = {}) =>
+  conversations: (
+    options: { cursor?: string; limit?: number; scope?: 'announcements'; archived?: boolean } = {},
+  ) =>
     request<ConversationPage>(
       `${employeeRoutes.conversations.list}${query({
         cursor: options.cursor,
         limit: options.limit,
         scope: options.scope,
+        /* Only sent when asking for the archive. Omitted otherwise so every existing
+           caller's request is byte-for-byte what it was. */
+        ...(options.archived === true ? { archived: 'true' } : {}),
       })}`,
     ),
 
@@ -759,6 +766,53 @@ export const api = {
       employeeRoutes.conversations.message(conversationId, messageId),
       { method: 'DELETE' },
     ),
+
+  /**
+   * Stars a message for the caller alone, or removes the star.
+   *
+   * Private, unlike a reaction: no count comes back and nobody else can see it. `changed:
+   * false` means it was already in that state, which is a normal outcome rather than an
+   * error.
+   */
+  star: (conversationId: string, messageId: string) =>
+    request<{ changed: boolean }>(employeeRoutes.conversations.star(conversationId, messageId), {
+      method: 'POST',
+    }),
+
+  unstar: (conversationId: string, messageId: string) =>
+    request<{ changed: boolean }>(employeeRoutes.conversations.star(conversationId, messageId), {
+      method: 'DELETE',
+    }),
+
+  /** Everything the caller has starred, newest bookmark first, across every conversation. */
+  starred: () =>
+    request<{
+      starred: readonly {
+        messageId: string;
+        conversationId: string;
+        body: string;
+        senderPrincipalId: string;
+        senderDisplayName: string;
+        sentAt: string;
+        starredAt: string;
+      }[];
+    }>(employeeRoutes.starred),
+
+  /**
+   * Moves a conversation off the caller's list, or back onto it.
+   *
+   * Not leaving: participation, permissions and everybody else's view are untouched. This
+   * only decides which of the caller's own two lists it appears in.
+   */
+  archiveConversation: (conversationId: string) =>
+    request<{ changed: boolean }>(employeeRoutes.conversations.archive(conversationId), {
+      method: 'POST',
+    }),
+
+  restoreConversation: (conversationId: string) =>
+    request<{ changed: boolean }>(employeeRoutes.conversations.archive(conversationId), {
+      method: 'DELETE',
+    }),
 
   unreact: (conversationId: string, messageId: string, emoji: string) =>
     request<{ changed: boolean }>(employeeRoutes.conversations.reactions(conversationId, messageId), {

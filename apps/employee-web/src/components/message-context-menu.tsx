@@ -19,8 +19,8 @@ import type { MessageView } from '../lib/api-client';
  *
  * ## What is in it
  *
- * Message info, Copy, Reply, Edit, Forward, Pin, Delete. Star is absent because it was
- * asked to be, and there is no "Ask Meta AI" for the obvious reason. Edit and Delete
+ * Message info, Copy, Reply, Star, Edit, Forward, Pin, Delete. There is no "Ask Meta AI"
+ * for the obvious reason. Edit and Delete
  * appear only on your own messages — the server refuses both otherwise, and offering them
  * would be offering a refusal.
  *
@@ -54,6 +54,7 @@ export function MessageContextMenu({
   onDelete,
   onTogglePin,
   onForward,
+  onToggleStar,
   onMessageInfo,
   onClose,
 }: {
@@ -69,6 +70,14 @@ export function MessageContextMenu({
   readonly onDelete?: ((message: MessageView) => void) | undefined;
   readonly onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
   readonly onForward?: ((message: MessageView) => void) | undefined;
+  /**
+   * Star or un-star, for the caller alone.
+   *
+   * Beside Reply rather than beside Pin, and the grouping is the point: a pin is visible
+   * to everybody in the thread, a star is visible to nobody. Putting them together would
+   * suggest they are two strengths of the same act.
+   */
+  readonly onToggleStar?: ((message: MessageView, next: boolean) => void) | undefined;
   readonly onMessageInfo?: ((message: MessageView) => void) | undefined;
   readonly onClose: () => void;
 }): React.JSX.Element {
@@ -172,6 +181,18 @@ export function MessageContextMenu({
           }}
         >
           Reply
+        </button>
+      ) : null}
+      {onToggleStar !== undefined ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onToggleStar(message, message.starred !== true);
+            onClose();
+          }}
+        >
+          {message.starred === true ? 'Remove from favourites' : 'Add to favourites'}
         </button>
       ) : null}
       {canEdit && onEdit !== undefined ? (

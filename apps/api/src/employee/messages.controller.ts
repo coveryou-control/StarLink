@@ -45,6 +45,7 @@ import {
   MESSAGE_READER,
   MESSAGE_STORE,
   REACTION_STORE,
+  STAR_STORE,
   PIN_STORE,
   MESSAGE_INFO_STORE,
   HIDDEN_MESSAGE_STORE,
@@ -59,10 +60,12 @@ import type {
   PgMessageInfoStore,
   PgPinStore,
   PgReactionStore,
+  PgStarStore,
 } from '@starlink/database';
 
 /** Structural, not the class: the controller needs the two methods, not the pool. */
 type ReactionStore = Pick<PgReactionStore, 'forMessages' | 'add' | 'remove' | 'conversationOf'>;
+type StarStore = Pick<PgStarStore, 'add' | 'remove' | 'minedOn' | 'conversationOf'>;
 
 const uuid = z.string().uuid();
 
@@ -170,6 +173,7 @@ export class EmployeeMessagesController {
     @Inject(AttachmentService) private readonly attachments: AttachmentService,
     @Inject(AUDIT_WRITER) private readonly audit: AuditWriter,
     @Inject(REACTION_STORE) private readonly reactions: ReactionStore,
+    @Inject(STAR_STORE) private readonly stars: StarStore,
     @Inject(PIN_STORE) private readonly pins: PgPinStore,
     @Inject(MESSAGE_INFO_STORE) private readonly messageInfoStore: PgMessageInfoStore,
     @Inject(HIDDEN_MESSAGE_STORE) private readonly hidden: PgHiddenMessageStore,
@@ -464,6 +468,18 @@ export class EmployeeMessagesController {
       session.principalId,
     );
 
+    /*
+       Which of this page's messages the reader has starred.
+
+       One query for the page, like reactions. Unlike reactions no count is sent and no
+       other reader's stars are: a bookmark is private, so the only fact the client needs
+       is whether this reader made one.
+    */
+    const starredHere = await this.stars.minedOn(
+      messages.map((m) => m.messageId),
+      session.principalId,
+    );
+
     const reactionsByMessage = new Map<string, { emoji: string; count: number; mine: boolean }[]>();
     for (const row of await this.reactions.forMessages(messages.map((m) => m.messageId))) {
       const list = reactionsByMessage.get(row.messageId) ?? [];
@@ -594,6 +610,8 @@ export class EmployeeMessagesController {
         ...(reactionsByMessage.has(m.messageId)
           ? { reactions: reactionsByMessage.get(m.messageId) }
           : {}),
+        /* Present only when true, so an unstarred message costs nothing on the wire. */
+        ...(starredHere.has(m.messageId) ? { starred: true } : {}),
         ...(attachmentsByMessage.has(m.messageId)
           ? {
               attachments: (attachmentsByMessage.get(m.messageId) ?? []).map((a) => ({
@@ -977,6 +995,67 @@ export class EmployeeMessagesController {
       target.emoji,
     );
     return { changed };
+  }
+
+  /**
+   * Stars one message, for the caller alone.
+   *
+   * ## Authorized against the conversation, like every other message route
+   *
+   * A star is private, which is exactly why the check still has to happen: "only I can see
+   * it" is not "anyone may create it". Someone who can name a message id in a thread they
+   * are not in must not be able to bookmark it, because the Favourites view would then read
+   * that message back to them. Rule 2 — the object check runs before content is touched.
+   *
+   * `mayReadIn` rather than `mayReactTo`: bookmarking is a reading act, not a contribution
+   * to the conversation, and it should be available wherever reading is.
+   */
+  @Post(':messageId/star')
+  async star(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const target = await this.resolveStarTarget(conversationIdRaw, messageIdRaw);
+    if (target === undefined) return refuse();
+    if (!(await this.mayReadIn(target.conversationId, request))) return refuse();
+
+    const changed = await this.stars.add(target.messageId, request.session!.principalId);
+    return { changed };
+  }
+
+  @Delete(':messageId/star')
+  async unstar(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const target = await this.resolveStarTarget(conversationIdRaw, messageIdRaw);
+    if (target === undefined) return refuse();
+    if (!(await this.mayReadIn(target.conversationId, request))) return refuse();
+
+    const changed = await this.stars.remove(target.messageId, request.session!.principalId);
+    return { changed };
+  }
+
+  /**
+   * Parses both ids and proves the message is IN the named conversation.
+   *
+   * The same guard `resolveReactionTarget` carries, and for the same reason: without it a
+   * caller could authorize against a thread they are in and act on a message belonging to
+   * one they are not. An unknown message and a message in another thread both return
+   * `undefined`, so the caller cannot tell them apart (§27.3).
+   */
+  private async resolveStarTarget(
+    conversationIdRaw: string,
+    messageIdRaw: string,
+  ): Promise<{ conversationId: UUID; messageId: UUID } | undefined> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    if (!conversationId.success || !messageId.success) return undefined;
+    const owner = await this.stars.conversationOf(messageId.data);
+    if (owner === undefined || owner !== conversationId.data) return undefined;
+    return { conversationId: conversationId.data, messageId: messageId.data };
   }
 
   /**

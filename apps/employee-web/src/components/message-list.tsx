@@ -75,6 +75,7 @@ interface MessageListProps {
   readonly pinnedIds?: ReadonlySet<string> | undefined;
   readonly onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
   readonly onForward?: ((message: MessageView) => void) | undefined;
+  readonly onToggleStar?: ((message: MessageView, next: boolean) => void) | undefined;
   readonly onMessageInfo?: ((message: MessageView) => void) | undefined;
   /**
    * How far every OTHER participant has read. Zero means nobody, or somebody has not.
@@ -109,6 +110,7 @@ export function MessageList({
   pinnedIds,
   onTogglePin,
   onForward,
+  onToggleStar,
   onMessageInfo,
   readWatermark = 0,
 }: MessageListProps): ReactNode {
@@ -171,6 +173,7 @@ export function MessageList({
           pinnedIds={pinnedIds}
           onTogglePin={onTogglePin}
           onForward={onForward}
+          onToggleStar={onToggleStar}
           onMessageInfo={onMessageInfo}
           conversationIsInternal={conversationIsInternal}
           isGroup={isGroup}
@@ -233,6 +236,7 @@ function MessageRow({
   pinnedIds,
   onTogglePin,
   onForward,
+  onToggleStar,
   onMessageInfo,
   readWatermark,
 }: {
@@ -252,6 +256,7 @@ function MessageRow({
   pinnedIds?: ReadonlySet<string> | undefined;
   onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
   onForward?: ((message: MessageView) => void) | undefined;
+  onToggleStar?: ((message: MessageView, next: boolean) => void) | undefined;
   onMessageInfo?: ((message: MessageView) => void) | undefined;
   readWatermark: number;
 }): ReactNode {
@@ -560,6 +565,7 @@ function MessageRow({
           pinned={pinnedIds?.has(message.messageId) === true}
           {...(onTogglePin !== undefined ? { onTogglePin } : {})}
           {...(onForward !== undefined ? { onForward } : {})}
+          {...(onToggleStar !== undefined ? { onToggleStar } : {})}
           {...(onMessageInfo !== undefined ? { onMessageInfo } : {})}
           {...(onReply !== undefined ? { onReply } : {})}
           {...(onEdit !== undefined ? { onEdit } : {})}
@@ -745,7 +751,7 @@ function PendingRow({
  * ago it was, and printing a bare clock time on it would put yesterday's message on
  * today's footing.
  */
-function formatTimestamp(iso: string): string {
+export function formatTimestamp(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
 

@@ -41,6 +41,8 @@ export function ConversationRowMenu({
   at,
   onTogglePin,
   onMute,
+  onToggleArchive,
+  archived = false,
   onClose,
 }: {
   readonly conversationId: string;
@@ -53,6 +55,14 @@ export function ConversationRowMenu({
   readonly onTogglePin: (conversationId: string, next: boolean) => void;
   /** `null` unmutes. Minutes are always one of `MUTE_DURATIONS_MINUTES`. */
   readonly onMute: (conversationId: string, minutes: number | null) => void;
+  /**
+   * Move it off this reader's list, or back on.
+   *
+   * Optional so a list that has no archive to move things to — the archive view itself
+   * shows "Restore" instead — does not have to pretend otherwise.
+   */
+  readonly onToggleArchive?: ((conversationId: string, next: boolean) => void) | undefined;
+  readonly archived?: boolean;
   readonly onClose: () => void;
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -135,6 +145,27 @@ export function ConversationRowMenu({
           >
             {pinned ? 'Unpin chat' : 'Pin chat'}
           </button>
+
+          {/*
+             Archive, between pin and mute.
+
+             It is the least destructive of the three and the most reversible: nothing is
+             deleted, nobody else sees a difference, and the thread comes back the moment
+             it is restored. It sits with them because all three are ways of arranging your
+             own list rather than acts on the conversation.
+          */}
+          {onToggleArchive !== undefined ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                onToggleArchive(conversationId, !archived);
+                onClose();
+              }}
+            >
+              {archived ? 'Restore to chats' : 'Archive chat'}
+            </button>
+          ) : null}
 
           {/*
              The label says WHEN it ends, not just that it is muted.

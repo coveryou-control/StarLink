@@ -186,6 +186,14 @@ export const likePattern = (term: string): string =>
 
 
 export const employeeRoutes = {
+  /**
+   * Everything the caller has starred, newest bookmark first.
+   *
+   * Not scoped to a conversation, because the Favourites view is deliberately a view
+   * ACROSS threads — which is the whole reason a star is worth more than scrolling back.
+   */
+  starred: `${EMPLOYEE_API_BASE}/starred`,
+
   auth: {
     signIn: `${EMPLOYEE_API_BASE}/auth/sign-in`,
     signOut: `${EMPLOYEE_API_BASE}/auth/sign-out`,
@@ -268,6 +276,18 @@ export const employeeRoutes = {
     /** Add (POST) or remove (DELETE) one of the caller's own reactions on a message. */
     reactions: (conversationId: string, messageId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages/${messageId}/reactions`,
+    /**
+     * Star (POST) or un-star (DELETE) one message, for the caller alone.
+     *
+     * A private bookmark, unlike a reaction: nobody else can see it and no count is
+     * exposed. The conversation is named because starring is authorized against the
+     * THREAD — read access is a property of the conversation, not of the bookmark.
+     */
+    star: (conversationId: string, messageId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages/${messageId}/star`,
+    /** Archive (POST) or restore (DELETE) one conversation, for the caller alone. */
+    archive: (conversationId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/archive`,
     /**
      * What is pinned in this conversation (GET).
      *

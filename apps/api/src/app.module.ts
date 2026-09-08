@@ -35,6 +35,8 @@ import {
   PgConversationStore,
   PgMessageReader,
   PgReactionStore,
+  PgStarStore,
+  PgArchiveStore,
   PgPinStore,
   PgMessageInfoStore,
   PgStatusStore,
@@ -94,6 +96,8 @@ import {
   LOGGER,
   MESSAGE_READER,
   REACTION_STORE,
+  STAR_STORE,
+  ARCHIVE_STORE,
   PIN_STORE,
   MESSAGE_INFO_STORE,
   STATUS_STORE,
@@ -125,6 +129,7 @@ import { EmployeeAdminController } from './employee/admin.controller.js';
 import { EmployeeConversationsController } from './employee/conversations.controller.js';
 import { EmployeeMessagesController } from './employee/messages.controller.js';
 import { EmployeeDirectoryController } from './employee/directory.controller.js';
+import { StarredController } from './employee/starred.controller.js';
 import { StatusController } from './employee/status.controller.js';
 import { AvatarController } from './employee/avatar.controller.js';
 import { EmployeeSearchController } from './employee/search.controller.js';
@@ -234,6 +239,8 @@ const providers: Provider[] = [
   { provide: MESSAGE_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgMessageStore(pool) },
   { provide: MESSAGE_READER, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgMessageReader(pool) },
   { provide: REACTION_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgReactionStore(pool) },
+  { provide: STAR_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgStarStore(pool) },
+  { provide: ARCHIVE_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgArchiveStore(pool) },
   { provide: PIN_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgPinStore(pool) },
   { provide: MESSAGE_INFO_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgMessageInfoStore(pool) },
   { provide: STATUS_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgStatusStore(pool) },
@@ -678,6 +685,7 @@ const providers: Provider[] = [
     EmployeeMessagesController,
     EmployeeSearchController,
     EmployeeDirectoryController,
+    StarredController,
     StatusController,
     AvatarController,
     EmployeeRoutingController,
