@@ -95,7 +95,18 @@
      rightward into the content — without the edge being the loudest thing in the window.
   */
   --rail-bg: #4f4e5c;
-  --rail-fg: rgb(255 255 255 / 50%);
+  /*
+     Solid, not white-at-50%.
+
+     The translucent value was tuned against the original near-black rail, where 50% white
+     still clears AA comfortably. The rail has been lightened three times since and nobody
+     re-checked: on #4f4e5c it blends to roughly #a7a6ae and measures 3.39:1, so every
+     unselected destination in the column has been below AA for text.
+
+     A solid colour rather than another alpha, so the next time the ground moves this reads
+     as a value to re-measure instead of one that quietly re-blends.
+  */
+  --rail-fg: #d3d2da;
   --rail-fg-active: #ffffff;
   --rail-item-active: rgb(255 255 255 / 10%);
 
