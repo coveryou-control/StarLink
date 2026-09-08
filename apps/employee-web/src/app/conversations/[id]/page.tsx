@@ -95,15 +95,20 @@ export default function ThreadPage(): ReactNode {
   /**
    * Two states, because the panel has two behaviours and one flag cannot hold both.
    *
-   * As a COLUMN it is part of the composition and is there unless you hid it. As an OVERLAY
-   * it covers the conversation, so it is absent unless you asked for it. A single
-   * `detailsOpen` defaulting to true gave the second the first's default, and a tablet
-   * opened every thread with the information panel on top of the messages.
+   * As a COLUMN it sits beside the conversation; as an OVERLAY it covers it. They are kept
+   * apart rather than reset on resize, so hiding the panel on a wide screen and then
+   * narrowing the window does not open it, and vice versa.
    *
-   * Kept apart rather than reset on resize: hiding the panel on a wide screen and then
-   * narrowing the window should not open it, and vice versa.
+   * BOTH start closed. The column used to start open, on the reasoning that it was part of
+   * the composition — but opening a conversation is a request to read the conversation, and
+   * the panel took a third of the width to answer a question nobody had asked yet. It is
+   * one click away in the header, and the thread is what the click was for.
+   *
+   * The thread column is keyed by conversation, so this remounts per thread: the panel
+   * closes again when you move to the next one, which is the same rule stated once rather
+   * than a reset that has to be remembered.
    */
-  const [columnHidden, setColumnHidden] = useState(false);
+  const [columnHidden, setColumnHidden] = useState(true);
   const [overlayOpen, setOverlayOpen] = useState(false);
 
   /** The header's magnifier: the same search, narrowed to this thread. */
@@ -125,6 +130,17 @@ export default function ThreadPage(): ReactNode {
     unreadOnOpen.current = activeConversation.unreadCount;
   }
   const scrollRef = useRef<HTMLDivElement>(null);
+  /**
+   * Was the reader at the bottom of the thread when it last moved?
+   *
+   * The follow-the-bottom effect below used to fire on every change to `messages`, and
+   * `messages` is replaced wholesale by a refetch — which reacting to a message triggers.
+   * So reacting to something forty messages up threw the reader back to the newest message.
+   * The same was true of a colleague's reaction, an edit, or any other refetch.
+   *
+   * Starts true, because a thread opens at the bottom.
+   */
+  const atBottom = useRef(true);
   const trackerRef = useRef<{ reset: (id: string, seq: number) => void } | undefined>(undefined);
 
   // Highest seq already reported as read, so a debounce firing with nothing new does
@@ -431,10 +447,20 @@ export default function ThreadPage(): ReactNode {
     void refetch();
   }, [refetch]);
 
-  // Follow the bottom of the thread as messages arrive.
+  /*
+     Follow the bottom of the thread as messages arrive — but only for a reader who is
+     ALREADY there.
+
+     Unconditional, this is the bug where reacting to an old message scrolls you away from
+     it. "At the bottom" is within 80px rather than exactly zero: a reader sitting at the
+     newest message is a few pixels off it as often as not, and a threshold that only
+     matches exact equality stops following for people who meant to be following.
+  */
   useEffect(() => {
     const element = scrollRef.current;
-    if (element !== null && !loadingOlder) element.scrollTop = element.scrollHeight;
+    if (element === null || loadingOlder) return;
+    if (!atBottom.current) return;
+    element.scrollTop = element.scrollHeight;
   }, [messages, pending, loadingOlder]);
 
   // Debounced read marking.
@@ -732,7 +758,14 @@ export default function ThreadPage(): ReactNode {
         }}
       />
 
-      <div ref={scrollRef} className="thread-scroll">
+      <div
+        ref={scrollRef}
+        className="thread-scroll"
+        onScroll={(event) => {
+          const el = event.currentTarget;
+          atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+      >
         {/*
           A skeleton, not the word "Loading".
 
@@ -796,6 +829,32 @@ export default function ThreadPage(): ReactNode {
               pinnedIds={pinnedIds}
               onTogglePin={togglePin}
               onForward={setForwarding}
+              /*
+                 Optimistic, then reconciled by the refetch.
+
+                 A star is the reader's own private mark, so there is no other party whose
+                 view could disagree and nothing to broadcast. Waiting for the round trip
+                 would make the one control in the product people press absent-mindedly
+                 feel slow for no gain — and if the write fails the refetch puts the
+                 message back the way the server says it is.
+              */
+              onToggleStar={(message, next) => {
+                setMessages((current) =>
+                  current.map((m) =>
+                    m.messageId === message.messageId ? { ...m, starred: next } : m,
+                  ),
+                );
+                void (async () => {
+                  try {
+                    if (next) await api.star(conversationId, message.messageId);
+                    else await api.unstar(conversationId, message.messageId);
+                  } catch (cause) {
+                    if (cause instanceof ApiError && cause.isUnauthenticated) onUnauthenticated();
+                  } finally {
+                    void refetch();
+                  }
+                })();
+              }}
               onMessageInfo={setInspecting}
             />
           </>
@@ -988,7 +1047,21 @@ export default function ThreadPage(): ReactNode {
           canReplyToCustomer={conversationType !== undefined && !conversationType.startsWith('INTERNAL')}
           {...(addressedPlaceholder !== undefined ? { placeholder: addressedPlaceholder } : {})}
           onSent={onSent}
-          onPendingChange={setPending}
+          onPendingChange={(next) => {
+            /*
+               Sending returns you to the bottom, wherever you were reading.
+
+               The follow-the-bottom effect only fires for a reader already there, which is
+               what stops a reaction from yanking the thread — but posting a message is an
+               explicit request to add to the END of it, and not being shown your own
+               message is worse than losing your place. Setting the flag rather than
+               scrolling here lets the existing effect do it once the row exists.
+            */
+            setPending((current) => {
+              if (next.length > current.length) atBottom.current = true;
+              return next;
+            });
+          }}
           onTyping={notifyTyping}
         />
       ) : null}

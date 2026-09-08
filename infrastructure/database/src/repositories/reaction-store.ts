@@ -4,13 +4,20 @@ import type { UUID } from '@starlink/shared-contracts';
 /**
  * Reactions on messages.
  *
+ * ## One per person, enforced by the key
+ *
+ * The primary key is `(message_id, principal_id)` — see migration 0027. A person has one
+ * reaction to a message, and choosing another REPLACES it; a second row for the same
+ * person is not merely discouraged, it cannot be stored. That is deliberate: a
+ * read-then-write in the route would be a race between two taps on two devices, and the
+ * loser would be a duplicate nobody could account for.
+ *
  * ## Idempotent by construction
  *
- * The table's primary key is `(message_id, principal_id, emoji)`, so adding a reaction is
- * an upsert that does nothing on conflict and removing one is a delete of a row the caller
- * can name without reading it first. Double-tapping is not an error and a slow network
- * cannot produce two of the same reaction — which matters because this is the one control
- * in the product people will press twice on purpose.
+ * Adding is an upsert and removing is a delete of a row the caller can name without
+ * reading it first. Double-tapping the same emoji is not an error and a slow network
+ * cannot produce a duplicate — which matters because this is the one control in the
+ * product people will press twice on purpose.
  */
 export interface ReactionRow {
   readonly messageId: UUID;
@@ -22,16 +29,23 @@ export class PgReactionStore {
   constructor(private readonly pool: pg.Pool) {}
 
   /**
-   * Adds a reaction. Returns whether a row was actually inserted.
+   * Sets this person's reaction to a message, replacing whatever it was.
    *
-   * `false` means "already there", not "failed" — the caller uses it to decide whether
-   * anything changed worth broadcasting, not whether to report an error.
+   * Returns whether anything actually changed. `false` means "you already had exactly this
+   * one" — the caller uses it to decide whether there is something worth broadcasting, not
+   * whether to report an error.
+   *
+   * The `WHERE` on the conflict clause is what makes that distinction possible: without it
+   * an unchanged re-tap would still UPDATE the row and report a change, and every duplicate
+   * tap would push a realtime frame to the whole conversation.
    */
   async add(messageId: UUID, principalId: UUID, emoji: string): Promise<boolean> {
     const result = await this.pool.query(
       `INSERT INTO conversation.message_reactions (message_id, principal_id, emoji)
        VALUES ($1, $2, $3)
-       ON CONFLICT DO NOTHING
+       ON CONFLICT (message_id, principal_id)
+       DO UPDATE SET emoji = EXCLUDED.emoji, created_at = now()
+         WHERE conversation.message_reactions.emoji <> EXCLUDED.emoji
        RETURNING message_id`,
       [messageId, principalId, emoji],
     );

@@ -785,7 +785,8 @@ describe('internal chat: rename, reactions, mentions', () => {
     expect(first.status).toBe(201);
     expect(await first.json()).toEqual({ changed: true });
 
-    // Pressing it twice is one row, not an error: the primary key is the whole tuple.
+    // Pressing the SAME one twice is one row and not an error, and reports no change — so
+    // a double tap on a slow network does not push a realtime frame to the conversation.
     const again = await post(
       employeeRoutes.conversations.reactions(conversationId, messageId),
       cookie,
@@ -797,10 +798,31 @@ describe('internal chat: rename, reactions, mentions', () => {
     const message = messages.find((m) => m.messageId === messageId);
     expect(message?.reactions).toEqual([{ emoji: '👍', count: 1, mine: true }]);
 
+    /*
+       A DIFFERENT emoji replaces it. One person has one reaction to a message.
+
+       Before migration 0027 the primary key was `(message, principal, emoji)`, so this
+       second call added a row and the message showed "👍 1  ❤️ 1" from one colleague. The
+       key is `(message, principal)` now, which makes the stack impossible to store rather
+       than merely unusual — a read-then-write in the route would be a race between two
+       taps on two devices.
+    */
+    const swapped = await post(
+      employeeRoutes.conversations.reactions(conversationId, messageId),
+      cookie,
+      { emoji: '❤️' },
+    );
+    expect(await swapped.json()).toEqual({ changed: true });
+
+    const afterSwap = await messagesOf(cookie, conversationId);
+    expect(afterSwap.find((m) => m.messageId === messageId)?.reactions).toEqual([
+      { emoji: '❤️', count: 1, mine: true },
+    ]);
+
     const gone = await del(
       employeeRoutes.conversations.reactions(conversationId, messageId),
       cookie,
-      { emoji: '👍' },
+      { emoji: '❤️' },
     );
     expect(await gone.json()).toEqual({ changed: true });
     const after = await messagesOf(cookie, conversationId);
