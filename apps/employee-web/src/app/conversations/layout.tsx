@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { AppRail, RAIL_SECTIONS, type RailSection, type ChatView } from '../../components/app-rail';
@@ -172,8 +172,38 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
      The open thread has always had this; the list never subscribed to anything, which is
      why the signal existed and appeared in exactly one place.
   */
+  /*
+     A burst of messages is one re-read, not one per message.
+
+     `refresh` reloads the whole list, and a lively group can produce several frames a
+     second. Coalescing on a short timer means a conversation that is being typed into
+     rapidly costs one request rather than one per keystroke's worth of message, and the
+     row still moves within a blink.
+
+     A ref rather than state: this must not re-render anything by existing, and the timer
+     has to survive the renders that `refresh` itself causes.
+  */
+  const listRefreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /* Assigned below, where `refresh` is declared — the subscription is set up above it, and
+     a ref is what lets the two be in either order. */
+  const refreshRef = useRef<() => Promise<void>>(async () => undefined);
+  const nudgeList = useCallback((): void => {
+    if (listRefreshTimer.current !== undefined) return;
+    listRefreshTimer.current = setTimeout(() => {
+      listRefreshTimer.current = undefined;
+      void refreshRef.current();
+    }, 400);
+  }, []);
+  useEffect(
+    () => () => {
+      if (listRefreshTimer.current !== undefined) clearTimeout(listRefreshTimer.current);
+    },
+    [],
+  );
+
   const typingByConversation = useConversationTyping(
     useMemo(() => conversations.map((c) => c.conversationId), [conversations]),
+    nudgeList,
   );
 
   /**
@@ -292,6 +322,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
       setLoadingMore(false);
     }
   }, [nextCursor, loadingMore]);
+  refreshRef.current = refresh;
 
   useEffect(() => {
     if (state.status === 'SIGNED_IN') void refresh();

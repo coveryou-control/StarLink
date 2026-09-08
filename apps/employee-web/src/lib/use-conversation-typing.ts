@@ -37,6 +37,8 @@ import { useEffect, useRef, useState } from 'react';
 import {
   SOCKET_EVENTS,
   conversationChannel,
+  toConversationEvent,
+  type RealtimeFrame,
   type TypingFrame,
 } from '@starlink/shared-contracts/realtime';
 
@@ -56,9 +58,41 @@ const TYPING_FORGET_MS = 6_000;
 
 export function useConversationTyping(
   conversationIds: readonly string[],
+  /**
+   * Something happened in one of these conversations that changes its row.
+   *
+   * ## Why the message signal is handled by the TYPING hook
+   *
+   * Because this hook owns the list's channel membership, and there can only be one owner.
+   * A sibling hook joining the same channels would work until one of them unmounted and
+   * unsubscribed — at which point the other goes deaf on a channel it still wants, with
+   * nothing to say why. The joins are here, so the frames are handled here.
+   *
+   * ## What was broken
+   *
+   * The list never updated. A message would arrive, the open thread would render it in
+   * about a second, and the row in the sidebar kept the old preview, the old timestamp, the
+   * old position and no unread badge until a reload. Somebody sitting on the list — which
+   * is where you sit when you are not in a conversation — was never told anything had
+   * happened. Measured in the audit: 12 s, no change; F5, row jumps to the top with a badge.
+   *
+   * The signal was arriving the whole time. Typing animated the row, because typing was the
+   * one frame this hook listened for.
+   *
+   * ## It carries no state, deliberately
+   *
+   * The callback says WHICH conversation changed and nothing else, and the caller re-reads
+   * the list. That is invariant 9 — recovery is a re-fetch — and it is also what keeps this
+   * from needing to know how a row is composed.
+   */
+  onActivity?: (conversationId: string) => void,
 ): ReadonlyMap<string, string> {
   /** conversationId → the principal typing in it. */
   const [typing, setTyping] = useState<ReadonlyMap<string, string>>(new Map());
+  /* Read inside a handler registered once per channel set, so a callback identity that
+     changes every render does not tear down the subscription. */
+  const activityRef = useRef(onActivity);
+  activityRef.current = onActivity;
 
   const key = [...conversationIds].slice(0, MAX_CHANNELS).sort().join(',');
 
@@ -103,17 +137,38 @@ export function useConversationTyping(
       );
     };
 
+    /*
+       Anything that changes a row: a new message, a participant change, a lifecycle move.
+
+       Interpreted with the SAME shared mapper the thread uses, so the list and the thread
+       cannot disagree about what a frame means. A frame this mapper cannot read is ignored
+       rather than guessed at, and the next re-fetch reconciles it.
+
+       No sequence tracking here on purpose. The thread tracks sequences because it renders
+       an ordered transcript and a hole in it is visible; a list row shows a preview and a
+       count, both of which come from the re-read. Tracking would add a second, subtly
+       different notion of "where this conversation is up to" for no gain.
+    */
+    const onEvent = (frame: RealtimeFrame): void => {
+      const event = toConversationEvent(frame);
+      if (event === undefined) return;
+      if (!ids.includes(event.conversationId)) return;
+      activityRef.current?.(event.conversationId);
+    };
+
     subscribe();
     /* On every connect, not just the first. A reconnect is a NEW socket id with empty
        channel membership on the gateway — without this the list goes quiet after the first
        network blip and stays that way until a reload. */
     socket.on('connect', subscribe);
     socket.on(SOCKET_EVENTS.typingSignal, onTyping);
+    socket.on(SOCKET_EVENTS.event, onEvent);
 
     const pending = timers.current;
     return () => {
       socket.off('connect', subscribe);
       socket.off(SOCKET_EVENTS.typingSignal, onTyping);
+      socket.off(SOCKET_EVENTS.event, onEvent);
       /* Unsubscribe rather than relying on the disconnect: the socket is shared, so it
          very likely stays open for the presence hook, and leaving the channels joined
          would keep delivering signals nothing is listening for. */
