@@ -134,19 +134,48 @@ export class EmployeeAuthController {
     return { principalId: payload.principalId };
   }
 
+  /**
+   * Sign out.
+   *
+   * ## Clearing the cookie is not ending the session
+   *
+   * This used to do only that, and a token captured before the click kept working for the
+   * rest of its life — twelve hours, or **fourteen days** with "keep me signed in".
+   * Verified on 2026-09-08: sign out, replay the same cookie, `GET /auth/me` returned 200.
+   * `clearCookie` is a request to the browser; it has no reach over a copy.
+   *
+   * So the version is incremented, which every verification re-reads (ADR-008) and which
+   * therefore kills the copy too — the same mechanism `sign-out-everywhere` uses, and the
+   * same thing the customer surface has always done here.
+   *
+   * ## Which does mean this ends the session on your other devices
+   *
+   * That is a real behaviour change and it is the honest one available. Ending only THIS
+   * session needs a per-session record written on issue and read on every request, which
+   * is exactly the lookup ADR-008 was written to avoid; restoring per-device sign-out is
+   * therefore an ADR revision, not a patch, and it is called out in the audit rather than
+   * decided here. Between "signs you out of more than you asked" and "does not sign you
+   * out at all", the first is the one to ship.
+   *
+   * `sign-out-everywhere` stays: it is reachable when you are NOT the one holding the
+   * suspect device, and its audit line records a different intent.
+   */
   @Post('sign-out')
   @HttpCode(204)
   async signOut(@Req() request: AuthenticatedRequest, @Res({ passthrough: true }) response: Response): Promise<void> {
     const cookie = cookieOptionsFor('EMPLOYEE', this.config.tls, 0);
     response.clearCookie(cookie.name, { path: cookie.path });
     if (request.session !== undefined) {
+      const revoked = await this.identity.revokeSessions(request.session.principalId, 'USER_REQUESTED');
       await this.audit.record({
         actorId: request.session.principalId,
         actorKind: 'EMPLOYEE',
         action: 'auth.sign_out',
         targetKind: 'principal',
         targetId: request.session.principalId,
-        outcome: 'SUCCEEDED',
+        /* A sign-out whose revocation failed left a live token behind, so it did not
+           succeed however clean the redirect looked. */
+        outcome: revoked.ok ? 'SUCCEEDED' : 'FAILED',
         correlationId: request.correlationId,
       });
     }
