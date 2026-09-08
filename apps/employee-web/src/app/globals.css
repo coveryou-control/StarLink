@@ -8928,13 +8928,34 @@ input.signin-control {
   border-top: 1px solid color-mix(in srgb, var(--rail-fg) 18%, transparent);
 }
 
+/*
+   The account row, which is also the way into Settings.
+
+   A button now rather than a caption — so it takes the same selected treatment as any
+   other destination in the column, and a keyboard reaches it in the same way.
+*/
 .sidenav-you {
   display: flex;
   align-items: center;
   gap: 9px;
-  margin-top: 6px;
-  padding: 6px 8px 2px;
+  width: 100%;
+  margin-top: 4px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
   min-width: 0;
+  transition: color var(--dur) var(--ease);
+}
+
+.sidenav-you[aria-current='page'] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.sidenav-you:hover .sidenav-you-name {
+  color: var(--rail-fg-active);
 }
 
 .sidenav-you-avatar {

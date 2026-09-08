@@ -289,8 +289,11 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
       // And what an employee chat SHOULD have.
       await expect(employee.getByLabel('Message', { exact: true })).toBeVisible();
       /*
-         The composer names the room it writes into — "Message # E2E Colleague, E2E Lead",
-         which is screens 02 and 03's own placeholder.
+         The composer names the room it writes into — "Message E2E Colleague, E2E Lead".
+
+         The `#?` in the pattern is deliberate slack, not an oversight: a group placeholder
+         carried a hash until 2026-09-08 and the assertion is about the SHAPE, not about
+         that character.
 
          It read "Type a message…" until the placeholder was addressed. The assertion is on
          the shape AND the conversation's name rather than on a fixed string, because what

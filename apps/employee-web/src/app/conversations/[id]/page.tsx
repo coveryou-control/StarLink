@@ -580,16 +580,20 @@ export default function ThreadPage(): ReactNode {
   const onPhone = useMediaQuery('(max-width: 640px)');
 
   /**
-   * The composer says WHERE the message is going: "Message Riya", "Message # Ops standup".
+   * The composer says WHERE the message is going: "Message Riya", "Message Ops standup".
    *
    * Screens 02 and 03 both address the placeholder, and it is the cheapest guard there is
    * against the thing this product must never do — writing into the wrong conversation. It
    * costs no pixels, it is read exactly at the moment of typing, and it names the room in
    * the same words the header does.
    *
-   * A first name in a one-to-one, because that is what screen 02 draws and because a full
-   * name in a two-person thread reads like a form field. The hash stays on a group: it is
-   * how the whole product spells "this is a room, not a person".
+   * A first name in a one-to-one, because a full name in a two-person thread reads like a
+   * form field.
+   *
+   * No hash on a group. It was there to spell "this is a room, not a person", borrowed from
+   * products where a channel really is addressed by a `#name` you can type. StarLink has no
+   * such syntax — the hash named nothing, and beside a group called "hie" it read as a
+   * stray character rather than as punctuation.
    *
    * Only on an internal conversation. A customer thread's placeholder is carrying ADR-021's
    * mode — "Note for colleagues only…" versus "Reply to the customer…" — and that says
@@ -606,7 +610,7 @@ export default function ThreadPage(): ReactNode {
         onPhone
         ? 'Message'
         : isGroup
-          ? `Message # ${conversationLabel(activeConversation)}`
+          ? `Message ${conversationLabel(activeConversation)}`
           : `Message ${conversationLabel(activeConversation).split(' ')[0] ?? ''}`.trimEnd();
 
   /**

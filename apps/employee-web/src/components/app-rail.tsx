@@ -263,8 +263,6 @@ export function AppRail({
   chatView,
   onChatView,
   onNewChat,
-  theme,
-  onCycleTheme,
 }: {
   readonly active: RailSection;
   readonly onSelect: (section: RailSection) => void;
@@ -293,9 +291,6 @@ export function AppRail({
   readonly chatView?: ChatView;
   readonly onChatView?: (view: ChatView) => void;
   readonly onNewChat?: () => void;
-  /** The theme cycles light -> dark -> match system, and reports where it landed. */
-  readonly theme?: 'light' | 'dark' | 'system';
-  readonly onCycleTheme?: () => void;
 }): ReactNode {
   const bottom = layout === 'bottom';
   const shown = bottom
@@ -320,8 +315,6 @@ export function AppRail({
         chatView={chatView ?? 'all'}
         onChatView={onChatView}
         {...(onNewChat !== undefined ? { onNewChat } : {})}
-        theme={theme ?? 'system'}
-        {...(onCycleTheme !== undefined ? { onCycleTheme } : {})}
       />
     );
   }
@@ -513,8 +506,6 @@ function DesktopSidebar({
   chatView,
   onChatView,
   onNewChat,
-  theme,
-  onCycleTheme,
 }: {
   readonly active: RailSection;
   readonly onSelect: (section: RailSection) => void;
@@ -524,8 +515,6 @@ function DesktopSidebar({
   readonly chatView: ChatView;
   readonly onChatView: (view: ChatView) => void;
   readonly onNewChat?: () => void;
-  readonly theme: 'light' | 'dark' | 'system';
-  readonly onCycleTheme?: () => void;
 }): ReactNode {
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   /**
@@ -559,9 +548,6 @@ function DesktopSidebar({
 
   const collapsed = tooNarrow || chosenCollapse === true;
   const onChats = active === 'chats';
-  const appearance =
-    theme === 'system' ? 'Match system' : theme === 'dark' ? 'Dark' : 'Light';
-
   return (
     <nav className="sidenav" aria-label="StarLink" data-collapsed={collapsed ? 'true' : 'false'}>
       <div className="sidenav-brand">
@@ -679,53 +665,32 @@ function DesktopSidebar({
         </li>
       </ul>
 
-      <div className="sidenav-foot">
-        {onCycleTheme !== undefined ? (
-          <button
-            type="button"
-            className="sidenav-item"
-            onClick={onCycleTheme}
-            /* Named for what it will DO, not for what is currently true — a toggle
-               labelled with its own state is the oldest ambiguity in interface design. */
-            aria-label={'Appearance: ' + appearance + '. Change it.'}
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              {theme === 'dark' ? (
-                <path
-                  d="M20 14.5A8 8 0 0 1 9.5 4 8.2 8.2 0 1 0 20 14.5Z"
-                  {...stroke}
-                  strokeLinejoin="round"
-                />
-              ) : (
-                <>
-                  <circle cx="12" cy="12" r="4" {...stroke} />
-                  <path
-                    d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"
-                    {...stroke}
-                    strokeLinecap="round"
-                  />
-                </>
-              )}
-            </svg>
-            <span>{appearance}</span>
-          </button>
-        ) : null}
+      {/*
+        The foot: who you are, then the way out.
 
+        Appearance lived here as a shortcut and has gone back to Settings, where the three
+        choices are stated plainly — a cycling button had to be labelled with its current
+        state, which is the oldest ambiguity in interface design and not worth carrying for
+        a setting people change twice a year.
+
+        Settings has no row of its own either. Your name IS the way in, which is where
+        every product of this shape puts it, and it removes a row from a column whose job
+        is to be scanned. Log out is last because a destructive action belongs where a
+        mis-click cannot find it.
+      */}
+      <div className="sidenav-foot">
         <button
           type="button"
-          className="sidenav-item"
+          className="sidenav-you"
           aria-current={active === 'settings' ? 'page' : undefined}
+          aria-label={`Settings for ${displayName}`}
+          title={displayName}
           onClick={() => onSelect('settings')}
         >
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-            <circle cx="12" cy="12" r="3" {...stroke} />
-            <path
-              d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18"
-              {...stroke}
-              strokeLinecap="round"
-            />
-          </svg>
-          <span>Settings</span>
+          <span className="sidenav-you-avatar" aria-hidden="true">
+            {initialsFor(displayName)}
+          </span>
+          <span className="sidenav-you-name">{displayName}</span>
         </button>
 
         <button type="button" className="sidenav-item" onClick={() => setConfirmSignOut(true)}>
@@ -739,13 +704,6 @@ function DesktopSidebar({
           </svg>
           <span>Log out</span>
         </button>
-
-        <div className="sidenav-you" title={displayName}>
-          <span className="sidenav-you-avatar" aria-hidden="true">
-            {initialsFor(displayName)}
-          </span>
-          <span className="sidenav-you-name">{displayName}</span>
-        </div>
       </div>
 
       {confirmSignOut ? (

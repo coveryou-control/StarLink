@@ -83,3 +83,6 @@ playwright-report/
 # Local run scratch: the dev env file, the three service logs, and any one-off script used
 # to drive the running stack. Holds a database password, so it is never committed.
 .local/
+
+# Local object storage for the dev driver — attachments, not source.
+.starlink-objects/

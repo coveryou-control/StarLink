@@ -19,7 +19,7 @@ import { BrandMark } from '../../components/brand';
 import { useSession } from '../../components/session-provider';
 import { api, ApiError, type ConversationSummary } from '../../lib/api-client';
 import { customerWorkspaceEnabled } from '../../lib/runtime-origins';
-import { applyTheme, watchSystemTheme, THEME_KEY, type Theme } from '../../lib/theme';
+import { watchSystemTheme } from '../../lib/theme';
 import { onShellAction, requestNewConversation } from '../../lib/shell-actions';
 import { useNotifications } from '../../lib/use-notifications';
 import { usePresence } from '../../lib/use-presence';
@@ -59,35 +59,15 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   /* Bumped by the sidebar's New chat, which is a second door onto the composer the list
      masthead already owns. A counter, so pressing it twice opens it twice. */
   const [composeSignal, setComposeSignal] = useState(0);
-  const [theme, setTheme] = useState<Theme>('system');
-
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(THEME_KEY);
-      if (stored === 'light' || stored === 'dark' || stored === 'system') setTheme(stored);
-    } catch {
-      // A browser with site data blocked is not an error state; the default is correct.
-    }
-  }, []);
-
   /*
-     Light -> dark -> match system, and round again.
+     The shell no longer holds a theme.
 
-     A cycle rather than a two-state switch because there are three states: the third is
-     "follow the operating system", which a binary toggle has no way to express and which
-     is the default. Settings still offers the three as an explicit choice; this is the
-     shortcut for the one people flip daily.
+     It did, to feed a cycling shortcut in the sidebar's foot. Appearance belongs in
+     Settings, where the three choices — light, dark, match system — are stated plainly
+     rather than compressed into one button that has to be labelled with its own current
+     state. `themeBootScript` still resolves it before the first paint; nothing about how
+     the theme is applied changed, only who offers it.
   */
-  const cycleTheme = (): void => {
-    const next: Theme = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
-    setTheme(next);
-    applyTheme(next);
-    try {
-      window.localStorage.setItem(THEME_KEY, next);
-    } catch {
-      // The choice still applies to this tab; it simply will not survive a reload.
-    }
-  };
 
   /**
    * The announcements the panel has loaded, held here rather than only there.
@@ -352,8 +332,6 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
           setSection('chats');
           setComposeSignal((n) => n + 1);
         }}
-        theme={theme}
-        onCycleTheme={cycleTheme}
       />
 
       {/*

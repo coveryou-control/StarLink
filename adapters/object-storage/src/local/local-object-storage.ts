@@ -57,6 +57,7 @@ import type {
 import { err, ok } from '@starlink/shared-contracts';
 
 import { CLEAN_PREFIX, MockObjectStorage, QUARANTINE_PREFIX } from '../mock/mock-object-storage.js';
+import { DiskObjects } from './disk-objects.js';
 
 /** Where the dev endpoints live. Kept here so the adapter and the controller agree. */
 export const DEV_OBJECT_PATH = '/v1/dev/objects';
@@ -86,9 +87,63 @@ export class LocalObjectStorage extends MockObjectStorage {
    */
   private readonly downloads = new Map<string, DownloadToken>();
 
+  /**
+   * The bytes, on disk.
+   *
+   * The base class keeps them in a `Map`, which is right for a mock and wrong for the
+   * driver people develop against: every restart of the API emptied every attachment in
+   * the product. There is no bucket connected yet, so this is where uploads live, and
+   * `.starlink-objects/` survives a restart the way a bucket would.
+   *
+   * Membership follows the bytes rather than being tracked separately — see
+   * `DiskObjects` — so a promoted key cannot be clean in one record and quarantined in
+   * another.
+   */
+  private readonly disk = new DiskObjects();
+
   constructor(private readonly now: () => number = () => Date.now()) {
     super();
   }
+
+  /*
+     The four byte operations, taken off the in-memory map.
+
+     `put` still asks the base class whether the key was granted — that check is about the
+     upload grant, not about storage, and duplicating it here would let a forged key write
+     a file. Only the storing itself moves.
+  */
+  override put(quarantineKey: string, bytes: Uint8Array): boolean {
+    if (!super.put(quarantineKey, bytes)) return false;
+    return this.disk.write(quarantineKey, bytes);
+  }
+
+  override readQuarantine(quarantineKey: string): Uint8Array | undefined {
+    return quarantineKey.startsWith(QUARANTINE_PREFIX) ? this.disk.read(quarantineKey) : undefined;
+  }
+
+  /**
+   * What a download serves.
+   *
+   * Only the clean directory is consulted, which is the same rule the base class enforces
+   * with its key sets — expressed here as "the file has been renamed into `clean/`", so a
+   * restart cannot lose the distinction and serve something unscanned.
+   */
+  override readClean(cleanKey: string): Uint8Array | undefined {
+    return cleanKey.startsWith(CLEAN_PREFIX) ? this.disk.read(cleanKey) : undefined;
+  }
+
+  override async promote(quarantineKey: string): Promise<Result<{ cleanKey: string }>> {
+    const moved = await super.promote(quarantineKey);
+    if (!moved.ok) return moved;
+    /* The base class has already moved the key between its sets; if the file is missing
+       the two records now disagree, and saying so is better than serving a clean key with
+       nothing behind it. */
+    if (this.disk.promote(quarantineKey) === undefined) {
+      return fail('OBJECT_NOT_FOUND', 'the uploaded bytes are no longer on disk');
+    }
+    return moved;
+  }
+
 
   override async issueUploadGrant(request: UploadGrantRequest): Promise<Result<UploadGrant>> {
     const grant = await super.issueUploadGrant(request);
@@ -146,6 +201,9 @@ export class LocalObjectStorage extends MockObjectStorage {
     for (const [token, grant] of this.downloads) {
       if (grant.cleanKey === key) this.downloads.delete(token);
     }
+    // And the file itself. Revoking the token without unlinking would leave the bytes on
+    // disk for the lifetime of the machine, which is the whole point of a delete.
+    this.disk.remove(key);
     return super.delete(key);
   }
 
