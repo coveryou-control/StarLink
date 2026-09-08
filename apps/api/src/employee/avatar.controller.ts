@@ -94,6 +94,32 @@ const stampsSchema = z.object({
     .refine((ids) => ids.every((id) => uuid.safeParse(id).success)),
 });
 
+/**
+ * How long the browser may keep this response.
+ *
+ * ## The decorator was applying to the failures too
+ *
+ * Both byte routes carried `@Header('Cache-Control', 'private, max-age=31536000, immutable')`,
+ * and a Nest header decorator applies to whatever the handler returns — including the 404
+ * for "this conversation has no picture". So a browser that once asked for a group's avatar
+ * before anybody set one cached that 404 as immutable **for a year**: when a member later
+ * uploaded a picture, nobody else ever saw it. Observed in the audit on 2026-09-08.
+ *
+ * ## Why the answer depends on the version
+ *
+ * `immutable` is only ever honest about a URL that CANNOT change meaning. A person's avatar
+ * URL carries `?v=<updatedAt>`, so it cannot — a new picture is a new URL, and a year is
+ * right. A conversation's does not: `avatar-image.tsx` has no stamp for groups, so the same
+ * URL means "whatever the group's picture is now". A year on that is how a changed picture
+ * never appears.
+ *
+ * So: versioned means immutable, unversioned means a minute. A minute also fixes the other
+ * half of it — an avatar-less group 404s on every list render, and sixty seconds of negative
+ * caching removes that request storm without making a new picture wait.
+ */
+const avatarCacheControl = (versioned: boolean): string =>
+  versioned ? 'private, max-age=31536000, immutable' : 'private, max-age=60';
+
 @Controller('v1/employee')
 @RequireSurface('EMPLOYEE')
 export class AvatarController {
@@ -179,14 +205,16 @@ export class AvatarController {
    * serve it to somebody without a session.
    */
   @Get('avatars/:principalId')
-  @Header('Cache-Control', 'private, max-age=31536000, immutable')
   @Header('X-Content-Type-Options', 'nosniff')
   async ofPrincipal(
     @Param('principalId') principalIdRaw: string,
+    @Query('v') version: string | undefined,
     @Req() request: AuthenticatedRequest,
     @Res() response: Response,
   ): Promise<void> {
     void request.session!;
+    response.setHeader('Cache-Control', avatarCacheControl(version !== undefined && version !== ''));
+
     const principalId = uuid.safeParse(principalIdRaw);
     if (!principalId.success) {
       response.status(404).end();
@@ -196,7 +224,12 @@ export class AvatarController {
     const avatar = await this.avatars.forPrincipal(principalId.data as UUID);
     if (avatar === undefined) {
       /* No picture is a 404, and the client falls back to initials. Not an empty 200: an
-         empty image body renders as a broken-image glyph in every browser. */
+         empty image body renders as a broken-image glyph in every browser.
+
+         Cached for a minute rather than a year even when a version was supplied: "no
+         picture" is the one answer that a later upload makes wrong, and the stamp map the
+         caller built its URL from is what will carry the new one. */
+      response.setHeader('Cache-Control', avatarCacheControl(false));
       response.status(404).end();
       return;
     }
@@ -206,27 +239,33 @@ export class AvatarController {
   }
 
   @Get('conversations/:conversationId/avatar')
-  @Header('Cache-Control', 'private, max-age=31536000, immutable')
   @Header('X-Content-Type-Options', 'nosniff')
   async ofConversation(
     @Param('conversationId') conversationIdRaw: string,
+    @Query('v') version: string | undefined,
     @Req() request: AuthenticatedRequest,
     @Res() response: Response,
   ): Promise<void> {
+    response.setHeader('Cache-Control', avatarCacheControl(version !== undefined && version !== ''));
+
     const conversationId = uuid.safeParse(conversationIdRaw);
     if (!conversationId.success) {
+      response.setHeader('Cache-Control', avatarCacheControl(false));
       response.status(404).end();
       return;
     }
 
     /* A group's picture is part of the conversation, so seeing it is reading it. */
     if (!(await this.mayActOn(request, conversationId.data as UUID, 'conversation.read'))) {
+      /* A refusal must never be cached as though it were the picture. */
+      response.setHeader('Cache-Control', avatarCacheControl(false));
       response.status(404).end();
       return;
     }
 
     const avatar = await this.avatars.forConversation(conversationId.data as UUID);
     if (avatar === undefined) {
+      response.setHeader('Cache-Control', avatarCacheControl(false));
       response.status(404).end();
       return;
     }
