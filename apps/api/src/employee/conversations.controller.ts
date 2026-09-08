@@ -303,12 +303,42 @@ export class EmployeeConversationsController {
    * caller's own two lists it appears in. That is why the check is `mayReadIn` — if you can
    * read a thread, you can tidy it off your own list.
    */
+  /*
+     Archive and restore each carry their OWN object check.
+
+     They were one handler apiece delegating to a shared `setArchived` tail that did the
+     parse, the check and the write. That reads as tidy and is exactly what
+     `routing-authorization.test.ts` refuses, for a reason worth restating: a handler whose
+     body is a single call cannot be shown to authorize by reading it, and the guard that
+     enforces rule 2 across the product can only see what the handler itself does. Both
+     failed that check. The duplication below is the price of the enforcement being local,
+     and it is the right price.
+
+     `conversation.read` is the action in both directions: archiving changes nothing about
+     the thread, only which of the caller's two lists it appears in, so anyone who may read
+     it may tidy it away.
+  */
   @Post(':conversationId/archive')
   async archiveConversation(
     @Param('conversationId') conversationIdRaw: string,
     @Req() request: AuthenticatedRequest,
   ): Promise<unknown> {
-    return this.setArchived(conversationIdRaw, request, true);
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    if (!conversationId.success) return refuse();
+
+    if (
+      !(await this.mayActOn(request.session!.principalId, conversationId.data, 'conversation.read'))
+    ) {
+      return refuse();
+    }
+
+    const changed = await this.archive.set(
+      conversationId.data,
+      request.session!.principalId,
+      true,
+      new Date().toISOString(),
+    );
+    return { changed };
   }
 
   @Delete(':conversationId/archive')
@@ -316,30 +346,19 @@ export class EmployeeConversationsController {
     @Param('conversationId') conversationIdRaw: string,
     @Req() request: AuthenticatedRequest,
   ): Promise<unknown> {
-    return this.setArchived(conversationIdRaw, request, false);
-  }
-
-  private async setArchived(
-    conversationIdRaw: string,
-    request: AuthenticatedRequest,
-    archived: boolean,
-  ): Promise<unknown> {
     const conversationId = uuid.safeParse(conversationIdRaw);
     if (!conversationId.success) return refuse();
-    /*
-       `mayActOn` with `conversation.read` — this controller's own object check, rather
-       than a second helper written beside it. Reading is the right action: archiving
-       changes nothing about the thread, only which of the caller's two lists it appears
-       in, so anyone who may read it may tidy it away.
-    */
-    if (!(await this.mayActOn(request.session!.principalId, conversationId.data, 'conversation.read'))) {
+
+    if (
+      !(await this.mayActOn(request.session!.principalId, conversationId.data, 'conversation.read'))
+    ) {
       return refuse();
     }
 
     const changed = await this.archive.set(
       conversationId.data,
       request.session!.principalId,
-      archived,
+      false,
       new Date().toISOString(),
     );
     return { changed };

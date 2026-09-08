@@ -215,7 +215,7 @@ describe('employee controller authorization', () => {
      * in, it was not in this list at all.
      */
     const messages = handlers.filter((h) => h.file === 'messages.controller.ts');
-    expect(messages.length, 'the message controller matched no handlers').toBe(9);
+    expect(messages.length, 'the message controller matched no handlers').toBe(12);
     /**
      * Named, not just counted. The count alone would be satisfied by four handlers that
      * are not these — and the bare `@Post()` send path is the specific one that went
@@ -224,13 +224,16 @@ describe('employee controller authorization', () => {
     expect(messages.map((h) => `${h.method} ${h.path}`).sort()).toEqual([
       'DELETE v1/employee/conversations/:conversationId/messages/:messageId',
       'DELETE v1/employee/conversations/:conversationId/messages/:messageId/reactions',
+      'DELETE v1/employee/conversations/:conversationId/messages/:messageId/star',
       'GET v1/employee/conversations/:conversationId/messages',
       'GET v1/employee/conversations/:conversationId/messages/:messageId/info',
+      'GET v1/employee/conversations/:conversationId/messages/:messageId/reactions',
       'PATCH v1/employee/conversations/:conversationId/messages/:messageId',
       'POST v1/employee/conversations/:conversationId/messages',
       'POST v1/employee/conversations/:conversationId/messages/:messageId/forward',
       'POST v1/employee/conversations/:conversationId/messages/:messageId/hide',
       'POST v1/employee/conversations/:conversationId/messages/:messageId/reactions',
+      'POST v1/employee/conversations/:conversationId/messages/:messageId/star',
     ]);
     expect(
       messages.every((h) => h.path.includes(':conversationId')),
