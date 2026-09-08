@@ -44,20 +44,19 @@
  * reports afterwards what did not go.
  */
 import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { api, ApiError } from '../lib/api-client';
+import { api } from '../lib/api-client';
+import { uploadAttachment, type StagedAttachment } from '../lib/upload-attachment';
 
-export interface StagedAttachment {
-  readonly attachmentId: string;
-  readonly filename: string;
-  /** Carried so the optimistic message can render the file without a re-read. */
-  readonly declaredBytes: number;
-  /**
-   * UPLOADING — bytes in flight. SCANNING — uploaded, awaiting the verdict; NOT sendable.
-   * READY — CLEAN, and §28.1 will bind it. FAILED — it never will, and `problem` says why.
-   */
-  readonly state: 'UPLOADING' | 'SCANNING' | 'READY' | 'FAILED';
-  readonly problem?: string;
-}
+/*
+   Defined in `upload-attachment.ts` and re-exported here.
+
+   The type used to live in this file, and when the transfer moved to the lib module the
+   two imported each other — a cycle that is harmless at runtime (it is type-only) and that
+   `pnpm boundaries` fails the build on anyway, correctly: a gate people learn to ignore
+   stops catching the cycles that are not harmless. The re-export keeps every existing
+   importer working.
+*/
+export type { StagedAttachment } from '../lib/upload-attachment';
 
 /** How long to wait for a verdict before saying so rather than spinning for ever. */
 const SCAN_DEADLINE_MS = 60_000;
@@ -136,67 +135,16 @@ export function AttachmentPicker({
     );
   };
 
+  /*
+     The transfer itself lives in `upload-attachment.ts`, because the paperclip is no longer
+     the only way to start one — a file dropped on the composer and a pasted screenshot take
+     the same four steps. This keeps the chips, the poll and the button; it no longer keeps
+     its own copy of the pipeline.
+  */
   const attach = async (file: File): Promise<void> => {
     setBusy(true);
-    let attachmentId: string | undefined;
     try {
-      // 1. The grant. Declared values only — the server verifies the real MIME by content
-      //    after upload, because SL-056's acceptance is "extension never trusted".
-      const grant = await api.requestUpload(conversationId, {
-        filename: file.name,
-        declaredMime: file.type || 'application/octet-stream',
-        declaredBytes: file.size,
-      });
-      attachmentId = grant.attachmentId;
-
-      onStagedChange((current) => [
-        ...current,
-        {
-          attachmentId: grant.attachmentId,
-          filename: file.name,
-          declaredBytes: file.size,
-          state: 'UPLOADING',
-        },
-      ]);
-
-      // 2. Direct to storage. The application never sees the bytes.
-      await api.uploadBytes(grant.uploadUrl, file);
-
-      // 3. "I finished" — moves it into scanning.
-      await api.markUploaded(grant.attachmentId);
-
-      // 4. Uploaded is NOT sendable. The poll below decides when it becomes so.
-      update(grant.attachmentId, { state: 'SCANNING' });
-    } catch (cause) {
-      /**
-       * §34.4 requires an upload to fail EXPLICITLY so "the user keeps their message and
-       * can retry". A 503 is storage being down and is worth saying plainly; a refusal is
-       * the uniform 404 and must not be guessed at (§27.3).
-       */
-      const problem =
-        cause instanceof ApiError && cause.status === 503
-          ? 'Storage is temporarily unavailable. Your message is safe — try the file again.'
-          : cause instanceof ApiError && cause.isRefusal
-            ? 'That file cannot be attached here.'
-            : 'The upload did not finish. Your message is safe.';
-
-      if (attachmentId !== undefined) {
-        update(attachmentId, { state: 'FAILED', problem });
-      } else {
-        // The grant itself was refused, so there is no id to key on. Keyed by name so the
-        // person still sees which file failed.
-        const failedId = `failed:${file.name}:${Date.now()}`;
-        onStagedChange((current) => [
-          ...current,
-          {
-            attachmentId: failedId,
-            filename: file.name,
-            declaredBytes: file.size,
-            state: 'FAILED',
-            problem,
-          },
-        ]);
-      }
+      await uploadAttachment(conversationId, file, onStagedChange);
     } finally {
       setBusy(false);
       if (inputRef.current !== null) inputRef.current.value = '';

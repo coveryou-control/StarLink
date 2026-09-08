@@ -10114,3 +10114,45 @@ input.signin-control {
     min-width: 0;
   }
 }
+
+/* =====================================================================================
+   Drag a file onto the composer, or paste a screenshot into it.
+
+   The composer is the drop target rather than a zone inside it: the gesture people make is
+   "drop this on the chat", and a small rectangle you have to aim at turns a one-motion
+   action into a two-motion one.
+   ===================================================================================== */
+.composer {
+  position: relative;
+}
+
+.composer.dropping {
+  /* Not a hover state, so the hover law does not apply — this paints only while a file is
+     actually being carried over the composer, which is a state and not a pointer position. */
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+  border-radius: var(--radius);
+  background: var(--accent-soft);
+}
+
+/*
+   The label sits over the composer while a drop is pending.
+
+   `pointer-events: none` is load-bearing: an element under the cursor during a drag
+   receives the `dragleave`, and a hint that swallowed it would flicker itself out of
+   existence the moment it appeared.
+*/
+.composer-drop-hint {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  color: var(--accent-ink);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}

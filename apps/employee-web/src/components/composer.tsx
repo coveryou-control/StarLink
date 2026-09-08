@@ -5,7 +5,12 @@ import type { ReactNode } from 'react';
 
 import { ApiError, api, type MessageView } from '../lib/api-client';
 import { useEnterToSend } from '../lib/preferences';
-import { AttachmentPicker, type StagedAttachment } from './attachment-picker';
+import { AttachmentPicker } from './attachment-picker';
+import {
+  nameForPastedImage,
+  uploadAttachment,
+  type StagedAttachment,
+} from '../lib/upload-attachment';
 import { EmojiPicker } from './emoji-picker';
 import { MentionPicker, useClampedIndex, type MentionCandidate } from './mention-picker';
 import { useActiveConversation } from './active-conversation';
@@ -84,6 +89,35 @@ export function Composer({
   const [error, setError] = useState<string | undefined>(undefined);
   /** Files uploaded and waiting for a message to bind them to (§28.1). */
   const [staged, setStaged] = useState<readonly StagedAttachment[]>([]);
+  /** A file is being dragged over the composer. Drives the drop target's own styling. */
+  const [dragging, setDragging] = useState(false);
+
+  /**
+   * Files arriving by drag-and-drop or by paste.
+   *
+   * Both go through the same `uploadAttachment` the paperclip uses, so a dropped file is
+   * not a second, thinner path with its own idea of what a 503 means — it produces the same
+   * chip, the same scan poll and the same §28.1 binding at send.
+   *
+   * Several at once is allowed here even though the file input takes one: dropping three
+   * screenshots is one gesture, and refusing two of them would be an arbitrary limit
+   * imposed by the control rather than by the product.
+   */
+  const attachFiles = useCallback(
+    (files: readonly File[]): void => {
+      for (const file of files) {
+        /* A pasted image is a `File` called `image.png` on every platform, so several in
+           one message would be indistinguishable. `nameForPastedImage` gives it the only
+           distinguishing fact available at paste time. */
+        const named =
+          file.type.startsWith('image/') && (file.name === '' || file.name === 'image.png')
+            ? new File([file], nameForPastedImage(file), { type: file.type })
+            : file;
+        void uploadAttachment(conversationId, named, setStaged);
+      }
+    },
+    [conversationId],
+  );
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   /**
@@ -567,7 +601,38 @@ export function Composer({
   const empty = body.trim() === '' && readyFiles.length === 0;
 
   return (
-    <div className={`composer${isCustomerNote ? ' internal' : ''}`}>
+    <div
+      className={`composer${isCustomerNote ? ' internal' : ''}${dragging ? ' dropping' : ''}`}
+      /*
+         The whole composer is the drop target, not a small zone inside it.
+
+         `dragenter`/`dragleave` fire for every child element crossed, so a naive
+         `onDragLeave={() => setDragging(false)}` flickers the moment the pointer passes
+         over the textarea. `relatedTarget` says where the pointer went; only a move to
+         somewhere outside this element is a real leave.
+      */
+      onDragOver={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setDragging(false);
+      }}
+      onDrop={(event) => {
+        const files = Array.from(event.dataTransfer.files);
+        if (files.length === 0) return;
+        event.preventDefault();
+        setDragging(false);
+        attachFiles(files);
+      }}
+    >
+      {dragging ? (
+        <div className="composer-drop-hint" aria-hidden="true">
+          Drop to attach
+        </div>
+      ) : null}
       {/*
         UC-E16. What is being replied to is shown while composing, because the reply is
         only meaningful relative to it - and because a reply aimed at the wrong message is
@@ -714,6 +779,23 @@ export function Composer({
             setQuery(undefined);
           }}
           onKeyDown={onKeyDown}
+          /*
+             Ctrl+V of a screenshot.
+
+             The clipboard carries both a file and, for a copied image, sometimes an HTML
+             fragment; taking `items` of kind `file` picks the bytes and ignores the rest.
+             `preventDefault` only when a file was actually found, so pasting TEXT is
+             untouched — intercepting that would break the commonest paste in the product.
+          */
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.items)
+              .filter((item) => item.kind === 'file')
+              .map((item) => item.getAsFile())
+              .filter((file): file is File => file !== null);
+            if (files.length === 0) return;
+            event.preventDefault();
+            attachFiles(files);
+          }}
           rows={1}
           className="composer-input"
           aria-label={

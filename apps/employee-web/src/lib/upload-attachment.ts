@@ -1,0 +1,137 @@
+'use client';
+
+import type { Dispatch, SetStateAction } from 'react';
+
+import { api, ApiError } from './api-client';
+
+/**
+ * A file the composer is holding, and how far along it is.
+ *
+ * Lives here rather than in `attachment-picker.tsx` because the uploader is what creates
+ * and advances one; the picker renders them. That is also what keeps the two modules from
+ * importing each other.
+ */
+export interface StagedAttachment {
+  readonly attachmentId: string;
+  readonly filename: string;
+  /** Carried so the optimistic message can render the file without a re-read. */
+  readonly declaredBytes: number;
+  /**
+   * UPLOADING — bytes in flight. SCANNING — uploaded, awaiting the verdict; NOT sendable.
+   * READY — CLEAN, and §28.1 will bind it. FAILED — it never will, and `problem` says why.
+   */
+  readonly state: 'UPLOADING' | 'SCANNING' | 'READY' | 'FAILED';
+  readonly problem?: string;
+}
+
+/**
+ * The four-step upload (§28), lifted out of the picker so more than one gesture can start it.
+ *
+ * ## Why it moved
+ *
+ * This was a closure inside `AttachmentPicker`, which was correct while the paperclip was
+ * the only way to attach anything. Dropping a file on the composer and pasting a screenshot
+ * are the same operation reached by different gestures, and the alternative to lifting it
+ * was three copies of the grant-upload-announce-poll sequence drifting apart — which is
+ * exactly how one of them ends up not handling the 503 that §34.4 requires be handled.
+ *
+ * The picker still owns the CHIPS and the scan poll. Only the transfer moved.
+ *
+ * The steps, and why they are four, are documented on `attachment-picker.tsx`; this is the
+ * same code, not a second implementation.
+ */
+export async function uploadAttachment(
+  conversationId: string,
+  file: File,
+  onStagedChange: Dispatch<SetStateAction<readonly StagedAttachment[]>>,
+): Promise<void> {
+  let attachmentId: string | undefined;
+  try {
+    /* 1. The grant. Declared values only — the server verifies the real MIME by content
+          after upload, because SL-056's acceptance is "extension never trusted". */
+    const grant = await api.requestUpload(conversationId, {
+      filename: file.name,
+      declaredMime: file.type || 'application/octet-stream',
+      declaredBytes: file.size,
+    });
+    attachmentId = grant.attachmentId;
+
+    onStagedChange((current) => [
+      ...current,
+      {
+        attachmentId: grant.attachmentId,
+        filename: file.name,
+        declaredBytes: file.size,
+        state: 'UPLOADING',
+      },
+    ]);
+
+    /* 2. Direct to storage. The application never sees the bytes. */
+    await api.uploadBytes(grant.uploadUrl, file);
+
+    /* 3. "I finished" — moves it into scanning. */
+    await api.markUploaded(grant.attachmentId);
+
+    /* 4. Uploaded is NOT sendable. The picker's poll decides when it becomes so. */
+    onStagedChange((current) =>
+      current.map((item) =>
+        item.attachmentId === grant.attachmentId ? { ...item, state: 'SCANNING' } : item,
+      ),
+    );
+  } catch (cause) {
+    /**
+     * §34.4 requires an upload to fail EXPLICITLY so "the user keeps their message and can
+     * retry". A 503 is storage being down and is worth saying plainly; a refusal is the
+     * uniform 404 and must not be guessed at (§27.3).
+     */
+    const problem =
+      cause instanceof ApiError && cause.status === 503
+        ? 'Storage is temporarily unavailable. Your message is safe — try the file again.'
+        : cause instanceof ApiError && cause.isRefusal
+          ? 'That file cannot be attached here.'
+          : 'The upload did not finish. Your message is safe.';
+
+    if (attachmentId !== undefined) {
+      const id = attachmentId;
+      onStagedChange((current) =>
+        current.map((item) =>
+          item.attachmentId === id ? { ...item, state: 'FAILED', problem } : item,
+        ),
+      );
+    } else {
+      /* The grant itself was refused, so there is no id to key on. Keyed by name so the
+         person still sees which file failed. */
+      onStagedChange((current) => [
+        ...current,
+        {
+          attachmentId: `failed:${file.name}:${Date.now()}`,
+          filename: file.name,
+          declaredBytes: file.size,
+          state: 'FAILED',
+          problem,
+        },
+      ]);
+    }
+  }
+}
+
+/**
+ * A pasted screenshot has no filename, so it is given one.
+ *
+ * `clipboardData` hands over a `File` called `image.png` on every platform — sometimes
+ * literally that, sometimes the empty string. Several screenshots pasted into one message
+ * would then be a list of identical names, and the chips, the optimistic row and the
+ * thread would all show the same word three times with no way to tell which is which.
+ * A timestamp is the one distinguishing fact available at paste time.
+ */
+export function nameForPastedImage(file: File, at: Date = new Date()): string {
+  const existing = file.name.trim();
+  if (existing !== '' && existing.toLowerCase() !== 'image.png') return existing;
+
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  const stamp =
+    `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}` +
+    ` ${pad(at.getHours())}${pad(at.getMinutes())}${pad(at.getSeconds())}`;
+  const extension = file.type === 'image/jpeg' ? 'jpg' : (file.type.split('/')[1] ?? 'png');
+  return `Screenshot ${stamp}.${extension}`;
+}
