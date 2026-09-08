@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { BrandMark } from './brand';
@@ -30,6 +30,87 @@ import { ConfirmDialog } from './confirm-dialog';
  * calls those "the unread mechanism" and nothing here touches them.
  */
 export type RailSection = 'chats' | 'people' | 'announcements' | 'settings';
+
+/**
+ * Which slice of the chat list the sidebar is showing.
+ *
+ * Three of these are FILTERS over one list and two are their own views, and the sidebar
+ * deliberately does not distinguish them — asked for on 2026-09-08, and right: to a reader
+ * "Groups" and "Archive" are both just places to look, and making them look different
+ * because one is cheaper to implement is the implementation leaking into the product.
+ */
+export type ChatView = 'all' | 'unread' | 'favourites' | 'groups' | 'direct' | 'archive';
+
+const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.7 } as const;
+
+/** Where the sidebar remembers whether it was collapsed. */
+const SIDENAV_KEY = 'starlink.sidenav';
+
+/** The sidebar's chat destinations, in the order they were asked for. */
+export const CHAT_VIEWS: readonly {
+  readonly id: ChatView;
+  readonly label: string;
+  readonly icon: ReactNode;
+}[] = [
+  {
+    id: 'all',
+    label: 'All',
+    icon: <path d="M4 5.5h16v10H8.5L4 19V5.5Z" {...stroke} strokeLinejoin="round" />,
+  },
+  {
+    id: 'unread',
+    label: 'Unread',
+    icon: (
+      <>
+        <path d="M4 5.5h16v10H8.5L4 19V5.5Z" {...stroke} strokeLinejoin="round" />
+        <circle cx="12" cy="10.5" r="1.4" fill="currentColor" stroke="none" />
+      </>
+    ),
+  },
+  {
+    id: 'favourites',
+    label: 'Favourites',
+    icon: (
+      <path
+        d="M12 4.2l2.3 4.9 5.2.7-3.8 3.7.9 5.3-4.6-2.5-4.6 2.5.9-5.3L4.5 9.8l5.2-.7L12 4.2Z"
+        {...stroke}
+        strokeLinejoin="round"
+      />
+    ),
+  },
+  {
+    id: 'groups',
+    label: 'Groups',
+    icon: (
+      <>
+        <circle cx="9" cy="9" r="3" {...stroke} />
+        <path d="M3.2 19c0-3 2.6-4.8 5.8-4.8s5.8 1.8 5.8 4.8" {...stroke} strokeLinecap="round" />
+        <path d="M16.2 7.4a3 3 0 0 1 0 5.6M17.5 19c0-2.2-.8-3.6-2-4.5" {...stroke} strokeLinecap="round" />
+      </>
+    ),
+  },
+  {
+    id: 'direct',
+    label: '1:1',
+    icon: (
+      <>
+        <circle cx="12" cy="8.6" r="3.4" {...stroke} />
+        <path d="M5.5 19.5c0-3.4 2.9-5.5 6.5-5.5s6.5 2.1 6.5 5.5" {...stroke} strokeLinecap="round" />
+      </>
+    ),
+  },
+  {
+    id: 'archive',
+    label: 'Archive',
+    icon: (
+      <>
+        <rect x="3.5" y="5" width="17" height="4" rx="1.2" {...stroke} />
+        <path d="M5.2 9v9.2c0 .7.6 1.3 1.3 1.3h11c.7 0 1.3-.6 1.3-1.3V9" {...stroke} />
+        <path d="M10 13h4" {...stroke} strokeLinecap="round" />
+      </>
+    ),
+  },
+];
 
 const SECTIONS: readonly {
   readonly id: RailSection;
@@ -179,6 +260,11 @@ export function AppRail({
   displayName,
   onSignOut,
   layout = 'rail',
+  chatView,
+  onChatView,
+  onNewChat,
+  theme,
+  onCycleTheme,
 }: {
   readonly active: RailSection;
   readonly onSelect: (section: RailSection) => void;
@@ -203,11 +289,42 @@ export function AppRail({
    * keyboard disagree with the picture.
    */
   readonly layout?: 'rail' | 'bottom';
+  /** Which slice of the chat list is showing. Desktop sidebar only. */
+  readonly chatView?: ChatView;
+  readonly onChatView?: (view: ChatView) => void;
+  readonly onNewChat?: () => void;
+  /** The theme cycles light -> dark -> match system, and reports where it landed. */
+  readonly theme?: 'light' | 'dark' | 'system';
+  readonly onCycleTheme?: () => void;
 }): ReactNode {
   const bottom = layout === 'bottom';
   const shown = bottom
     ? PHONE_SECTIONS.flatMap((id) => SECTIONS.filter((section) => section.id === id))
     : SECTIONS.filter((section) => section.id !== 'settings');
+
+  /*
+     The phone's bar and the desktop's sidebar are two different components that happen to
+     hold some of the same destinations, and they are kept apart here rather than merged
+     behind conditionals. The bar has four tabs and a thumb; the sidebar has labelled rows,
+     a chat-view list and account controls. Trying to express both in one tree is how the
+     bar ended up with the sidebar's width and four crushed labels.
+  */
+  if (!bottom && onChatView !== undefined) {
+    return (
+      <DesktopSidebar
+        active={active}
+        onSelect={onSelect}
+        unreadChats={unreadChats}
+        displayName={displayName}
+        onSignOut={onSignOut}
+        chatView={chatView ?? 'all'}
+        onChatView={onChatView}
+        {...(onNewChat !== undefined ? { onNewChat } : {})}
+        theme={theme ?? 'system'}
+        {...(onCycleTheme !== undefined ? { onCycleTheme } : {})}
+      />
+    );
+  }
 
   return (
     <nav className="rail" aria-label="StarLink sections">
@@ -365,5 +482,280 @@ function AccountControls({
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * The desktop sidebar.
+ *
+ * One labelled column instead of a strip of anonymous glyphs, asked for on 2026-09-08 from
+ * a reference layout. What changed is the SHAPE of the navigation, not what it reaches:
+ * every destination the icon rail had is still here, and the chat list gained the views it
+ * previously had no room to name.
+ *
+ * ## Why filters and destinations sit in one list
+ *
+ * "Groups" narrows a list this app already loads; "Archive" and "Favourites" are their own
+ * reads. A reader does not care which is which — they are all places to look — so they are
+ * one list, ordered by how often they are wanted rather than by how they are implemented.
+ *
+ * ## Why the account controls are pinned to the foot
+ *
+ * Appearance, settings and sign-out are the three things touched least and wanted in the
+ * same place every time. At the bottom they never move as the list above them grows.
+ */
+function DesktopSidebar({
+  active,
+  onSelect,
+  unreadChats,
+  displayName,
+  onSignOut,
+  chatView,
+  onChatView,
+  onNewChat,
+  theme,
+  onCycleTheme,
+}: {
+  readonly active: RailSection;
+  readonly onSelect: (section: RailSection) => void;
+  readonly unreadChats: number;
+  readonly displayName: string;
+  readonly onSignOut: () => void;
+  readonly chatView: ChatView;
+  readonly onChatView: (view: ChatView) => void;
+  readonly onNewChat?: () => void;
+  readonly theme: 'light' | 'dark' | 'system';
+  readonly onCycleTheme?: () => void;
+}): ReactNode {
+  const [confirmSignOut, setConfirmSignOut] = useState(false);
+  /**
+   * Collapsed to icons — by the reader's choice, or because the window is too narrow.
+   *
+   * ## Why one flag and not a media query
+   *
+   * The narrow-window rule and the manual toggle produce the SAME column, and expressing
+   * that twice — once in CSS, once here — is how the two drift apart. The breakpoint is
+   * stated once, in JavaScript, and the stylesheet has one rule keyed on one attribute.
+   *
+   * The reader's choice wins while the window is wide enough to honour it; below 1100px
+   * there is no room for labels and the choice is moot, so the width decides.
+   */
+  const [chosenCollapse, setChosenCollapse] = useState<boolean | undefined>(undefined);
+  const [tooNarrow, setTooNarrow] = useState(false);
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SIDENAV_KEY);
+      if (stored === 'collapsed' || stored === 'expanded') setChosenCollapse(stored === 'collapsed');
+    } catch {
+      // Site data blocked is not an error state; expanded is the right default.
+    }
+    const query = window.matchMedia('(max-width: 1100px)');
+    const read = (): void => setTooNarrow(query.matches);
+    read();
+    query.addEventListener('change', read);
+    return () => query.removeEventListener('change', read);
+  }, []);
+
+  const collapsed = tooNarrow || chosenCollapse === true;
+  const onChats = active === 'chats';
+  const appearance =
+    theme === 'system' ? 'Match system' : theme === 'dark' ? 'Dark' : 'Light';
+
+  return (
+    <nav className="sidenav" aria-label="StarLink" data-collapsed={collapsed ? 'true' : 'false'}>
+      <div className="sidenav-brand">
+        <BrandMark size={26} />
+        <span className="sidenav-wordmark">StarLink</span>
+        {/*
+          The collapse control, on the brand row.
+
+          Hidden below 1100px, where the column is already icons and the button could only
+          promise something the width will not allow — a control that does nothing is worse
+          than no control.
+        */}
+        {tooNarrow ? null : (
+          <button
+            type="button"
+            className="sidenav-collapse"
+            aria-label={collapsed ? 'Expand the sidebar' : 'Collapse the sidebar'}
+            aria-expanded={!collapsed}
+            title={collapsed ? 'Expand' : 'Collapse'}
+            onClick={() => {
+              const next = !collapsed;
+              setChosenCollapse(next);
+              try {
+                window.localStorage.setItem(SIDENAV_KEY, next ? 'collapsed' : 'expanded');
+              } catch {
+                // The choice still applies to this tab; it simply will not survive a reload.
+              }
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+              <rect x="3.5" y="4.5" width="17" height="15" rx="2.4" {...stroke} />
+              <path d="M10 4.5v15" {...stroke} />
+              {collapsed ? null : <path d="M7.4 10.2 5.9 12l1.5 1.8" {...stroke} strokeLinecap="round" strokeLinejoin="round" />}
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {onNewChat !== undefined ? (
+        <button type="button" className="sidenav-new" onClick={onNewChat}>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+            <path d="M12 5.5v13M5.5 12h13" {...stroke} strokeLinecap="round" />
+          </svg>
+          New chat
+        </button>
+      ) : null}
+
+      <p className="sidenav-label">Chats</p>
+      <ul className="sidenav-items">
+        {CHAT_VIEWS.map((view) => (
+          <li key={view.id}>
+            <button
+              type="button"
+              className="sidenav-item"
+              /* Current only while the chat panel is the one on screen — otherwise two
+                 things in this column claim to be the current page at once. */
+              aria-current={onChats && chatView === view.id ? 'page' : undefined}
+              onClick={() => {
+                onSelect('chats');
+                onChatView(view.id);
+              }}
+            >
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                {view.icon}
+              </svg>
+              <span>{view.label}</span>
+              {view.id === 'unread' && unreadChats > 0 ? (
+                <span className="sidenav-badge">{unreadChats > 99 ? '99+' : unreadChats}</span>
+              ) : null}
+            </button>
+          </li>
+        ))}
+      </ul>
+
+      <p className="sidenav-label">Company</p>
+      <ul className="sidenav-items">
+        {/*
+          "Connect" rather than "People" — the reference's word, and the better one: this is
+          where you go to find a colleague you have not spoken to yet, which is an act
+          rather than a noun.
+        */}
+        <li>
+          <button
+            type="button"
+            className="sidenav-item"
+            aria-current={active === 'people' ? 'page' : undefined}
+            onClick={() => onSelect('people')}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <circle cx="9.5" cy="8.5" r="3.2" {...stroke} />
+              <path d="M3.5 19.5c0-3.2 2.7-5.2 6-5.2s6 2 6 5.2" {...stroke} strokeLinecap="round" />
+              <path d="M17 8.5h4M19 6.5v4" {...stroke} strokeLinecap="round" />
+            </svg>
+            <span>Connect</span>
+          </button>
+        </li>
+        {/*
+          Announcements was on the icon rail and is not on the list this sidebar was asked
+          for. It stays: an existing destination with its own permission and its own panel,
+          and dropping it from the navigation would remove a feature rather than restyle one.
+        */}
+        <li>
+          <button
+            type="button"
+            className="sidenav-item"
+            aria-current={active === 'announcements' ? 'page' : undefined}
+            onClick={() => onSelect('announcements')}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path d="M4 10v4h3l5 3.5v-11L7 10H4Z" {...stroke} strokeLinejoin="round" />
+              <path d="M16.5 9.5a4 4 0 0 1 0 5" {...stroke} strokeLinecap="round" />
+            </svg>
+            <span>Announcements</span>
+          </button>
+        </li>
+      </ul>
+
+      <div className="sidenav-foot">
+        {onCycleTheme !== undefined ? (
+          <button
+            type="button"
+            className="sidenav-item"
+            onClick={onCycleTheme}
+            /* Named for what it will DO, not for what is currently true — a toggle
+               labelled with its own state is the oldest ambiguity in interface design. */
+            aria-label={'Appearance: ' + appearance + '. Change it.'}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              {theme === 'dark' ? (
+                <path
+                  d="M20 14.5A8 8 0 0 1 9.5 4 8.2 8.2 0 1 0 20 14.5Z"
+                  {...stroke}
+                  strokeLinejoin="round"
+                />
+              ) : (
+                <>
+                  <circle cx="12" cy="12" r="4" {...stroke} />
+                  <path
+                    d="M12 3v2.2M12 18.8V21M3 12h2.2M18.8 12H21M5.6 5.6l1.6 1.6M16.8 16.8l1.6 1.6M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6"
+                    {...stroke}
+                    strokeLinecap="round"
+                  />
+                </>
+              )}
+            </svg>
+            <span>{appearance}</span>
+          </button>
+        ) : null}
+
+        <button
+          type="button"
+          className="sidenav-item"
+          aria-current={active === 'settings' ? 'page' : undefined}
+          onClick={() => onSelect('settings')}
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="12" r="3" {...stroke} />
+            <path
+              d="M12 3.5v2M12 18.5v2M3.5 12h2M18.5 12h2M6 6l1.4 1.4M16.6 16.6L18 18M18 6l-1.4 1.4M7.4 16.6L6 18"
+              {...stroke}
+              strokeLinecap="round"
+            />
+          </svg>
+          <span>Settings</span>
+        </button>
+
+        <button type="button" className="sidenav-item" onClick={() => setConfirmSignOut(true)}>
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+            <path
+              d="M14 7.5V5.8c0-.7-.6-1.3-1.3-1.3H6.3c-.7 0-1.3.6-1.3 1.3v12.4c0 .7.6 1.3 1.3 1.3h6.4c.7 0 1.3-.6 1.3-1.3V16.5"
+              {...stroke}
+              strokeLinecap="round"
+            />
+            <path d="M10 12h9M16.2 9l3 3-3 3" {...stroke} strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          <span>Log out</span>
+        </button>
+
+        <div className="sidenav-you" title={displayName}>
+          <span className="sidenav-you-avatar" aria-hidden="true">
+            {initialsFor(displayName)}
+          </span>
+          <span className="sidenav-you-name">{displayName}</span>
+        </div>
+      </div>
+
+      {confirmSignOut ? (
+        <ConfirmDialog
+          title="Sign out?"
+          body={`You are signed in as ${displayName}. Signing out ends this session on this device.`}
+          choices={[{ label: 'Sign out', tone: 'danger', onChoose: onSignOut }]}
+          onCancel={() => setConfirmSignOut(false)}
+        />
+      ) : null}
+    </nav>
   );
 }

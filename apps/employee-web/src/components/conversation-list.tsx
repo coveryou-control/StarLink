@@ -45,6 +45,7 @@ interface ConversationListProps {
    * Only for conversations you are NOT looking at: the open thread draws its own indicator
    * above the composer, and two of them on one screen saying the same thing is noise.
    */
+  readonly view?: 'all' | 'unread' | 'favourites' | 'groups' | 'direct' | 'archive';
   readonly typing?: ReadonlyMap<string, string> | undefined;
 }
 
@@ -106,17 +107,14 @@ function RowTick({
  * The three ways somebody actually narrows a chat list.
  *
  * Unread is the one people use every morning; Groups is the one they use when they know
- * the thread has several people in it and cannot remember who. There is deliberately no
- * "Favourites" or "Archived" — both need a per-person server-side flag that does not
- * exist, and a filter that forgets itself on reload is worse than no filter.
+ * the thread has several people in it and cannot remember who.
+ *
+ * The pill row that used to live here is gone: the sidebar names All, Unread, Favourites,
+ * Groups, 1:1 and Archive, so the pills were a second control for the same job sitting
+ * directly beneath the first. Favourites and Archive are real now — migration 0028 gave
+ * each a per-person flag — which is what the note here used to say could not be done.
  */
-type Filter = 'all' | 'unread' | 'groups';
 
-const FILTERS: readonly { readonly id: Filter; readonly label: string }[] = [
-  { id: 'all', label: 'All' },
-  { id: 'unread', label: 'Unread' },
-  { id: 'groups', label: 'Groups' },
-];
 
 export function ConversationList({
   conversations,
@@ -127,8 +125,15 @@ export function ConversationList({
   currentPrincipalId,
   onPinChanged,
   typing,
+  view = 'all',
 }: ConversationListProps): ReactNode {
-  const [filter, setFilter] = useState<Filter>('all');
+  /*
+     One narrowing, from the sidebar.
+
+     There were two — this pill row and the sidebar — and they overlapped on All and
+     Groups. The sidebar won: it names more of them, it has room for the labels, and one
+     control that says which list you are looking at cannot disagree with itself.
+  */
   /** The row a right-click opened a menu for, and where the pointer was. */
   const [rowMenu, setRowMenu] = useState<
     | {
@@ -194,12 +199,15 @@ export function ConversationList({
    * mean an unread thread further back appears only once "Load older" has reached it.
    */
   const shown = conversations.filter((conversation) => {
-    if (filter === 'unread') return conversation.unreadCount > 0;
-    if (filter === 'groups') return (conversation.participants ?? []).length > 1;
+    /* Archive is not a shape of conversation but a different fetch, so it is not decided
+       here — the shell asks the server for that list instead. */
+    const others = (conversation.participants ?? []).length;
+    if (view === 'groups') return others > 1;
+    if (view === 'direct') return others <= 1;
+    if (view === 'unread') return conversation.unreadCount > 0;
     return true;
   });
 
-  const unreadCount = conversations.filter((c) => c.unreadCount > 0).length;
 
   return (
     <nav aria-label="Conversations" className="conversation-nav">
@@ -210,25 +218,14 @@ export function ConversationList({
         it cost a row in the one column where rows are the product. The filter pills are
         the list's header now — they name what is below them by narrowing it.
       */}
-      <div className="filter-pills" role="tablist" aria-label="Filter conversations">
-        {FILTERS.map((option) => (
-          <button
-            key={option.id}
-            type="button"
-            role="tab"
-            aria-selected={filter === option.id}
-            className={`filter-pill${filter === option.id ? ' active' : ''}`}
-            onClick={() => setFilter(option.id)}
-          >
-            {option.label}
-            {/* The count is on Unread only: it is the one that answers a question
-                ("is there anything?") without being clicked. */}
-            {option.id === 'unread' && unreadCount > 0 ? (
-              <span className="filter-count">{unreadCount}</span>
-            ) : null}
-          </button>
-        ))}
-      </div>
+      {/*
+        The pill row is gone.
+
+        It offered All, Unread and Groups; the sidebar names all three and two more, so the
+        pills were a second control for the same job sitting directly beneath the first.
+        Removed on request, and correctly: two ways to narrow one list is how a reader ends
+        up looking at the intersection of two filters they only set one of.
+      */}
 
       {/*
         A skeleton, not a spinner and not nothing.
@@ -272,7 +269,15 @@ export function ConversationList({
       {!loading && shown.length === 0 && conversations.length > 0 ? (
         <p className="state-note">
           <strong>Nothing here</strong>
-          {filter === 'unread' ? 'You have read everything.' : 'No group conversations yet.'}
+          {view === 'unread'
+            ? 'You have read everything.'
+            : view === 'groups'
+              ? 'No group conversations yet.'
+              : view === 'direct'
+                ? 'No one-to-one conversations yet.'
+                : view === 'archive'
+                  ? 'Nothing archived.'
+                  : 'No conversations yet.'}
         </p>
       ) : null}
 
@@ -428,6 +433,55 @@ export function ConversationList({
                     >
                       {relativeTime(conversation.lastActivityAt)}
                     </time>
+                    {/*
+                      A pinned row says so.
+
+                      A pin sorts the row to the top, and until now that was the ONLY sign
+                      it had been pinned — which is unreadable, because a row at the top of
+                      a list sorted by recency is also just a recent row. The mark sits
+                      beside the time because that is the row's metadata corner, and it is
+                      the only place that does not steal width from the name.
+                    */}
+                    {/*
+                      A muted chat says so, permanently.
+
+                      Muting silences notifications, and until now the only way to find out
+                      which threads were muted was to open each one's menu and read the
+                      "Muted until…" line. A thread you silenced weeks ago is exactly the
+                      one you forget about, so the state belongs on the row rather than
+                      behind a right-click.
+                    */}
+                    {conversation.mutedUntil !== undefined &&
+                    new Date(conversation.mutedUntil).getTime() > Date.now() ? (
+                      <span
+                        className="row-muted"
+                        title={`Muted until ${new Date(conversation.mutedUntil).toLocaleString()}`}
+                        aria-label="Muted"
+                        role="img"
+                      >
+                        <svg viewBox="0 0 24 24" width="13" height="13" focusable="false">
+                          <path
+                            d="M6 9.5a6 6 0 0 1 9.2-5.1M17.9 11v3.6l1.6 2.4H8.2M10.1 20.2a2 2 0 0 0 3.8 0"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.7"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path d="M4 4l16 16" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                        </svg>
+                      </span>
+                    ) : null}
+                    {conversation.pinned === true ? (
+                      <span className="row-pin" title="Pinned" aria-label="Pinned" role="img">
+                        <svg viewBox="0 0 24 24" width="12" height="12" focusable="false">
+                          <path
+                            d="M14.5 3.5 20.5 9.5l-2.4.7-3.3 3.3.5 3.4-1.6 1.6-4-4L5 19.7l-.7-.7 5.2-5.6-4-4L7.1 7.8l3.4.5 3.3-3.3.7-1.5Z"
+                            fill="currentColor"
+                          />
+                        </svg>
+                      </span>
+                    ) : null}
                   </span>
 
                   <span className="row-bottom">
@@ -483,6 +537,19 @@ export function ConversationList({
           at={{ x: rowMenu.x, y: rowMenu.y }}
           onTogglePin={togglePin}
           onMute={setMute}
+          archived={view === 'archive'}
+          onToggleArchive={(conversationId, next) => {
+            void (async () => {
+              try {
+                if (next) await api.archiveConversation(conversationId);
+                else await api.restoreConversation(conversationId);
+              } finally {
+                /* The row has to leave the list it is in, and only a re-read knows which
+                   list that now is — the same callback a pin uses, for the same reason. */
+                onPinChanged?.();
+              }
+            })();
+          }}
           onClose={() => setRowMenu(undefined)}
         />
       ) : null}

@@ -43,8 +43,17 @@ type Mode = 'chat' | 'group';
 
 export function StartConversation({
   onStarted,
+  openSignal,
 }: {
   readonly onStarted: (conversationId: string) => void;
+  /**
+   * A counter the shell increments to open this from somewhere else.
+   *
+   * A counter rather than a boolean, because the caller is not tracking whether the picker
+   * is currently open and should not have to: "open it" is an event, and a boolean would
+   * need resetting after every use or the second press would do nothing.
+   */
+  readonly openSignal?: number;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode | undefined>();
@@ -58,6 +67,12 @@ export function StartConversation({
   /** Set by the first completed search, so "no matches" cannot show before one ran. */
   const [searched, setSearched] = useState(false);
   const fieldRef = useRef<HTMLInputElement>(null);
+  const lastSignal = useRef(openSignal);
+  useEffect(() => {
+    if (openSignal === undefined || openSignal === lastSignal.current) return;
+    lastSignal.current = openSignal;
+    setOpen(true);
+  }, [openSignal]);
   const { state } = useSession();
 
   /**

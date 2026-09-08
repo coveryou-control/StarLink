@@ -86,7 +86,15 @@
      the rail became near-white while its foreground stayed white-at-50% and the whole
      navigation disappeared. A brand plane should not flip because a button did.
   */
-  --rail-bg: var(--cy-grey);
+  /*
+     A dark slate, not CY Grey.
+
+     The rail was the brand's near-black (#111). Against a white list beside it that is the
+     highest contrast edge on the screen, and the column reads as a slab rather than as
+     chrome. A few steps up keeps it clearly the darkest surface — so the eye still travels
+     rightward into the content — without the edge being the loudest thing in the window.
+  */
+  --rail-bg: #24232b;
   --rail-fg: rgb(255 255 255 / 50%);
   --rail-fg-active: #ffffff;
   --rail-item-active: rgb(255 255 255 / 10%);
@@ -143,7 +151,15 @@
      the relationship rule 2 is really about (one filled and emphatic, one outlined and
      quiet) and keeps both at full contrast on a black thread, where a literal CY Grey
      bubble would be 17/255 away from the page and effectively invisible. */
-  --bubble-mine: var(--btn-primary-bg);
+  /*
+     Your own bubble, lifted off black.
+
+     It was `--btn-primary-bg`, the same near-black as a primary button, which made a run of
+     your own messages a column of dark slabs — the heaviest thing in a thread whose job is
+     to be read. This is the same hue two steps lighter: still unmistakably "mine", still
+     white text at well over AA, and no longer a hole in the page.
+  */
+  --bubble-mine: #34333d;
   --bubble-mine-ink: var(--btn-primary-label);
   --bubble-them: var(--base-surface-primary);
 
@@ -287,8 +303,8 @@
   */
   --focus-field-pointer: none;
 
-  --scroll-thumb: rgb(0 0 0 / 12%);
-  --scroll-thumb-hover: rgb(0 0 0 / 28%);
+  --scroll-thumb: rgb(0 0 0 / 8%);
+  --scroll-thumb-hover: rgb(0 0 0 / 22%);
 
   --dur: var(--duration-fast);
   --ease: var(--ease-standard);
@@ -312,7 +328,7 @@
   --rail-bg: var(--neutral-100);
   --rail-fg: rgb(255 255 255 / 55%);
   --rail-item-active: rgb(255 255 255 / 14%);
-  --scroll-thumb: rgb(255 255 255 / 14%);
+  --scroll-thumb: rgb(255 255 255 / 9%);
   --scroll-thumb-hover: rgb(255 255 255 / 32%);
   --hairline: inset 0 0 0 1px var(--border);
 }
@@ -2339,7 +2355,16 @@ input[type='search']::-webkit-search-cancel-button {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: 18px;
+  /*
+     Tighter than it was, at 18px.
+
+     The gap has to leave room for a reaction chip to tuck into. At 18px a run of plain
+     messages was already loose, so a reacted one could only be given space by pulling the
+     chip up hard — which left the chip crowding the bubble above it. At 12px the plain
+     rhythm is closer and a reaction opens the thread by a few visible pixels, which is
+     what a response to a message should do.
+  */
+  gap: 12px;
   min-height: 100%;
   box-sizing: border-box;
 }
@@ -3282,14 +3307,33 @@ input[type='search']::-webkit-search-cancel-button {
    and pushed the time further from the words it belongs to. The stack is a flex column, so
    the two are put on one row by making the chips and the stamp share it.
 */
+/*
+   The chips tuck UNDER the bubble's lower edge instead of adding a row beneath it.
+
+   `.message-stack` is a flex column with a 6px gap, so a reacted message used to grow by
+   the gap plus the full height of a chip — about thirty pixels — and the thread visibly
+   opened up around whichever message someone had reacted to. Reacting is a response to a
+   message, not an addition to the conversation, and it should not move the conversation.
+
+   The negative margin cancels the stack's gap and then some, so the chips overlap the
+   bubble's bottom corner and sit in space the layout already had. `z-index` because they
+   now overlap a painted surface and would otherwise be drawn under it.
+*/
 .reactions {
   list-style: none;
-  margin: 0;
+  margin: -6px 0 0;
   padding: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   order: 1;
+  position: relative;
+  z-index: 1;
+}
+
+/* Own messages sit on the right, so their chips hang from the right-hand corner. */
+.message-row.mine .reactions {
+  justify-content: flex-end;
 }
 
 /*
@@ -3300,18 +3344,56 @@ input[type='search']::-webkit-search-cancel-button {
    the row to themselves and the stack stays a plain column.
 */
 
+/*
+   A small chip that sits ON the bubble, not a capsule floating below it.
+
+   It measured 45x34 — nearly the height of a line of message text — because the button's
+   content box was left to whatever the emoji glyph's line box wanted, and an emoji font's
+   metrics are far taller than its nominal size. The height is pinned now and the line box
+   with it, so the chip is the size of the mark it carries rather than the size of the
+   font's opinion about it.
+*/
+/*
+   The mark and its count, and nothing else around them.
+
+   It was a white capsule on a hairline, which is what made a single thumbs-up read as a
+   large floating circle rather than as a mark on the message. There is no pill now: the
+   emoji sits on the thread the way it sits in the picker it was chosen from.
+
+   The height is still pinned. Left to itself the button takes whatever line box the emoji
+   font asks for, which is far taller than the nominal size and is where the chip's
+   original 34px came from.
+*/
 .reaction {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 9px;
+  gap: 3px;
+  height: 20px;
+  padding: 0 2px;
   border: 0;
-  border-radius: var(--radius-pill);
-  background: var(--surface);
-  box-shadow: var(--hairline);
+  border-radius: var(--sl-r, 5px);
+  background: transparent;
+  box-shadow: none;
   color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 11.5px;
+  line-height: 1;
+}
+
+/*
+   The glyph, matched to the picker.
+
+   Two things made the chip's emoji look like a different character from the one in the
+   strip above it. It was 12px against the picker's 18px, and at that size the emoji font's
+   hinting thickens every edge into an outline; and it inherited a text stack with no emoji
+   family in it, so which font answered was left to the platform. Both are stated now, so
+   the mark you pick is the mark you get.
+*/
+.reaction > span[aria-hidden] {
+  display: inline-flex;
+  align-items: center;
+  font-family: var(--font-with-emoji);
+  font-size: 15px;
+  line-height: 1;
 }
 
 /*
@@ -3322,11 +3404,18 @@ input[type='search']::-webkit-search-cancel-button {
    beside a white one reads as two different kinds of object rather than one object in two
    states. The ring and the ink carry it and the shape stays the reference's.
 */
+/*
+   Your own reaction, marked on the COUNT rather than by a ring.
+
+   The ring needed a filled pill to sit on, and the pill is what made the chip look like an
+   object dropped next to the message. The count is the only part of the chip that can take
+   a colour — an emoji glyph ignores `color` — so it is the only honest place to put this.
+*/
 .reaction.mine {
-  background: var(--surface);
-  box-shadow: inset 0 0 0 1px var(--accent-line);
-  color: var(--accent);
-  font-weight: 600;
+  background: transparent;
+  box-shadow: none;
+  color: var(--accent-ink, var(--accent));
+  font-weight: 650;
 }
 
 .reaction-count {
@@ -6206,6 +6295,13 @@ input[type='search']::-webkit-search-cancel-button {
   --si-card: rgb(255 255 255 / 92%);
   --si-field: #ffffff;
   --si-page: #fbfbfd;
+  /*
+     The card's width, named once.
+
+     It appears in three grid templates — the wide layout, the mid one and the phone's — and
+     they have to agree, or the card changes size as the window crosses a breakpoint.
+  */
+  --si-card-w: 376px;
   --si-action: #cf4429;
   --si-link: #c8402b;
 
@@ -6298,7 +6394,7 @@ input[type='search']::-webkit-search-cancel-button {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 424px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--si-card-w) minmax(0, 1fr);
   align-items: center;
   gap: clamp(24px, 4vw, 64px);
   width: 100%;
@@ -6366,9 +6462,9 @@ input[type='search']::-webkit-search-cancel-button {
 .signin-panel {
   display: flex;
   flex-direction: column;
-  padding: 38px 34px 30px;
+  padding: 32px 28px 26px;
   border: 1px solid rgb(255 255 255 / 70%);
-  border-radius: 20px;
+  border-radius: 18px;
   background: var(--si-card);
   backdrop-filter: blur(20px) saturate(1.35);
   box-shadow:
@@ -6400,12 +6496,12 @@ input[type='search']::-webkit-search-cancel-button {
 /* The mark sits above the heading, as the reference has it. `.brand-mark` sets its own
    size inline, so only the spacing is set here. */
 .signin-masthead .brand-mark {
-  margin-bottom: 18px;
+  margin-bottom: 15px;
 }
 
 .signin-masthead h1 {
-  margin: 0 0 8px;
-  font-size: 25px;
+  margin: 0 0 7px;
+  font-size: 22px;
   font-weight: 660;
   letter-spacing: -0.024em;
   line-height: 1.18;
@@ -6415,7 +6511,7 @@ input[type='search']::-webkit-search-cancel-button {
 .signin-masthead p {
   margin: 0 auto;
   max-width: 30ch;
-  font-size: 13.5px;
+  font-size: 13px;
   line-height: 1.5;
   color: var(--si-muted);
 }
@@ -6460,8 +6556,8 @@ input[type='search']::-webkit-search-cancel-button {
   align-items: center;
   gap: 9px;
   width: 100%;
-  height: 46px;
-  padding: 0 13px;
+  height: 42px;
+  padding: 0 12px;
   border: 1px solid var(--si-line);
   border-radius: 11px;
   background: var(--si-field);
@@ -6665,8 +6761,8 @@ input.signin-control {
    anyway: it settles onto the page.
 */
 .signin-submit {
-  height: 48px;
-  margin-top: 8px;
+  height: 44px;
+  margin-top: 7px;
   border: 0;
   border-radius: 11px;
   background: var(--si-action);
@@ -6747,7 +6843,7 @@ input.signin-control {
 */
 @media (max-width: 1140px) {
   .signin-stage {
-    grid-template-columns: minmax(0, 1fr) 424px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) var(--si-card-w) minmax(0, 1fr);
   }
 
   .signin-lede {
@@ -6761,7 +6857,7 @@ input.signin-control {
 
 @media (max-width: 900px) {
   .signin-stage {
-    grid-template-columns: minmax(0, 424px);
+    grid-template-columns: minmax(0, var(--si-card-w));
     justify-content: center;
   }
 
@@ -8641,4 +8737,476 @@ input.signin-control {
 
 .row-typing .typing-dots i {
   background: var(--accent);
+}
+
+/* ======================================================================================
+   THE SIDEBAR                                                       BEGIN (deletable)
+
+   A labelled navigation column, replacing the strip of unlabelled glyphs. Asked for on
+   2026-09-08 from a reference layout, in StarLink's own colours rather than the
+   reference's blue.
+
+   ## Why the column is dark
+
+   The rail already was, and it is the right call for this shape: the sidebar is chrome
+   that is on screen every second of the working day, and against a dark column the white
+   conversation list beside it reads as the page. Inverted — light nav, light list — the
+   two compete and the eye has to be told where the content starts.
+
+   ## The accent appears three times
+
+   The selected row, the unread badge, and the new-chat button. Nowhere else. Rule 1 says
+   orange is a signal, and a navigation column is the easiest place in a product to spend a
+   signal colour on decoration.
+   ====================================================================================== */
+
+.sidenav {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 208px;
+  padding: 14px 10px 10px;
+  background: var(--rail-bg);
+  color: var(--rail-fg);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* ------------------------------------------------------------------------- the brand --- */
+
+.sidenav-brand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 2px 8px 14px;
+}
+
+.sidenav-wordmark {
+  font-size: 14.5px;
+  font-weight: 640;
+  letter-spacing: -0.015em;
+  color: var(--rail-fg-active);
+}
+
+/* --------------------------------------------------------------------------- new chat --- */
+
+/*
+   The one filled control in the column.
+
+   It is the only thing here that CREATES something — everything else navigates — so it is
+   the only thing that earns the accent as a fill rather than as a mark.
+*/
+.sidenav-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  margin: 0 0 16px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+}
+
+/* ------------------------------------------------------------------------- the groups --- */
+
+/*
+   Small-caps section labels rather than dividing rules.
+
+   A rule says "these are separate"; a label says what they are separate FOR, in the same
+   vertical space. On a column this narrow that difference is most of the hierarchy.
+*/
+.sidenav-label {
+  margin: 12px 0 5px;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 640;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--rail-fg) 78%, transparent);
+}
+
+.sidenav-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.sidenav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 34px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--rail-fg);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  text-align: left;
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+
+.sidenav-item svg {
+  flex: none;
+  opacity: 0.85;
+}
+
+.sidenav-item span:not(.sidenav-badge) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+   The selected destination.
+
+   A filled row, not a coloured word: at 13px a hue change alone is a weak signal, and this
+   column is scanned rather than read. The fill is the accent at low strength so the row
+   reads as selected without the column turning orange.
+*/
+.sidenav-item[aria-current='page'] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--rail-fg-active);
+  font-weight: 600;
+}
+
+.sidenav-item[aria-current='page'] svg {
+  opacity: 1;
+  color: var(--accent);
+}
+
+/* Colour and nothing else on hover — `hover-highlighting.test.ts` refuses a painted box,
+   and on a navigation column the rule is right: forty rows that light up under a moving
+   pointer is a column that flickers. */
+.sidenav-item:hover {
+  color: var(--rail-fg-active);
+}
+
+.sidenav-badge {
+  flex: none;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 10.5px;
+  font-weight: 680;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+}
+
+/* ---------------------------------------------------------------------------- the foot --- */
+
+/*
+   Pinned to the bottom by `margin-top: auto`, so the three controls people touch least sit
+   in the same place whether the account is in two conversations or two hundred.
+*/
+.sidenav-foot {
+  margin-top: auto;
+  padding-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border-top: 1px solid color-mix(in srgb, var(--rail-fg) 18%, transparent);
+}
+
+.sidenav-you {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 6px;
+  padding: 6px 8px 2px;
+  min-width: 0;
+}
+
+.sidenav-you-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-size: 10.5px;
+  font-weight: 650;
+}
+
+.sidenav-you-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--rail-fg-active);
+}
+
+/* -------------------------------------------------------------------------- narrower --- */
+
+/*
+   Below 1100px the labels go and the column becomes icons again.
+
+   Not a fallback: at that width the sidebar, the list and a readable thread cannot all
+   have their room, and the thread is what the window is for. The accessible names are on
+   the buttons either way, so nothing is lost to a screen reader.
+*/
+/*
+   The narrow-window collapse used to live here as a media query, duplicating every
+   declaration in the attribute rule below. The component now owns the breakpoint and sets
+   `data-collapsed`, so there is one description of a collapsed column instead of two that
+   have to be kept in step.
+*/
+
+/* ====================================================================== END (deletable) */
+
+/* ======================================================================================
+   SCROLLBARS, SLIMMED                                               BEGIN (deletable)
+
+   Asked for on 2026-09-08: present enough to tell you there is more, quiet enough not to
+   be furniture. The bars were 6px with a 12% thumb — visible as a grey column down the
+   right of every scrollable pane, and there are three of them on a wide window.
+
+   4px and 8%. Still a real target for a pointer, still visible against both grounds, and
+   no longer something the eye counts as an element of the layout. On hover it firms up,
+   which is the moment you are actually aiming at it.
+   ====================================================================================== */
+
+/*
+   The values are edited in PLACE, above — not restated here.
+
+   `theme-switch.test.ts` allows exactly one `:root[data-theme='dark']` block in this
+   sheet, on the grounds that a second one is how a whole parallel palette creeps back in.
+   Appending one for two scrollbar values would have been precisely that mistake, at the
+   smallest possible scale, and the guard caught it.
+*/
+
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+/*
+   No transparent border on a 4px track.
+
+   The 6px version used a 1px border with `background-clip: content-box` to keep the thumb
+   off the content beside it. At 4px that leaves a 2px thumb, which on a high-DPI screen
+   renders as a faint dash rather than a bar — so the inset goes and the full width is the
+   thumb.
+*/
+::-webkit-scrollbar-thumb {
+  border: 0;
+  background-clip: border-box;
+  background: var(--scroll-thumb);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-clip: border-box;
+}
+
+/* ====================================================================== END (deletable) */
+
+/* ---------------------------------------------------------------------- favourites --- */
+
+/*
+   Starred messages, as an index.
+
+   Rows rather than bubbles: this is a list you scan for a sentence you half-remember, so
+   the body is clamped and the name and time carry the rest. A starred essay must not push
+   the next bookmark off the screen.
+*/
+.favourites {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.favourite-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  width: 100%;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.favourite-row + .favourite-row {
+  box-shadow: inset 0 1px 0 0 var(--border);
+}
+
+.favourite-avatar {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  font-size: 11px;
+  font-weight: 620;
+}
+
+.favourite-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.favourite-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.favourite-head time {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-subtle);
+}
+
+.favourite-body {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* The pinned mark in a conversation row, beside the time. */
+.row-pin {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-subtle);
+}
+
+/* ------------------------------------------------------- collapsing the sidebar --- */
+
+/*
+   The collapsed column: icons, no labels.
+
+   ONE rule, keyed on one attribute. The narrow-window case and the reader's own choice
+   produce the same column, and the component decides which is in force — expressing it
+   here as well, in a media query, is how the two would drift apart.
+*/
+.sidenav[data-collapsed='true'] {
+  width: 60px;
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.sidenav[data-collapsed='true'] .sidenav-wordmark,
+.sidenav[data-collapsed='true'] .sidenav-label,
+.sidenav[data-collapsed='true'] .sidenav-you-name,
+.sidenav[data-collapsed='true'] .sidenav-item span:not(.sidenav-badge),
+.sidenav[data-collapsed='true'] .sidenav-new {
+  display: none;
+}
+
+.sidenav[data-collapsed='true'] .sidenav-brand,
+.sidenav[data-collapsed='true'] .sidenav-item,
+.sidenav[data-collapsed='true'] .sidenav-you {
+  justify-content: center;
+  padding-left: 0;
+  padding-right: 0;
+  gap: 0;
+}
+
+/* The count has no label to sit beside any more, so it rides the icon's corner. */
+.sidenav[data-collapsed='true'] .sidenav-item {
+  position: relative;
+}
+
+.sidenav[data-collapsed='true'] .sidenav-badge {
+  position: absolute;
+  top: 1px;
+  right: 3px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  font-size: 9.5px;
+  line-height: 15px;
+}
+
+/*
+   The toggle.
+
+   Quiet until reached for: this is chrome for the chrome, and a button that competes with
+   the destinations beneath it is a button in the wrong place.
+*/
+.sidenav-collapse {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: color-mix(in srgb, var(--rail-fg) 80%, transparent);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease);
+}
+
+.sidenav-collapse:hover {
+  color: var(--rail-fg-active);
+}
+
+/* Collapsed, the brand row is just the mark — so the toggle moves under it and centres,
+   rather than being squeezed beside a 26px logo in a 44px column. */
+.sidenav[data-collapsed='true'] .sidenav-brand {
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 10px;
+}
+
+.sidenav[data-collapsed='true'] .sidenav-collapse {
+  margin-left: 0;
+}
+
+/* A muted conversation, marked on the row beside the time. */
+.row-muted {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-subtle);
 }

@@ -118,7 +118,7 @@ export default function SignInPage(): ReactNode {
         <div className="signin-column">
         <div className="signin-panel">
         <header className="signin-masthead">
-          <BrandMark size={46} />
+          <BrandMark size={40} />
           <h1>Welcome back</h1>
           <p>Sign in to your CoverYou work account to continue to StarLink.</p>
         </header>

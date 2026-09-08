@@ -4,13 +4,14 @@ import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { AppRail, RAIL_SECTIONS, type RailSection } from '../../components/app-rail';
+import { AppRail, RAIL_SECTIONS, type RailSection, type ChatView } from '../../components/app-rail';
 import { useMediaQuery } from '../../lib/use-media-query';
 import { AnnouncementsPanel } from '../../components/announcements-panel';
 import { ConversationList } from '../../components/conversation-list';
 import { ConversationSearch } from '../../components/conversation-search';
 import { SettingsPanel } from '../../components/settings-panel';
 import { StartConversation } from '../../components/start-conversation';
+import { FavouritesPanel } from '../../components/favourites-panel';
 import { TeamQueue } from '../../components/team-queue';
 import { TeamLoadPanel } from '../../components/team-load';
 import { Directory } from '../../components/directory';
@@ -18,7 +19,7 @@ import { BrandMark } from '../../components/brand';
 import { useSession } from '../../components/session-provider';
 import { api, ApiError, type ConversationSummary } from '../../lib/api-client';
 import { customerWorkspaceEnabled } from '../../lib/runtime-origins';
-import { watchSystemTheme } from '../../lib/theme';
+import { applyTheme, watchSystemTheme, THEME_KEY, type Theme } from '../../lib/theme';
 import { onShellAction, requestNewConversation } from '../../lib/shell-actions';
 import { useNotifications } from '../../lib/use-notifications';
 import { usePresence } from '../../lib/use-presence';
@@ -48,6 +49,45 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
    * other half of the screen. The rail switches the PANEL; the thread stays put.
    */
   const [section, setSection] = useState<RailSection>('chats');
+  /**
+   * Which slice of the chat list the sidebar has selected.
+   *
+   * Held here rather than in the list, because the sidebar names it and the list obeys —
+   * two components reading one fact, which is exactly what a shell is for.
+   */
+  const [chatView, setChatView] = useState<ChatView>('all');
+  /* Bumped by the sidebar's New chat, which is a second door onto the composer the list
+     masthead already owns. A counter, so pressing it twice opens it twice. */
+  const [composeSignal, setComposeSignal] = useState(0);
+  const [theme, setTheme] = useState<Theme>('system');
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(THEME_KEY);
+      if (stored === 'light' || stored === 'dark' || stored === 'system') setTheme(stored);
+    } catch {
+      // A browser with site data blocked is not an error state; the default is correct.
+    }
+  }, []);
+
+  /*
+     Light -> dark -> match system, and round again.
+
+     A cycle rather than a two-state switch because there are three states: the third is
+     "follow the operating system", which a binary toggle has no way to express and which
+     is the default. Settings still offers the three as an explicit choice; this is the
+     shortcut for the one people flip daily.
+  */
+  const cycleTheme = (): void => {
+    const next: Theme = theme === 'light' ? 'dark' : theme === 'dark' ? 'system' : 'light';
+    setTheme(next);
+    applyTheme(next);
+    try {
+      window.localStorage.setItem(THEME_KEY, next);
+    } catch {
+      // The choice still applies to this tab; it simply will not survive a reload.
+    }
+  };
 
   /**
    * The announcements the panel has loaded, held here rather than only there.
@@ -200,7 +240,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const page = await api.conversations();
+      const page = await api.conversations(chatView === 'archive' ? { archived: true } : {});
       /**
        * Stage 1 shows internal threads only.
        *
@@ -232,7 +272,13 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
     } finally {
       setLoading(false);
     }
-  }, [router, showCustomerWorkspace]);
+    /*
+       `chatView` is a dependency because `refresh` now reads it — the archive is a
+       different FETCH, not a different filter over the same page. Omitted, the callback
+       would close over the view it was created with and switching to Archive would
+       re-request the live list.
+    */
+  }, [router, showCustomerWorkspace, chatView]);
 
   /**
    * Appends the next page. Deduplicated by id because a conversation can move to the
@@ -300,6 +346,14 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
         unreadChats={conversations.filter((c) => c.unreadCount > 0).length}
         displayName={state.me.displayName}
         onSignOut={() => void signOut()}
+        chatView={chatView}
+        onChatView={setChatView}
+        onNewChat={() => {
+          setSection('chats');
+          setComposeSignal((n) => n + 1);
+        }}
+        theme={theme}
+        onCycleTheme={cycleTheme}
       />
 
       {/*
@@ -348,6 +402,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                   phone twin is the button after the magnifier.
                 */}
                 <StartConversation
+                  openSignal={composeSignal}
                   onStarted={(id) => {
                     void refresh();
                     router.push(`/conversations/${id}`);
@@ -471,7 +526,19 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                   Not mounted, rather than hidden: the list polls and pages, and a list
                   behind a search is a list nobody can see doing it.
                 */}
-                {searching ? null : (
+                {/*
+                  Favourites takes the list column, not the thread.
+
+                  It is a list of MESSAGES rather than of threads, but it is still a list of
+                  things to open — so it belongs where the reader is already looking for one,
+                  and opening an item hands the thread to the pane on the right exactly as a
+                  conversation row does.
+                */}
+                {searching ? null : chatView === 'favourites' ? (
+                  <FavouritesPanel
+                    onOpen={(conversationId) => router.push(`/conversations/${conversationId}`)}
+                  />
+                ) : (
                   <ConversationList
                     currentPrincipalId={state.me.principalId}
                     conversations={conversations}
@@ -483,6 +550,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                        pin is a re-read rather than a local reorder. */
                     onPinChanged={() => void refresh()}
                     typing={typingByConversation}
+                    view={chatView}
                   />
                 )}
 
