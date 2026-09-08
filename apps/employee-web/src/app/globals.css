@@ -94,16 +94,7 @@
      chrome. A few steps up keeps it clearly the darkest surface — so the eye still travels
      rightward into the content — without the edge being the loudest thing in the window.
   */
-  /*
-     The star's violet, as the navigation column.
-
-     Taken from the sign-in mark's own gradient — its cool end, `#4d1fd6`, desaturated and
-     darkened until it can carry text. The star runs coral at one point and violet at the
-     other; coral is the accent and already spends itself on the selected row and the
-     unread badge, so the column takes the other half of the same figure. The two screens
-     are then one product rather than two.
-  */
-  --rail-bg: #453a7a;
+  --rail-bg: #4f4e5c;
   --rail-fg: rgb(255 255 255 / 50%);
   --rail-fg-active: #ffffff;
   --rail-item-active: rgb(255 255 255 / 10%);
@@ -168,13 +159,7 @@
      to be read. This is the same hue two steps lighter: still unmistakably "mine", still
      white text at well over AA, and no longer a hole in the page.
   */
-  /*
-     Your own bubble, from the same figure a step lighter.
-
-     Same hue family as the rail, lifted so a run of them reads as messages on a page
-     rather than as a second navigation column down the right-hand side.
-  */
-  --bubble-mine: #5f5397;
+  --bubble-mine: #676676;
   --bubble-mine-ink: var(--btn-primary-label);
   --bubble-them: var(--base-surface-primary);
 
