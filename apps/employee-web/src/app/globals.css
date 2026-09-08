@@ -9231,3 +9231,29 @@ input.signin-control {
   align-items: center;
   color: var(--text-subtle);
 }
+
+/* ------------------------------------------------------------- several typists --- */
+
+/*
+   Up to three faces, overlapped.
+
+   A group can have several people composing at once. Laid out in a row they push the
+   sentence sideways every time somebody joins or stops; overlapped they occupy a nearly
+   fixed width, which matters for a line that appears and disappears under the composer
+   while you are reading.
+*/
+.typing-faces {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+}
+
+.typing-faces .typing-avatar + .typing-avatar {
+  margin-left: -7px;
+}
+
+/* A ring in the thread's own ground, so overlapping discs read as separate people rather
+   than as one clipped shape. */
+.typing-faces .typing-avatar {
+  box-shadow: 0 0 0 2px var(--thread-ground, var(--surface));
+}

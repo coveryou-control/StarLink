@@ -60,7 +60,52 @@ export default function ThreadPage(): ReactNode {
 
   const [messages, setMessages] = useState<readonly MessageView[]>([]);
   const [lifecycleState, setLifecycleState] = useState<string | undefined>(undefined);
-  const [typing, setTyping] = useState<TypingFrame | undefined>(undefined);
+  /**
+   * Everybody currently composing, keyed by principal.
+   *
+   * A single frame could only ever describe one person, so in a group the second typist
+   * overwrote the first and one expiry cleared them both. A map is the smallest thing that
+   * can hold "Rahul and Priya", and each entry is forgotten on its own clock.
+   */
+  const [typists, setTypists] = useState<ReadonlyMap<string, 'INTERNAL' | 'CUSTOMER_VISIBLE'>>(
+    new Map(),
+  );
+  const typistTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  /* Timers outlive a render; without this every open thread leaks one per keystroke. */
+  useEffect(() => {
+    const pending = typistTimers.current;
+    return () => {
+      for (const timer of pending.values()) clearTimeout(timer);
+      pending.clear();
+    };
+  }, []);
+
+  const noteTypist = useCallback((frame: TypingFrame): void => {
+    setTypists((current) => {
+      const next = new Map(current);
+      next.set(frame.principalId, frame.visibility);
+      return next;
+    });
+    const timers = typistTimers.current;
+    const running = timers.get(frame.principalId);
+    if (running !== undefined) clearTimeout(running);
+    timers.set(
+      frame.principalId,
+      setTimeout(
+        () => {
+          timers.delete(frame.principalId);
+          setTypists((current) => {
+            if (!current.has(frame.principalId)) return current;
+            const next = new Map(current);
+            next.delete(frame.principalId);
+            return next;
+          });
+        },
+        Math.max(1, frame.expiresInSeconds) * 1000,
+      ),
+    );
+  }, []);
   const [olderCursor, setOlderCursor] = useState<string | undefined>(undefined);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [pending, setPending] = useState<readonly PendingSend[]>([]);
@@ -437,7 +482,7 @@ export default function ThreadPage(): ReactNode {
     onSessionRevoked: onUnauthenticated,
     // SL-010. Ephemeral by design — held in component state, never persisted, and
     // cleared by its own TTL rather than by a "stopped" message that may not arrive.
-    onTyping: setTyping,
+    onTyping: noteTypist,
   });
   trackerRef.current = tracker;
 
@@ -966,26 +1011,66 @@ export default function ThreadPage(): ReactNode {
         Sits directly above the composer, which is where a chat application puts it and
         where the eye already is while waiting for a reply.
       */}
-      {typing !== undefined
+      {typists.size > 0
         ? (() => {
-            const who = (activeConversation?.participants ?? []).find(
-              (person) => person.principalId === typing.principalId,
-            )?.displayName;
+            const people = (activeConversation?.participants ?? []);
+            const names = [...typists.keys()].map(
+              (id) => people.find((person) => person.principalId === id)?.displayName,
+            );
+            const known = names.filter((name): name is string => name !== undefined);
+
+            /*
+               How several people typing is worded.
+
+               One name reads as a fact, two as a pair, and beyond that a list stops being
+               information and becomes a wall that reflows on every keystroke. Three or more
+               therefore names the first two and counts the rest — the same shape a mail
+               client uses for recipients, and stable in width while people come and go.
+
+               "Someone" only when the summary does not list them, which is honest rather
+               than a guess; a group where nobody resolves says how many, not who.
+            */
+            const label =
+              known.length === 0
+                ? typists.size === 1
+                  ? 'Someone is typing'
+                  : `${typists.size} people are typing`
+                : known.length === 1
+                  ? `${known[0]} is typing`
+                  : known.length === 2
+                    ? `${known[0]} and ${known[1]} are typing`
+                    : `${known[0]}, ${known[1]} and ${known.length - 2} ${
+                        known.length - 2 === 1 ? 'other' : 'others'
+                      } are typing`;
+
+            /*
+               "Writing a note" is kept for a CUSTOMER thread only.
+
+               The wording exists so somebody watching a customer conversation knows which
+               of the two things is coming — an internal note, or a reply the customer will
+               see. In an internal thread every message is a note, so saying so each time
+               told the reader nothing and read oddly beside a colleague's name.
+            */
+            const isCustomerThread = conversationType?.startsWith('CUSTOMER') === true;
+            const composingNote =
+              isCustomerThread && [...typists.values()].every((v) => v === 'INTERNAL');
 
             return (
               <p className="typing-line" aria-live="polite">
                 {/*
                    In a group, whose face it is comes FIRST.
 
-                   A group of six has six people who might be about to say something, and
-                   "typing" on its own makes you wait to find out which. The avatar is the
-                   same one the thread draws beside their messages, so it is recognised
-                   rather than read. A one-to-one needs none of this — there is exactly one
-                   other person and the header already names them.
+                   Up to three, because that is where a row of 20px discs stops being
+                   recognisable and starts being a smudge — and the label already carries
+                   the count beyond that.
                 */}
-                {isGroup && who !== undefined ? (
-                  <span className="typing-avatar" aria-hidden="true">
-                    {initialsFor(who)}
+                {isGroup && known.length > 0 ? (
+                  <span className="typing-faces" aria-hidden="true">
+                    {known.slice(0, 3).map((name) => (
+                      <span key={name} className="typing-avatar">
+                        {initialsFor(name)}
+                      </span>
+                    ))}
                   </span>
                 ) : null}
 
@@ -995,19 +1080,8 @@ export default function ThreadPage(): ReactNode {
                   <i />
                 </span>
 
-                {/*
-                   "typing", not "is replying…".
-
-                   An internal note keeps its own wording: what is being composed is not
-                   visible to the customer, and somebody in a customer thread watching the
-                   indicator needs to know which of the two is coming.
-                */}
                 <span className="typing-what">
-                  {typing.visibility === 'INTERNAL'
-                    ? `${who ?? 'Someone'} is writing a note`
-                    : isGroup
-                      ? `${who ?? 'Someone'} is typing`
-                      : 'typing'}
+                  {composingNote ? `${label.replace(/ typing$/, ' writing a note')}` : label}
                 </span>
               </p>
             );

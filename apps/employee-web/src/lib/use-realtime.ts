@@ -47,11 +47,15 @@ interface UseRealtimeOptions {
   /**
    * SL-010. Someone else is composing in this conversation.
    *
-   * `undefined` means nobody is. The gateway broadcasts these and **nothing consumed
-   * them** until 2026-08-29, so the indicator the tracker asks for did not exist while
-   * the server dutifully sent it to nobody.
+   * One call per frame, and no expiry — the reader forgets a typist after the frame's own
+   * `expiresInSeconds`, because only the reader knows how many people it is tracking. This
+   * used to hand back `undefined` for "nobody", which cannot express "Rahul stopped but
+   * Priya has not" and so made a second typist impossible to represent.
+   *
+   * The gateway broadcasts these and **nothing consumed them** until 2026-08-29, so the
+   * indicator the tracker asks for did not exist while the server sent it to nobody.
    */
-  readonly onTyping?: (typing: TypingFrame | undefined) => void;
+  readonly onTyping?: (typing: TypingFrame) => void;
   /**
    * Somebody else has read up to a position — the second tick, live.
    *
@@ -192,14 +196,21 @@ export function useRealtime({
      * ends have different clocks (ADR-025), and the timer clears the indicator locally
      * rather than waiting for a "stopped typing" message that may never arrive.
      */
-    let typingTimer: ReturnType<typeof setTimeout> | undefined;
+    /*
+       Frames are forwarded; expiry belongs to the reader.
+
+       There used to be ONE timer here, which is correct only while one person can be
+       typing. In a group several can, and a single timer meant the second typist's frame
+       reset the first's clock and the one expiry then cleared everybody. Worse, the
+       consumer was handed `undefined` — "nobody is typing" — which cannot express "Rahul
+       stopped but Priya has not".
+
+       So this reports what actually happened, one frame at a time, and the component that
+       knows how many people it is tracking forgets them one at a time. `expiresInSeconds`
+       rides along on the frame, so nothing about the TTL moved — only who applies it.
+    */
     socket.on(SOCKET_EVENTS.typingSignal, (frame: TypingFrame) => {
       handlers.current.onTyping?.(frame);
-      if (typingTimer !== undefined) clearTimeout(typingTimer);
-      typingTimer = setTimeout(
-        () => handlers.current.onTyping?.(undefined),
-        Math.max(1, frame.expiresInSeconds) * 1000,
-      );
     });
 
     /**
@@ -268,7 +279,6 @@ export function useRealtime({
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      if (typingTimer !== undefined) clearTimeout(typingTimer);
       window.removeEventListener('online', reconnectNow);
       document.removeEventListener('visibilitychange', onVisible);
       socket.removeAllListeners();

@@ -119,9 +119,16 @@ export function ChatHeader({
        FACES are on the same row now, so the names are already on screen, and three of them
        plus a "+11" is the one thing that cannot fit beside a stack of avatars.
     */
+    /*
+       Members only. The online count is NOT appended here.
+
+       It was, and the render prepends its own styled copy of the same number — so the line
+       read "2 online · 3 members · 2 online". Two places producing one fact is the bug;
+       the styled one wins because it carries the colour that makes "online" scannable, and
+       this one goes back to answering only the question it is for.
+    */
     const members = others.length + 1;
-    const line = `${members} ${members === 1 ? 'member' : 'members'}`;
-    return onlineCount > 0 ? `${line} · ${onlineCount} online` : line;
+    return `${members} ${members === 1 ? 'member' : 'members'}`;
   };
 
   /**
