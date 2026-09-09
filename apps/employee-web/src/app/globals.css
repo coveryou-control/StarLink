@@ -10222,11 +10222,31 @@ input.signin-control {
   color: var(--accent-ink);
 }
 
+/*
+   A red LABEL, on no background — and `background` has to be said out loud here.
+
+   This is a cascade collision, not an omission. The photo menu sits inside `.settings-rows`,
+   which carries `.settings-rows button.danger { background: var(--critical-label) }` for the
+   filled destructive buttons in the settings sheet. That selector is (0,2,1) and so is this
+   one, so the `background: none` on `.profile-photo-menu button` — (0,1,1) — never had a
+   chance against it.
+
+   The result was a solid red bar with red text on it: the label was there, at
+   rgb(198, 12, 8) on rgb(198, 12, 8), and completely unreadable. Reported from use on
+   2026-09-09 as "there is nothing written on the red button".
+
+   A menu ITEM is not a button in a settings row. The convention two items above is that a
+   menu shifts its ink and never lights a row, and the destructive one follows it — the red
+   word is the warning.
+*/
 .profile-photo-menu button.danger {
+  background: none;
+  border-color: transparent;
   color: var(--danger);
 }
 
 .profile-photo-menu button.danger:hover:not(:disabled) {
+  background: none;
   color: var(--danger);
 }
 
@@ -11295,6 +11315,15 @@ input.signin-control {
    hairlines.
    ===================================================================================== */
 
+/*
+   `--text-secondary`, not `--text-subtle`.
+
+   Subtle measured 2.42:1 against the panel - unreadable, and it is an 11px uppercase label
+   so none of WCAG's large-text allowances apply. The recession it was buying is already
+   paid for three other ways: half the size of a channel name, uppercase, and a tenth of an
+   em of tracking. `.details-section-title` reached the same conclusion for the same kind of
+   label, and this now matches it.
+*/
 .channel-group-heading {
   margin: var(--space-4) 0 var(--space-1);
   padding: 0 var(--space-4);
@@ -11302,7 +11331,7 @@ input.signin-control {
   font-weight: 600;
   letter-spacing: var(--track-caps);
   text-transform: uppercase;
-  color: var(--text-subtle);
+  color: var(--text-secondary);
 }
 
 .channel-items {
