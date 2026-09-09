@@ -362,9 +362,22 @@ export class PgConversationReader implements ConversationReader {
     const result = await this.pool.query(
       `SELECT c.conversation_id, c.conversation_type, c.title, c.state, c.sensitivity,
               c.last_activity_at, c.last_message_preview, c.participant_count,
+              /*
+                 Unread MESSAGES, which a membership note is not.
+
+                 sender_principal_id IS DISTINCT FROM $1 is true for NULL, and a system
+                 note carries no sender — so "Archit added Rishitt" counted as something
+                 unread. The preview lateral below deliberately yields nothing for the same
+                 row, on the stated grounds that nobody said it. The two disagreed, and the
+                 result was a row reading "No messages yet" beside a red 1.
+
+                 Excluding it here is the side that matches what the badge means to a
+                 reader: a number of things somebody said to them.
+              */
               COALESCE((SELECT count(*) FROM conversation.messages m
                          WHERE m.conversation_id = c.conversation_id
                            AND m.seq > COALESCE(rs.last_read_seq, 0)
+                           AND m.message_class <> 'MEMBERSHIP'
                            AND m.sender_principal_id IS DISTINCT FROM $1), 0)::int AS unread_count,
               /*
                  The second tick, on a list row.
