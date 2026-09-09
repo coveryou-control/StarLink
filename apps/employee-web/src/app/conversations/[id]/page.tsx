@@ -753,6 +753,15 @@ export default function ThreadPage(): ReactNode {
   /* Below four columns the panel is a sheet over the conversation rather than a column
      beside it, and only then does it carry a header of its own. */
   const panelOverlays = useMediaQuery('(max-width: 1024px)');
+  /*
+     One pane at a time — the same 860px the stylesheet switches the shell at.
+
+     Kept as a media QUERY rather than as a CSS rule because what changes here is which
+     controls are in the document: a control that is not on the screen must not be in the
+     tab order either, and `display: none` on a header button leaves a keyboard user
+     tabbing to something nobody can see.
+  */
+  const oneAtATime = useMediaQuery('(max-width: 860px)');
   const onPhone = useMediaQuery('(max-width: 640px)');
 
   /**
@@ -873,6 +882,7 @@ export default function ThreadPage(): ReactNode {
         detailsOpen={showDetails}
         onToggleDetails={canOpenDetails ? toggleDetails : undefined}
         compact={panelOverlays}
+        narrow={oneAtATime}
         searchOpen={searchOpen}
         onToggleSearch={() => setSearchOpen((was) => !was)}
         /* The duration is sent, never the instant: the server dates the lease against its

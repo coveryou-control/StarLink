@@ -45,6 +45,7 @@ export function ChatHeader({
   onMute,
   onAddPeople,
   compact = false,
+  narrow = false,
 }: {
   readonly conversation: ConversationSummary | undefined;
   readonly conversationType: string | undefined;
@@ -73,8 +74,29 @@ export function ChatHeader({
   readonly onMute?: ((minutes: number | null) => void) | undefined;
   /** Reveals membership on a one-to-one; absent on a group, which always shows it. */
   readonly onAddPeople?: (() => void) | undefined;
-  /** A phone. The header keeps the back control, the person and one action — see below. */
+  /**
+   * The panel overlays rather than sitting beside the thread — roughly a tablet.
+   *
+   * What goes at this width is the AVATAR STACK, which is `aria-hidden` decoration
+   * repeating faces the details panel lists properly. What stays is every control.
+   */
   readonly compact?: boolean;
+  /**
+   * One pane at a time — a phone.
+   *
+   * ## The priority this inverts
+   *
+   * `compact` used to drop the search tile AND the overflow, and keep the avatar stack and
+   * the named button. That is exactly backwards: the stack is decoration and the overflow
+   * is the only route to Search, Mute, Add people and Close chat. Below 1024px those four
+   * were not degraded, they were UNREACHABLE — on every tablet and every phone, which is
+   * where a conversation most needs quietening.
+   *
+   * So the overflow is now unconditional and the decoration goes first. Search keeps its
+   * own tile while there is room for one and falls back into the menu when there is not,
+   * which is what an overflow menu is for.
+   */
+  readonly narrow?: boolean;
 }): ReactNode {
   const router = useRouter();
   /** The overflow trigger's rect while its menu is open; `undefined` when it is closed. */
@@ -322,7 +344,7 @@ export function ChatHeader({
           faster than a number, and the useful action is the one that opens the membership.
           In a one-to-one both are already answered by the avatar to the left of the name.
         */}
-        {isGroup && others.length > 0 ? (
+        {isGroup && others.length > 0 && !compact ? (
           <span className="avatar-stack" aria-hidden="true">
             {others.slice(0, 3).map((person) => (
               <span
@@ -339,7 +361,7 @@ export function ChatHeader({
           </span>
         ) : null}
 
-        {isGroup && onToggleDetails !== undefined ? (
+        {isGroup && onToggleDetails !== undefined && !narrow ? (
           <button
             type="button"
             className="chat-header-named"
@@ -361,7 +383,7 @@ export function ChatHeader({
           Not hidden with CSS: a control that is not on the screen must not be in the tab
           order either.
         */}
-        {compact || onToggleSearch === undefined ? null : (
+        {narrow || onToggleSearch === undefined ? null : (
           <button
             type="button"
             className="chat-header-action"
@@ -395,23 +417,22 @@ export function ChatHeader({
           the header reflows when the conversation's name changes length and a stale
           anchor puts the menu somewhere the button no longer is.
         */}
-        {compact ? null : (
-          <button
-            type="button"
-            className="chat-header-action"
-            onClick={(event) => setMenuAnchor(event.currentTarget.getBoundingClientRect())}
-            aria-expanded={menuAnchor !== undefined}
-            aria-haspopup="menu"
-            aria-label="More actions"
-            title="More actions"
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <circle cx="12" cy="5" r="1.7" fill="currentColor" />
-              <circle cx="12" cy="12" r="1.7" fill="currentColor" />
-              <circle cx="12" cy="19" r="1.7" fill="currentColor" />
-            </svg>
-          </button>
-        )}
+        {/* No width condition. See `narrow` above for what this used to cost. */}
+        <button
+          type="button"
+          className="chat-header-action"
+          onClick={(event) => setMenuAnchor(event.currentTarget.getBoundingClientRect())}
+          aria-expanded={menuAnchor !== undefined}
+          aria-haspopup="menu"
+          aria-label="More actions"
+          title="More actions"
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+            <circle cx="12" cy="5" r="1.7" fill="currentColor" />
+            <circle cx="12" cy="12" r="1.7" fill="currentColor" />
+            <circle cx="12" cy="19" r="1.7" fill="currentColor" />
+          </svg>
+        </button>
 
         {menuAnchor !== undefined ? (
           <ChatHeaderMenu
