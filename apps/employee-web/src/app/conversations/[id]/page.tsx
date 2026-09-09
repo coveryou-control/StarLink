@@ -186,6 +186,8 @@ export default function ThreadPage(): ReactNode {
    * Starts true, because a thread opens at the bottom.
    */
   const atBottom = useRef(true);
+  /** True while a scroll this component caused is in flight. See `pinToBottom`. */
+  const programmaticScroll = useRef(false);
   const trackerRef = useRef<{ reset: (id: string, seq: number) => void } | undefined>(undefined);
 
   // Highest seq already reported as read, so a debounce firing with nothing new does
@@ -501,12 +503,116 @@ export default function ThreadPage(): ReactNode {
      newest message is a few pixels off it as often as not, and a threshold that only
      matches exact equality stops following for people who meant to be following.
   */
+  /**
+   * Pin to the bottom, and mark the scroll as OURS.
+   *
+   * Assigning `scrollTop` fires a `scroll` event indistinguishable from a person dragging
+   * the bar, and the handler recomputes `atBottom` from it. When the content had grown
+   * since the assignment — a picture arriving is the usual way — the gap it measured was
+   * already past the 80px threshold, so the reader's own act of opening the thread latched
+   * `atBottom` to FALSE. Every later re-pin was then skipped, and the thread quietly
+   * stopped following new messages for the rest of the session.
+   *
+   * The flag is cleared on the next frame rather than by the handler, so an assignment
+   * that changes nothing (already at the bottom, no event fired) cannot leave it set and
+   * swallow the reader's next real scroll.
+   */
+  const pinToBottom = useCallback((): void => {
+    const element = scrollRef.current;
+    if (element === null) return;
+    programmaticScroll.current = true;
+    element.scrollTop = element.scrollHeight;
+    requestAnimationFrame(() => {
+      programmaticScroll.current = false;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (loadingOlder) return;
+    if (!atBottom.current) return;
+    pinToBottom();
+  }, [messages, pending, loadingOlder, pinToBottom]);
+
+  /**
+   * Stay at the bottom while the thread is still growing.
+   *
+   * The effect above pins to the bottom when the MESSAGE LIST changes, which is the wrong
+   * moment for anything whose height is not known at that point. An image has no reserved
+   * space until its bytes arrive, so a thread ending in a photograph pinned correctly and
+   * then grew underneath the pin: measured at 180px short on one conversation and 102px on
+   * another, with the newest bubble left behind the composer. A thread of pure text landed
+   * at exactly zero.
+   *
+   * It compounds, which is what makes it worth a `ResizeObserver` rather than a shrug: the
+   * scroll handler latches `atBottom` to false once the gap passes 80px, so after one
+   * late-loading image the thread also stops following NEW messages for the rest of the
+   * session. The reader is then silently no longer being shown what arrives.
+   *
+   * Observing the scroller's content means this covers late fonts and expanding quotes too,
+   * without any of them having to know about it. It re-pins only while `atBottom` is still
+   * true, so it cannot yank a reader who has scrolled up to read something — the same rule
+   * the effect above follows, applied at the other moment.
+   */
   useEffect(() => {
     const element = scrollRef.current;
-    if (element === null || loadingOlder) return;
-    if (!atBottom.current) return;
-    element.scrollTop = element.scrollHeight;
-  }, [messages, pending, loadingOlder]);
+    if (element === null || typeof ResizeObserver !== 'function') return;
+
+    /*
+       `loading` is in the deps because the scroller is CONDITIONALLY RENDERED. The first
+       draft used `[]`, ran once while the pane was still the loading state, found
+       `scrollRef.current === null` and returned — so the observer was never attached and
+       the gap it exists to close stayed exactly where it was. Re-running when the pane
+       swaps is what puts it on the real element.
+    */
+    /*
+       The MESSAGE LIST, found by selector rather than by position.
+
+       `firstElementChild` looked obvious and was wrong: when a thread has older pages the
+       scroller's first child is the 34px "load earlier" control, and the list is its
+       sibling. So the observer sat on an element that never changes size and the whole
+       mechanism did nothing on exactly the long threads it was written for. Confirmed by
+       attaching an independent observer from outside the app:
+
+           [ro] attaching to DIV.        <- the load-earlier control
+           [ro] RESIZE DIV. h=34         <- its only observation, ever
+    */
+    const content = element.querySelector('ol.thread') ?? element.firstElementChild ?? element;
+
+    /*
+       The decision is made from the PREVIOUS height, not from the `atBottom` latch.
+
+       Watching a real thread open showed why. The content settles in three steps — it
+       loads at 10408, SHRINKS to 10114 as something above collapses, then grows back to
+       10216 as the pictures arrive:
+
+           +225ms  scrollH=10408  pin -> gap 0
+                   SCROLL EVENT           <- the browser clamping scrollTop to the new,
+           +336ms  scrollH=10165  gap 51     smaller maximum
+           +351ms  scrollH=10216  gap 102
+
+       That clamp is a scroll event nobody asked for, and the handler treated it as the
+       reader moving. `atBottom` latched false and the two growths that followed were
+       skipped, leaving the newest message 102px behind the composer — permanently, since
+       nothing re-pins afterwards.
+
+       Comparing against the height we last saw sidesteps the whole question of who caused
+       a scroll: if the reader was at the bottom of the OLD content, they still want to be
+       at the bottom of the new content. A reader who had genuinely scrolled up has a large
+       previous gap and is left exactly where they were.
+    */
+    let lastHeight = element.scrollHeight;
+    const observer = new ResizeObserver(() => {
+      const wasAtBottom = lastHeight - element.scrollTop - element.clientHeight < 80;
+      lastHeight = element.scrollHeight;
+      if (!wasAtBottom) return;
+      /* Assigning past the maximum is clamped by the browser, so this is "the bottom"
+         rather than a computed position that could be stale by a pixel. */
+      pinToBottom();
+      atBottom.current = true;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [loading, conversationId, pinToBottom]);
 
   // Debounced read marking.
   useEffect(() => {
@@ -811,6 +917,9 @@ export default function ThreadPage(): ReactNode {
         ref={scrollRef}
         className="thread-scroll"
         onScroll={(event) => {
+          /* Ours, not the reader's — see `pinToBottom`. Recomputing from a scroll we
+             caused is what used to latch `atBottom` off and stop the thread following. */
+          if (programmaticScroll.current) return;
           const el = event.currentTarget;
           atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         }}
