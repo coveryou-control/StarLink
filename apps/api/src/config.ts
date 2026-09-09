@@ -304,5 +304,38 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     );
   }
 
+  /**
+   * A PLACEHOLDER user authority may not be the identity of a deployed environment.
+   *
+   * Rule 11: no permanent user authority lives in StarLink. `SL_ADAPTER_IAM=local` selects
+   * `LocalIamAdapter`, the placeholder that reads `identity.principals` and verifies
+   * passwords written by `pnpm seed:people` — a script whose passwords are committed to
+   * this repository and which refuses to run outside dev, test or local.
+   *
+   * Nothing refused that adapter in a deployed environment, and `local` is the DEFAULT. So
+   * `SL_ENV=production` started cleanly with StarLink as the permanent user authority rule
+   * 11 forbids, and the accounts it would authenticate are the three whose passwords are
+   * public. `mock` is worse in a quieter way: it resolves nobody, so the product starts and
+   * no one can sign in.
+   *
+   * There is deliberately no value that is both production-correct and startable today —
+   * `remote` throws in the DI, because the Central IAM adapter is Phase 9. That is the
+   * honest state, and this turns it from a silent one into a refusal that names it.
+   */
+  if (
+    parsed.data.SL_ADAPTER_IAM !== 'remote' &&
+    (parsed.data.SL_ENV === 'staging' || parsed.data.SL_ENV === 'production')
+  ) {
+    throw new Error(
+      `StarLink API refused to start:
+  - SL_ADAPTER_IAM=${parsed.data.SL_ADAPTER_IAM} is the ` +
+        'development identity placeholder, and rule 11 forbids StarLink holding a permanent ' +
+        'user authority. Its accounts come from `pnpm seed:people`, whose passwords are in ' +
+        'the repository. A deployed environment needs the Central IAM adapter (Phase 9), ' +
+        'which is not built — so there is no correct value for this setting yet and the ' +
+        'environment cannot be deployed.',
+    );
+  }
+
   return { ...parsed.data, tls: parsed.data.SL_ENV === 'production' || parsed.data.SL_ENV === 'staging' };
 }

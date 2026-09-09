@@ -154,3 +154,60 @@ describe('the shipped defaults are runnable defaults', () => {
     });
   });
 });
+
+/**
+ * Rule 11, made unstartable rather than merely stated.
+ *
+ * `SL_ADAPTER_IAM` defaulted to `local` — the placeholder that reads `identity.principals`
+ * and verifies passwords written by `pnpm seed:people`, a script whose passwords are in
+ * this repository. Nothing refused it in a deployed environment, so `SL_ENV=production`
+ * started cleanly with StarLink as the permanent user authority rule 11 forbids.
+ *
+ * The awkward part is deliberate and is what these cases pin: there is NO value that is
+ * both production-correct and startable today, because the Central IAM adapter is Phase 9.
+ * A configuration with no correct answer should refuse loudly, not pick the dangerous one.
+ */
+describe('a placeholder user authority in a deployed environment', () => {
+  /* Storage is set past its own fence so these cases fail on identity and nothing else. */
+  const deployed = (env: string, iam: string) => ({
+    ...BASE,
+    SL_ENV: env,
+    SL_ADAPTER_OBJECT_STORAGE: 'remote',
+    SL_STORAGE_BUCKET: 'starlink-attachments',
+    SL_STORAGE_REGION: 'ap-south-1',
+    SL_ADAPTER_IAM: iam,
+  });
+
+  it.each([
+    ['staging', 'local'],
+    ['staging', 'mock'],
+    ['production', 'local'],
+    ['production', 'mock'],
+  ])('refuses to start on %s with SL_ADAPTER_IAM=%s', (env, iam) => {
+    expect(() => loadConfig(deployed(env, iam) as unknown as NodeJS.ProcessEnv)).toThrow(
+      /SL_ADAPTER_IAM/,
+    );
+  });
+
+  it('names rule 11 and says the correct adapter does not exist yet', () => {
+    /* An operator who reads only the error must not go looking for a value that would
+       work, because there is not one. */
+    let message = '';
+    try {
+      loadConfig(deployed('production', 'local') as unknown as NodeJS.ProcessEnv);
+    } catch (cause) {
+      message = cause instanceof Error ? cause.message : String(cause);
+    }
+    expect(message).toContain('SL_ADAPTER_IAM');
+    expect(message).toMatch(/rule 11/i);
+    expect(message).toMatch(/Central IAM|Phase 9/);
+  });
+
+  it('says nothing on dev or test, where the placeholder is the point', () => {
+    for (const env of ['dev', 'test']) {
+      expect(() =>
+        loadConfig({ ...BASE, SL_ENV: env, SL_ADAPTER_IAM: 'local' } as unknown as NodeJS.ProcessEnv),
+      ).not.toThrow();
+    }
+  });
+});
