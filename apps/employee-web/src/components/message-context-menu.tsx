@@ -19,7 +19,7 @@ import type { MessageView } from '../lib/api-client';
  *
  * ## What is in it
  *
- * Message info, Copy, Reply, Star, Edit, Forward, Pin, Delete. There is no "Ask Meta AI"
+ * Message info, Copy, Reply, Star, Edit, Forward, Pin. There is no "Ask Meta AI"
  * for the obvious reason. Edit and Delete
  * appear only on your own messages — the server refuses both otherwise, and offering them
  * would be offering a refusal.
@@ -47,11 +47,9 @@ export function MessageContextMenu({
   message,
   at,
   canEdit,
-  canDelete,
   pinned,
   onReply,
   onEdit,
-  onDelete,
   onTogglePin,
   onForward,
   onToggleStar,
@@ -62,12 +60,10 @@ export function MessageContextMenu({
   /** Viewport coordinates of the click that opened it. */
   readonly at: { readonly x: number; readonly y: number };
   readonly canEdit: boolean;
-  readonly canDelete: boolean;
   /** Whether this message is currently pinned for everybody in the conversation. */
   readonly pinned: boolean;
   readonly onReply?: ((message: MessageView) => void) | undefined;
   readonly onEdit?: ((message: MessageView) => void) | undefined;
-  readonly onDelete?: ((message: MessageView) => void) | undefined;
   readonly onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
   readonly onForward?: ((message: MessageView) => void) | undefined;
   /**
@@ -244,19 +240,23 @@ export function MessageContextMenu({
         </button>
       ) : null}
 
-      {canDelete && onDelete !== undefined ? (
-        <button
-          type="button"
-          role="menuitem"
-          className="menu-danger"
-          onClick={() => {
-            onDelete(message);
-            onClose();
-          }}
-        >
-          Delete
-        </button>
-      ) : null}
+      {/*
+         There is no Delete, and there is not going to be one.
+
+         Decided on 2026-09-09: nobody deletes a message and nobody deletes a chat. Both
+         halves of what used to be here are gone with it - "delete for everyone", which
+         redacted the text for the whole thread, and "delete for me", which hid the row from
+         one reader.
+
+         ARCHIVE is what remains, and it is a different act: it takes a conversation out of
+         your list without taking anything away from anybody, and it is reversible. The
+         distinction is the point. An internal record that participants can remove is not a
+         record, and StarLink's audit posture (rule 8, an append-only ledger) does not sit
+         comfortably beside a thread anybody can quietly edit the history of.
+
+         The server refuses both routes as well - see `messages.controller.ts`. This is the
+         interface agreeing with the boundary, not standing in for it.
+      */}
     </div>,
     document.body,
   );

@@ -923,18 +923,6 @@ export const api = {
     ),
 
   /**
-   * Deletes one of the caller's OWN messages.
-   *
-   * A redaction, not a row removal: the message stays in the thread with its text gone, so
-   * the sequence has no gap and a reply pointing at it still resolves.
-   */
-  deleteMessage: (conversationId: string, messageId: string) =>
-    request<{ redacted: boolean }>(
-      employeeRoutes.conversations.message(conversationId, messageId),
-      { method: 'DELETE' },
-    ),
-
-  /**
    * Stars a message for the caller alone, or removes the star.
    *
    * Private, unlike a reaction: no count comes back and nobody else can see it. `changed:
@@ -1151,18 +1139,6 @@ export const api = {
   avatarStamps: (principalIds: readonly string[]) =>
     request<{ avatars: readonly { id: string; updatedAt: string }[] }>(
       `${employeeRoutes.avatarStamps}?ids=${principalIds.join(',')}`,
-    ),
-
-  /**
-   * Hides one message from your own view — "delete for me".
-   *
-   * Not `deleteMessage`, which is a redaction: that clears the body for every reader and
-   * only the author may do it. This changes one person's timeline and tells nobody.
-   */
-  hideMessage: (conversationId: string, messageId: string) =>
-    request<{ hidden: boolean }>(
-      employeeRoutes.conversations.hideMessage(conversationId, messageId),
-      { method: 'POST' },
     ),
 
   /** Ends every session this account holds, including this browser's. */

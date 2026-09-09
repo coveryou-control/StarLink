@@ -70,6 +70,18 @@ const EXEMPT_SELECTOR = /::-webkit-scrollbar/;
 const EXEMPT_EXACT = new Set([
   '.conversation-row:hover',
   ".conversation-row[aria-current='page']:hover",
+  /*
+     `.channel-row` was added on 2026-09-09 with the channel directory, and it is the SAME
+     case as the conversation row rather than a new argument for a new component.
+
+     It is a navigation list, it carries no divider between its rows by the same deliberate
+     choice, and the row is what a click opens. Without a fill there is nothing telling you
+     which of fifteen channels you are about to open. Three of the four hover backgrounds
+     that arrived with that feature were removed instead of exempted — a radio option, a
+     close button and a panel action, none of which is a row in a list you navigate by
+     pointing at. This is the one that does the job the ban was never about.
+  */
+  '.channel-row:hover',
 ]);
 
 /** Every `selector { declarations }` pair, comment- and nesting-aware enough for this file. */
@@ -118,15 +130,22 @@ describe('hover states never paint a highlight', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('exempts exactly two selectors, and no more', () => {
+  it('exempts exactly three selectors, and no more', () => {
     /*
        The exemption list is the part of this guard most likely to grow — it is one line to
        add a selector and the reason always sounds good in the moment. Pinning the count
        means widening it is a deliberate edit to a test that says why, rather than a line
        in a component's diff.
     */
-    expect(EXEMPT_EXACT.size).toBe(2);
-    expect([...EXEMPT_EXACT].every((s) => s.startsWith('.conversation-row'))).toBe(true);
+    expect(EXEMPT_EXACT.size).toBe(3);
+    /* Both are navigation ROWS, and the prefix check says so rather than accepting any
+       selector somebody adds. A control that is not one of these two lists does not get in
+       by being added to the set. */
+    expect(
+      [...EXEMPT_EXACT].every(
+        (s) => s.startsWith('.conversation-row') || s.startsWith('.channel-row'),
+      ),
+    ).toBe(true);
   });
 
   it('keeps hover rules that only reveal a control', () => {

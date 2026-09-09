@@ -230,8 +230,22 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
   ): Promise<unknown> {
     const attachmentId = uuid.safeParse(attachmentIdRaw);
     if (!attachmentId.success) return refuse();
-    const ok = await this.attachments.markUploaded(attachmentId.data, request.session!.principalId);
-    return ok ? { state: 'QUARANTINED' } : refuse();
+    /*
+       The state AFTER the scan, not before it.
+
+       This used to answer 'QUARANTINED' unconditionally and leave the client polling for a
+       verdict the sweep would produce up to ten seconds later. The scan now runs inside
+       `markUploaded`, so the honest answer is whatever it settled on - usually CLEAN, which
+       lets the composer mark the file sendable on this response and never poll at all.
+
+       Still QUARANTINED when the scanner was unavailable, and the client's poll is what
+       covers that: this is a faster path to the same answer, not a replacement for it.
+    */
+    const state = await this.attachments.markUploaded(
+      attachmentId.data,
+      request.session!.principalId,
+    );
+    return state !== undefined ? { state } : refuse();
   }
 
   /**

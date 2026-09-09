@@ -7,6 +7,7 @@ import { api, ApiError, type AttachmentView } from '../lib/api-client';
 import { extensionOf, formatBytes } from './attachment-picker';
 import { AttachmentMedia, mediaKindOf } from './attachment-media';
 import { VoiceNote, isVoiceNote } from './voice-note';
+import { AvatarImage } from './avatar-image';
 import { deliveryTick, type DeliveryTick } from '@starlink/shared-contracts';
 import { initialsFor } from './conversation-naming';
 import { identityStyle } from '../lib/identity-colour';
@@ -74,7 +75,11 @@ interface MessageListProps {
   /** Toggles one of the reader's own reactions. Absent means the surface offers none. */
   readonly onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
   readonly onEdit?: ((message: MessageView) => void) | undefined;
-  readonly onDelete?: ((message: MessageView) => void) | undefined;
+  /** The message currently being corrected in place, if any. */
+  readonly editingMessageId?: string | undefined;
+  /** Commit the correction. The caller decides what "unchanged" means and may ignore it. */
+  readonly onSubmitEdit?: ((message: MessageView, body: string) => void) | undefined;
+  readonly onCancelEdit?: (() => void) | undefined;
   /** Message ids currently pinned for everybody in the conversation. */
   readonly pinnedIds?: ReadonlySet<string> | undefined;
   readonly onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
@@ -113,7 +118,9 @@ export function MessageList({
   unreadOnOpen = 0,
   onReact,
   onEdit,
-  onDelete,
+  editingMessageId,
+  onSubmitEdit,
+  onCancelEdit,
   pinnedIds,
   onTogglePin,
   onForward,
@@ -191,7 +198,9 @@ export function MessageList({
           currentPrincipalId={currentPrincipalId}
           onReact={onReact}
           onEdit={onEdit}
-          onDelete={onDelete}
+          editingMessageId={editingMessageId}
+          onSubmitEdit={onSubmitEdit}
+          onCancelEdit={onCancelEdit}
         />
         </Fragment>
       ))}
@@ -221,6 +230,92 @@ export function MessageList({
  */
 const TURN_WINDOW_MS = 5 * 60 * 1000;
 
+/**
+ * A message being corrected, in place.
+ *
+ * Enter commits and Shift+Enter adds a line, matching the composer — a person editing a
+ * message is in the same mode of thought they were in when they wrote it, and two different
+ * meanings for one key in one thread is the kind of detail that makes software feel
+ * arbitrary. Escape cancels, and so does clicking away.
+ *
+ * The textarea grows with its content rather than scrolling inside three fixed rows: a
+ * correction to a long message must show the long message, or the person is editing
+ * something they cannot see.
+ */
+function MessageEditor({
+  message,
+  onSubmit,
+  onCancel,
+}: {
+  readonly message: MessageView;
+  readonly onSubmit: (body: string) => void;
+  readonly onCancel: () => void;
+}): React.JSX.Element {
+  const [text, setText] = useState(message.body);
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const field = ref.current;
+    if (field === null) return;
+    field.focus();
+    /* Caret at the END, not selecting everything. A correction is usually a word at the
+       end or a typo in the middle; select-all means the first keystroke destroys the
+       message, which is the one outcome an edit must not make easy. */
+    field.setSelectionRange(field.value.length, field.value.length);
+  }, []);
+
+  /* Grown on every change rather than on mount alone, so pasting a paragraph in opens the
+     field rather than hiding it behind a scrollbar. */
+  useEffect(() => {
+    const field = ref.current;
+    if (field === null) return;
+    field.style.height = 'auto';
+    field.style.height = `${Math.min(field.scrollHeight, 260)}px`;
+  }, [text]);
+
+  const commit = (): void => {
+    const next = text.trim();
+    if (next === '' || next === message.body) {
+      onCancel();
+      return;
+    }
+    onSubmit(next);
+  };
+
+  return (
+    <div className="message-editing">
+      <textarea
+        ref={ref}
+        className="message-edit-field"
+        value={text}
+        rows={1}
+        aria-label="Edit this message"
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onCancel();
+            return;
+          }
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            commit();
+          }
+        }}
+      />
+      <div className="message-edit-actions">
+        <span className="message-edit-hint">Enter to save · Esc to cancel</span>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="primary" onClick={commit}>
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function continuesTurn(previous: MessageView | undefined, current: MessageView): boolean {
   if (previous === undefined) return false;
   if (previous.senderPrincipalId !== current.senderPrincipalId) return false;
@@ -243,7 +338,9 @@ function MessageRow({
   currentPrincipalId,
   onReact,
   onEdit,
-  onDelete,
+  editingMessageId,
+  onSubmitEdit,
+  onCancelEdit,
   pinnedIds,
   onTogglePin,
   onForward,
@@ -265,7 +362,9 @@ function MessageRow({
   currentPrincipalId: string;
   onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
   onEdit?: ((message: MessageView) => void) | undefined;
-  onDelete?: ((message: MessageView) => void) | undefined;
+  editingMessageId?: string | undefined;
+  onSubmitEdit?: ((message: MessageView, body: string) => void) | undefined;
+  onCancelEdit?: (() => void) | undefined;
   pinnedIds?: ReadonlySet<string> | undefined;
   onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
   onForward?: ((message: MessageView) => void) | undefined;
@@ -465,6 +564,16 @@ function MessageRow({
           style={grouped ? undefined : identityStyle(message.senderPrincipalId)}
         >
           {grouped ? '' : initialsFor(message.senderDisplayName)}
+          {/*
+            The person's actual PHOTO, over the initials.
+
+            The initials were the whole avatar here, so somebody who had set a profile
+            picture saw it in the chat header and in the conversation list and then two
+            letters beside every line they wrote. `AvatarImage` renders nothing when there
+            is no picture, so the initials underneath are the fallback rather than a
+            competing layer - the same arrangement the list row and the header already use.
+          */}
+          {grouped ? null : <AvatarImage principalId={message.senderPrincipalId} alt="" />}
         </span>
       ) : null}
 
@@ -563,6 +672,27 @@ function MessageRow({
         <div className="message-body message-deleted">
           <span aria-hidden="true">🚫 </span>This message was deleted
         </div>
+      ) : editingMessageId === message.messageId && onSubmitEdit !== undefined ? (
+        /*
+           Correcting a message happens IN the message.
+
+           It used to be `window.prompt`, whose own comment called it deliberate and
+           temporary: an inline editor "has to grow, keep the caret, handle Escape and Enter,
+           preserve mentions across the edit and reconcile with the optimistic row". All
+           true, and all cheaper than what the prompt actually costs — a modal dialog drawn
+           by the browser, titled with the origin ("localhost:3010 says"), which blocks the
+           page, cannot be styled, and looks to a person exactly like the alert a website
+           shows when something has gone wrong.
+
+           The mentions survive because the SERVER re-parses them from the text (see
+           `revise-message.ts`); the client never had to preserve them, which was the part
+           that looked expensive.
+        */
+        <MessageEditor
+          message={message}
+          onSubmit={(body) => onSubmitEdit(message, body)}
+          onCancel={() => onCancelEdit?.()}
+        />
       ) : (
       <div className="message-body">
         {splitBody(message.body, message.mentions ?? []).map((part, index) =>
@@ -703,7 +833,6 @@ function MessageRow({
              impersonation and deleting them is moderation. The server refuses both, so
              offering them would be offering a refusal. */
           canEdit={isMine}
-          canDelete={isMine}
           pinned={pinnedIds?.has(message.messageId) === true}
           {...(onTogglePin !== undefined ? { onTogglePin } : {})}
           {...(onForward !== undefined ? { onForward } : {})}
@@ -711,7 +840,6 @@ function MessageRow({
           {...(onMessageInfo !== undefined ? { onMessageInfo } : {})}
           {...(onReply !== undefined ? { onReply } : {})}
           {...(onEdit !== undefined ? { onEdit } : {})}
-          {...(onDelete !== undefined ? { onDelete } : {})}
           onClose={() => setMenuAt(undefined)}
         />
       ) : null}

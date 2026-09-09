@@ -787,19 +787,50 @@ export class EmployeeMessagesController {
   }
 
   /**
-   * Deletes a message — a REDACTION, not a row removal.
+   * REFUSED. Nobody deletes a message.
    *
-   * The row survives with its body blanked, because the per-conversation sequence must
-   * stay gap-free (the client's gap detector reads a hole as a missed message and
-   * re-fetches forever), a reply pointing at it must still resolve, and what was there
-   * stays answerable from `message_revisions`. Idempotent: deleting twice succeeds and
-   * writes one revision.
+   * ## The decision
+   *
+   * Taken on 2026-09-09: no user may delete a message and no user may delete a chat.
+   * ARCHIVE is what remains and it is a different act - it takes a conversation out of your
+   * own list without taking anything away from anybody, and it is reversible.
+   *
+   * An internal record that its participants can remove is not a record. StarLink's whole
+   * posture is an append-only ledger (rule 8) and participation that is dated out rather
+   * than deleted (BR-09/§24.3); a thread anybody could quietly redact sat badly beside both.
+   *
+   * ## Why the route still exists and refuses, rather than being removed
+   *
+   * A removed route 404s, and so does this - to a caller they are the same answer, which is
+   * §27.3 working as intended. What the route buys is that the decision is WRITTEN DOWN at
+   * the exact place somebody will look for it, instead of being an absence that reads like
+   * an oversight and gets "fixed" by the next person.
+   *
+   * `redactMessage` and the revision history are untouched below the HTTP layer. If a
+   * retention or legal-hold path ever needs to redact, it will be an ADMINISTRATIVE act with
+   * its own permission and its own audit trail, not this.
    */
   @Delete(':messageId')
   async remove(
     @Param('conversationId') conversationIdRaw: string,
     @Param('messageId') messageIdRaw: string,
     @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    this.logger.info('message delete refused: the product does not offer one', {
+      correlationId: request.correlationId,
+      principalId: request.session!.principalId,
+      operation: 'message.delete',
+      outcome: 'REFUSED',
+      errorCode: 'DELETION_NOT_OFFERED',
+    });
+    return refuse();
+  }
+
+  /** Unreachable. Kept compiling so the redaction path is not silently rotted. */
+  private async removeUnreachable(
+    conversationIdRaw: string,
+    messageIdRaw: string,
+    request: AuthenticatedRequest,
   ): Promise<unknown> {
     const conversationId = uuid.safeParse(conversationIdRaw);
     const messageId = uuid.safeParse(messageIdRaw);
@@ -966,6 +997,30 @@ export class EmployeeMessagesController {
     @Param('conversationId') conversationIdRaw: string,
     @Param('messageId') messageIdRaw: string,
     @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    /*
+       REFUSED, with the DELETE above and for the same decision.
+
+       "Delete for me" is the gentler of the two and it goes as well: a person who hides a
+       message they were sent has a thread whose history differs from everybody else's, and
+       "what did this conversation say" then has more than one answer depending on who is
+       asked. That is the property the decision protects.
+    */
+    this.logger.info('message hide refused: the product does not offer one', {
+      correlationId: request.correlationId,
+      principalId: request.session!.principalId,
+      operation: 'message.hide',
+      outcome: 'REFUSED',
+      errorCode: 'DELETION_NOT_OFFERED',
+    });
+    return refuse();
+  }
+
+  /** Unreachable. @see hide */
+  private async hideUnreachable(
+    conversationIdRaw: string,
+    messageIdRaw: string,
+    request: AuthenticatedRequest,
   ): Promise<unknown> {
     const conversationId = uuid.safeParse(conversationIdRaw);
     const messageId = uuid.safeParse(messageIdRaw);

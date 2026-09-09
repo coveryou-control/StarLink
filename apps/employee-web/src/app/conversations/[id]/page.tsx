@@ -19,6 +19,7 @@ import {
   type PinnedMessage,
 } from '../../../lib/api-client';
 import { ChannelInfo } from '../../../components/channel-info';
+import { AvatarImage } from '../../../components/avatar-image';
 import { useRealtime } from '../../../lib/use-realtime';
 import { ChatHeader } from '../../../components/chat-header';
 import {
@@ -307,33 +308,42 @@ export default function ThreadPage(): ReactNode {
   );
 
   /**
-   * Corrects one of your own messages.
+   * Corrects one of your own messages, in the message.
    *
-   * `window.prompt` rather than an inline editor, deliberately and temporarily. An inline
-   * editor inside a message bubble is a real piece of work — it has to grow, keep the
-   * caret, handle Escape and Enter, preserve mentions across the edit and reconcile with
-   * the optimistic row — and doing it badly is worse than a plain dialog. The API, the
-   * revision history and the permission are all real; only the input surface is plain.
+   * `window.prompt` used to do this, and its own note called that deliberate and temporary.
+   * What it cost was worse than the editor it avoided: a modal drawn by the BROWSER, titled
+   * with the origin — "localhost:3010 says" — which blocks the page, cannot be styled, and
+   * reads to a person exactly like the alert a website shows when something has broken.
+   *
+   * The menu item now opens the bubble for editing and this commits it. Mentions survive
+   * because the server re-parses them from the text, which is the part that looked
+   * expensive and never was.
    */
-  const editMessage = useCallback(
-    (message: MessageView) => {
-      const next = window.prompt('Edit this message', message.body);
-      if (next === null || next.trim() === '' || next.trim() === message.body) return;
+  const [editingMessageId, setEditingMessageId] = useState<string | undefined>();
+
+  const submitEdit = useCallback(
+    (message: MessageView, body: string) => {
+      setEditingMessageId(undefined);
+      if (body === '' || body === message.body) return;
       // Optimistic, then reconciled: the same shape as reacting, for the same reason.
       setMessages((current) =>
         current.map((m) =>
           m.messageId === message.messageId
-            ? { ...m, body: next.trim(), editedAt: new Date().toISOString() }
+            ? { ...m, body, editedAt: new Date().toISOString() }
             : m,
         ),
       );
       void api
-        .editMessage(conversationId, message.messageId, next.trim())
+        .editMessage(conversationId, message.messageId, body)
         .catch(() => undefined)
         .then(() => refetch());
     },
     [conversationId, refetch],
   );
+
+  const editMessage = useCallback((message: MessageView) => {
+    setEditingMessageId(message.messageId);
+  }, []);
 
   /**
    * Deletes one of your own messages.
@@ -342,35 +352,20 @@ export default function ThreadPage(): ReactNode {
    * in `message_revisions` for an investigation, but nothing in the product puts it back.
    * The row stays in the thread with its text gone, so nothing shifts under the reader.
    */
-  /**
-   * The message a delete has been REQUESTED for, and not yet confirmed.
-   *
-   * Deletion asks before it acts, and the asking is a component rather than
-   * `window.confirm` — see `confirm-dialog.tsx` for why the browser's own alert could not
-   * stay. Holding the message here rather than a boolean means the dialog knows what it is
-   * about to destroy without the callback having to close over it.
-   */
-  const [deleting, setDeleting] = useState<MessageView | undefined>();
   /** The message a forward has been started for, and the one an info panel is open on. */
   const [forwarding, setForwarding] = useState<MessageView | undefined>();
 
-  /**
-   * "Delete for me": removes the message from THIS reader's timeline and nobody else's.
-   *
-   * Dropped locally at once and confirmed by the next fetch, which is the same shape as
-   * the redaction path — a message that lingers for a round trip after you asked it to go
-   * reads as the control not having worked.
-   */
-  const hideMessage = useCallback(
-    (message: MessageView) => {
-      setMessages((current) => current.filter((m) => m.messageId !== message.messageId));
-      void api
-        .hideMessage(conversationId, message.messageId)
-        .catch(() => refetch())
-        .then(() => undefined);
-    },
-    [conversationId, refetch],
-  );
+  /*
+     Nothing here deletes a message, and nothing here hides one.
+
+     `hideMessage` ("delete for me") and `deleteMessage` ("delete for everyone") both lived
+     here and both are gone, decided on 2026-09-09: no user deletes a message and no user
+     deletes a chat. ARCHIVE is what remains and it is a different act - it takes a
+     conversation out of your own list without taking anything from anybody, and it is
+     reversible.
+
+     The routes refuse as well; this is not a hidden control. See `messages.controller.ts`.
+  */
   const [inspecting, setInspecting] = useState<MessageView | undefined>();
   /**
    * Whether the membership section is showing on a ONE-TO-ONE.
@@ -446,23 +441,6 @@ export default function ThreadPage(): ReactNode {
     setTimeout(() => element.classList.remove('message-jumped'), 1_600);
     return true;
   }, []);
-
-  const deleteMessage = useCallback(
-    (message: MessageView) => {
-      setMessages((current) =>
-        current.map((m) =>
-          m.messageId === message.messageId
-            ? { ...m, body: '', redactedAt: new Date().toISOString() }
-            : m,
-        ),
-      );
-      void api
-        .deleteMessage(conversationId, message.messageId)
-        .catch(() => undefined)
-        .then(() => refetch());
-    },
-    [conversationId, refetch],
-  );
 
   /**
    * Loads the page BEFORE the oldest message currently shown.
@@ -1077,12 +1055,14 @@ export default function ThreadPage(): ReactNode {
               unreadOnOpen={unreadOnOpen.current}
               readWatermark={readWatermark}
               onReact={react}
+              editingMessageId={editingMessageId}
+              onSubmitEdit={submitEdit}
+              onCancelEdit={() => setEditingMessageId(undefined)}
               conversationId={conversationId}
               /* The detail panel resolves reactor ids against these rather than asking the
                  server for names it would only be re-deriving. */
               participants={activeConversation?.participants ?? []}
               onEdit={editMessage}
-              onDelete={setDeleting}
               pinnedIds={pinnedIds}
               onTogglePin={togglePin}
               onForward={setForwarding}
@@ -1124,14 +1104,6 @@ export default function ThreadPage(): ReactNode {
         The same component the list uses, given a conversation — the server has accepted a
         conversation scope since the route was written, and nothing ever sent one.
       */}
-      {/*
-        Delete asks first, and asks the real question.
-
-        "Delete for everyone" is the only option offered today because it is the only one
-        the server implements: `DELETE /messages/:id` redacts the body for every reader.
-        A "delete for me" needs a per-principal suppression the schema does not have, and
-        an item that silently did the other thing would be worse than an absent one.
-      */}
       {forwarding !== undefined ? (
         <ForwardDialog
           message={forwarding}
@@ -1160,51 +1132,6 @@ export default function ThreadPage(): ReactNode {
         />
       ) : null}
 
-      {/*
-        Delete asks first, and asks the real question.
-
-        Two options, because "delete" is two different acts. "For everyone" is a redaction:
-        the body is cleared for every reader and the act is in the audit ledger. "For me"
-        writes one row saying this reader would rather not see it — nothing shared moves,
-        and nobody else is told.
-
-        Both are named side by side deliberately. The danger is somebody pressing "for me"
-        believing it reaches the other person, and the only defence against that is the two
-        sentences under the labels.
-
-        "For everyone" is offered only on your own messages, because the server refuses it
-        otherwise; "for me" is offered on anybody's, because the message you want out of
-        your timeline is usually not one you wrote.
-      */}
-      {deleting !== undefined ? (
-        <ConfirmDialog
-          title="Delete message?"
-          choices={[
-            ...(deleting.senderPrincipalId === state.me.principalId
-              ? [
-                  {
-                    label: 'Delete for everyone',
-                    detail: 'The text goes for everybody here. Who sent it, and when, stays in the record.',
-                    tone: 'danger' as const,
-                    onChoose: () => {
-                      deleteMessage(deleting);
-                      setDeleting(undefined);
-                    },
-                  },
-                ]
-              : []),
-            {
-              label: 'Delete for me',
-              detail: 'Hides it from your view only. Everybody else still sees it.',
-              onChoose: () => {
-                hideMessage(deleting);
-                setDeleting(undefined);
-              },
-            },
-          ]}
-          onCancel={() => setDeleting(undefined)}
-        />
-      ) : null}
 
       {/*
         SL-010's typing signal, with the colleague's NAME when we already have it.
@@ -1541,7 +1468,13 @@ export default function ThreadPage(): ReactNode {
             ) : isGroup ? (
               <GroupGlyph />
             ) : activeConversation !== undefined ? (
-              avatarFor(activeConversation).text
+              <>
+                {avatarFor(activeConversation).text}
+                {/* And the photo over them, for the same reason the thread rows now carry
+                    one: a person who has set a picture should not meet their own initials
+                    in the one panel that is entirely about them. */}
+                <AvatarImage principalId={others[0]?.principalId} alt="" />
+              </>
             ) : (
               '\u00b7'
             )}

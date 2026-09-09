@@ -11381,6 +11381,81 @@ input.signin-control {
   box-shadow: var(--hairline);
 }
 
+/* =====================================================================================
+   Correcting a message, in the message
+
+   Replaces `window.prompt`, which drew a browser modal titled with the origin
+   ("localhost:3010 says") over the whole page. The field sits where the words were, at the
+   width the bubble already has, so nothing moves except the text becoming editable.
+   ===================================================================================== */
+
+.message-editing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: min(320px, 60vw);
+}
+
+.message-edit-field {
+  width: 100%;
+  /* Grown by the component, capped there too. `resize: none` because a drag handle inside a
+     chat bubble is a control nobody is looking for and it clips against the tail. */
+  min-height: 40px;
+  max-height: 260px;
+  padding: var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.45;
+  resize: none;
+  overflow-y: auto;
+}
+
+.message-edit-field:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.message-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.message-edit-hint {
+  margin-right: auto;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.message-edit-actions button {
+  height: auto;
+  padding: 6px var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-base);
+  font-weight: 500;
+}
+
+.message-edit-actions button.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+/* The hint is the first thing to go when the bubble is narrow: the two buttons say what
+   they do, and Enter/Escape work whether or not they are advertised. */
+@media (max-width: 560px) {
+  .message-edit-hint {
+    display: none;
+  }
+}
+
 /* ------------------------------------------------------------------ the channel dialog */
 
 .channel-dialog {
@@ -11426,7 +11501,6 @@ input.signin-control {
 }
 
 .channel-dialog-close:hover {
-  background: var(--hover);
   color: var(--text);
 }
 
@@ -11506,8 +11580,11 @@ input.signin-control {
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 
+/* A colour shift, not a box. `hover-highlighting.test.ts` bans painting behind the pointer
+   and it is right to: the chosen state already draws a real border and a tint, so a second
+   fill under the pointer says nothing the cursor does not. */
 .channel-choice:hover {
-  background: var(--hover);
+  color: var(--text);
 }
 
 .channel-choice.chosen {
@@ -11705,7 +11782,7 @@ input.signin-control {
 }
 
 .details-actions button:hover:not(:disabled) {
-  background: var(--hover);
+  color: var(--accent);
 }
 
 .details-actions button:disabled {

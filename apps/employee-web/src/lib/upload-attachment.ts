@@ -83,13 +83,30 @@ export async function uploadAttachment(
     /* 2. Direct to storage. The application never sees the bytes. */
     await api.uploadBytes(grant.uploadUrl, file);
 
-    /* 3. "I finished" — moves it into scanning. */
-    await api.markUploaded(grant.attachmentId);
+    /*
+       3. "I finished" — and the answer already carries the verdict.
 
-    /* 4. Uploaded is NOT sendable. The picker's poll decides when it becomes so. */
+       The check runs inside the announce now rather than up to ten seconds later in a
+       sweep, so this response almost always says CLEAN. What a person used to wait through
+       was never the check itself; it was the poll interval in front of it.
+    */
+    const announced = await api.markUploaded(grant.attachmentId);
+
+    /*
+       4. Sendable immediately when it came back clean, and only then.
+
+       The SCANNING branch is not dead code and must not be removed: it is what happens when
+       the scanner was unavailable, and the picker's poll picks the verdict up exactly as it
+       did before. What has gone is the wait in the ordinary case, not the honesty in the
+       unusual one — a file the server has not cleared still must not claim to be sendable,
+       because sending it produces a message with no attachment.
+    */
+    const ready = announced.state === 'CLEAN' || announced.state === 'BOUND';
     onStagedChange((current) =>
       current.map((item) =>
-        item.attachmentId === grant.attachmentId ? { ...item, state: 'SCANNING' } : item,
+        item.attachmentId === grant.attachmentId
+          ? { ...item, state: ready ? 'READY' : 'SCANNING' }
+          : item,
       ),
     );
     return true;

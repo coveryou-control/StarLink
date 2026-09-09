@@ -164,11 +164,15 @@ export class EmployeeChannelsController {
   private async viewOf(
     principalId: UUID,
     row: Awaited<ReturnType<PgChannelStore['directoryFor']>>[number],
+    /** Already decided by the caller, when the caller needed the answer for itself. */
+    known?: { readonly mayManage: boolean },
   ): Promise<ChannelView> {
     const [mayRead, mayPost, mayManage] = await Promise.all([
       this.mayActOn(principalId, row.conversationId, 'conversation.read'),
       this.mayActOn(principalId, row.conversationId, 'conversation.message.send'),
-      this.mayActOn(principalId, row.conversationId, 'channel.manage'),
+      known !== undefined
+        ? Promise.resolve(known.mayManage)
+        : this.mayActOn(principalId, row.conversationId, 'channel.manage'),
     ]);
 
     return {
@@ -396,18 +400,29 @@ export class EmployeeChannelsController {
     const session = request.session!;
 
     const row = await this.channels.describeFor(conversationId.data as UUID, session.principalId);
+    /* Absent and not-visible are one answer: `describeFor` applies the same audience
+       predicate `decide()` does, so a channel this person may not know about is a 404 rather
+       than a refusal that confirms it exists (§27.3). */
     if (row === undefined) return refuse();
 
-    const view = await this.viewOf(session.principalId, row);
     /*
-       The audience list is shown only to somebody who may change it.
+       The audience list is shown only to somebody who may change it, and THAT is an object
+       check: the conversation is loaded and `decide()` is asked about it, here, before the
+       disclosure is made.
 
-       "Visible to: Sales, Claims" tells an ordinary reader which other departments can see
-       what they write, which is genuinely useful — and it also enumerates the company's team
-       names to anybody with an account. The people who need the detail are the ones editing
-       it; everybody else gets the summary the three enums already carry.
+       Why it is worth the decision. "Visible to: Sales, Claims" tells an ordinary reader
+       which other departments can see what they write, which is useful — and it also
+       enumerates the company's team names to anybody with an account. The people who need
+       the detail are the ones editing it; everybody else gets the summary the three enums
+       already carry, which answers the question a writer is actually asking.
     */
-    const audience = view.mayManage
+    const mayManage = await this.mayActOn(
+      session.principalId,
+      conversationId.data as UUID,
+      'channel.manage',
+    );
+    const view = await this.viewOf(session.principalId, row, { mayManage });
+    const audience = mayManage
       ? await this.channels.audienceOf(conversationId.data as UUID)
       : undefined;
 

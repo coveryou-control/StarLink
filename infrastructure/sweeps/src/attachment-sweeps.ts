@@ -38,6 +38,8 @@ import type { SweepOutcome } from './case-sweeps.js';
 /** The metadata operations both attachment sweeps need. Implemented by `PgAttachmentStore`. */
 export interface AttachmentStorePort {
   awaitingScan(limit: number): Promise<readonly AttachmentMetadata[]>;
+  /** One attachment by id, for `scanOne` - the uploader asking for their own verdict now. */
+  byId(attachmentId: UUID): Promise<AttachmentMetadata | undefined>;
   expirable(at: Timestamp, limit: number): Promise<readonly AttachmentMetadata[]>;
   transition(input: {
     attachmentId: UUID;
@@ -93,6 +95,32 @@ export class AttachmentScanSweep {
 
     metrics.set(METRICS.attachmentScanBacklog, Math.max(0, waiting.length - acted));
     return { examined: waiting.length, acted };
+  }
+
+  /**
+   * Scan ONE attachment, now, on the caller's thread.
+   *
+   * ## Why this exists
+   *
+   * The sweep runs every ten seconds, so a file that had finished uploading sat in the
+   * composer saying "still being checked" for up to ten seconds before it could be sent.
+   * That is the whole of the delay a person was waiting through: not the check, which takes
+   * a few milliseconds against bytes already in storage, but the poll interval in front of
+   * it. `markUploaded` calls this so the announce response already carries the verdict.
+   *
+   * ## The periodic sweep is not replaced by it
+   *
+   * It stays, and has to. This runs at the uploader's request; the sweep is what catches
+   * an upload whose announce never arrived (the tab was closed mid-transfer), a scan that
+   * failed transiently and went back to QUARANTINED, and anything a future client forgets
+   * to announce at all. Same `process`, same claim-by-transition, so two of them racing on
+   * one row still produce one winner.
+   */
+  async scanOne(attachmentId: string): Promise<boolean> {
+    const at = (this.deps.now ?? (() => new Date()))().toISOString() as Timestamp;
+    const attachment = await this.deps.store.byId(attachmentId as UUID);
+    if (attachment === undefined) return false;
+    return this.process(attachment, at);
   }
 
   private async process(attachment: AttachmentMetadata, at: Timestamp): Promise<boolean> {
