@@ -2683,7 +2683,20 @@ input[type='search']::-webkit-search-cancel-button {
   font-size: 10px;
   line-height: 1;
   white-space: nowrap;
-  color: var(--text-subtle);
+  /*
+     The bubble's OWN ink, held back — not the tertiary text token.
+ 
+     `--text-subtle` measured 2.52:1 against a white incoming bubble. At 10px, the smallest
+     text in the product, that is the one place a tertiary tone is least affordable, and
+     AA wants 4.5. Moving the token itself was not on: thirty-nine other rules use it, and
+     `./ds/` is exported from the design, not edited here.
+ 
+     Mixing from `--text` instead gives 5.03:1 and makes this the same rule as the one for
+     your own bubble below — each timestamp is its bubble's ink at reduced strength, rather
+     than one grey that happens to work on one of the two grounds. It also follows the
+     theme without a second declaration, which a fixed grey would not.
+  */
+  color: color-mix(in srgb, var(--text) 62%, transparent);
   user-select: none;
 }
 
@@ -2698,8 +2711,12 @@ input[type='search']::-webkit-search-cancel-button {
    the same value as the surface and the time disappears. This is the same RELATIONSHIP to
    its ground, not the same colour.
 */
+/* 72, where the incoming bubble takes 62. The lavender ground is lighter than white is
+   dark, so the same proportion of a darker ink lands softer: 62% measured 4.05:1 here and
+   5.03:1 there. Matching the NUMBERS would have left this one under AA — what matches is
+   the contrast, which is the thing the rule is actually about. */
 .message-row.mine .bubble-meta {
-  color: color-mix(in srgb, var(--bubble-mine-ink) 62%, transparent);
+  color: color-mix(in srgb, var(--bubble-mine-ink) 72%, transparent);
 }
 
 /* "edited" beside the time, not instead of it — quieter than the timestamp, because it is
@@ -8917,7 +8934,19 @@ input.signin-control {
   font-weight: 640;
   letter-spacing: 0.11em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--rail-fg) 78%, transparent);
+  /*
+     90%, not 78%.
+
+     At 78% this measured 4.01:1 in light and 3.99:1 in dark — under AA's 4.5 for text
+     this size, and it is 10px, so none of the large-text allowances apply. The recession
+     the alpha was buying is already carried three other ways: half the size of an item
+     label, uppercase, and a tenth of an em of tracking. Dropping to a colour nobody can
+     read was paying a fourth time for something already bought.
+
+     One value covers both themes because `--rail-fg` differs between them and this mixes
+     from it: 4.76:1 light, 4.80:1 dark, measured off the rendered pixels.
+  */
+  color: color-mix(in srgb, var(--rail-fg) 90%, transparent);
 }
 
 .sidenav-items {
@@ -9442,9 +9471,13 @@ input.signin-control {
    They keep the page's subtle ink rather than the bubble's, because the bubble they were
    tuned against is gone — on a wallpaper a translucent white would disappear.
 */
+/* A sole emoji has no bubble, so its timestamp sits on the thread ground rather than on a
+   fill — and re-setting `--text-subtle` here put it back at 2.37:1, undoing the base rule
+   for the one message type with nothing behind the text at all. Same treatment as the
+   others: the page's ink, held back. */
 .message-row.sole-emoji .bubble-meta,
 .message-row.sole-emoji.mine .bubble-meta {
-  color: var(--text-subtle);
+  color: color-mix(in srgb, var(--text) 62%, transparent);
   transform: translateY(-4px);
 }
 
@@ -10531,8 +10564,11 @@ input.signin-control {
   display: grid;
   place-items: center;
   flex: none;
-  width: 34px;
-  height: 34px;
+  /* 36, matching the paperclip and the emoji control beside it. It was 34, which is not a
+     size anybody chose — it is the size it happened to be, and three icon buttons on one
+     row at 36/36/34 read as a row that was assembled rather than drawn. */
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: 0;
   border-radius: 50%;
