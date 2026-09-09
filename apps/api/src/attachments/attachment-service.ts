@@ -83,6 +83,9 @@ export class AttachmentService {
     declaredMime: string;
     declaredBytes: number;
     filename: string;
+    /* Voice notes only. Carried through to the row so a bubble can say "7:34" without
+       fetching the file — see migration 0029. */
+    durationMs?: number;
     correlationId: string;
   }): Promise<GrantOutcome> {
     const permitted = checkUploadIntent(DEFAULT_POLICY, {
@@ -130,6 +133,7 @@ export class AttachmentService {
     const attachmentId = crypto.randomUUID() as UUID;
     await this.store.grant({
       attachmentId,
+      ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
       conversationId: input.conversationId,
       uploaderId: input.uploaderId,
       uploaderKind: input.uploaderKind,

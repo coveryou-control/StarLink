@@ -503,6 +503,7 @@ export class EmployeeMessagesController {
         declaredBytes: number;
         state: string;
         sniffedMime?: string;
+        durationMs?: number;
       }[]
     >();
     for (const record of await this.attachments.forMessages(messages.map((m) => m.messageId))) {
@@ -689,6 +690,16 @@ export class EmployeeMessagesController {
                    is not BOUND and is not offered for download either.
                 */
                 ...(a.sniffedMime !== undefined ? { contentType: a.sniffedMime } : {}),
+                /*
+                   How long a voice note runs.
+                   
+                   Sent with the message so the bubble can say "7:34" beside a play button
+                   without fetching the audio. Fetching it to find out would issue a
+                   download grant — which §28.4 AUDITS — for every voice note in a page
+                   nobody has pressed play on, which is both a lie in the ledger and a lot
+                   of bytes to draw a label.
+                */
+                ...(a.durationMs !== undefined ? { durationMs: a.durationMs } : {}),
                 /**
                  * §28.1: BOUND is the only state a recipient may reach. Sent so the
                  * interface can say "still being checked" rather than offering a download

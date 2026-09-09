@@ -205,6 +205,37 @@ const schema = z.object({
    * it only helps once the loss is noticed. Two weeks is short enough that a forgotten
    * machine expires on its own and long enough to be worth ticking.
    */
+  /**
+   * How long a voice note may run, and how large it may get.
+   *
+   * ## Why there is no five-minute cap
+   *
+   * A short fixed limit is the obvious way to bound this and the wrong one: people send
+   * voice notes precisely when a thing is too involved to type, and a handover, a
+   * walkthrough or a claim summary is routinely longer than five minutes. Cutting somebody
+   * off mid-sentence to save storage is the product deciding their message was not worth
+   * finishing.
+   *
+   * What actually costs money is BYTES, and Opus at a voice bitrate is roughly 6 KB per
+   * second — twenty minutes is about 7 MB, comfortably inside the 25 MB an employee
+   * attachment may already be. So the bound that matters is the size one, which every
+   * attachment already has, and the duration limit exists only to stop a forgotten open
+   * microphone recording for an hour.
+   *
+   * Thirty minutes by default, and configurable, because the right number is an
+   * operational judgement about storage rather than a fact about conversations — the same
+   * reasoning rule 10 applies to business values.
+   */
+  SL_VOICE_NOTE_MAX_SECONDS: z.coerce.number().int().positive().max(43_200).default(30 * 60),
+  /**
+   * The byte ceiling for a voice note specifically.
+   *
+   * Separate from the attachment ceiling so audio can be tuned without touching what a
+   * claims document may weigh, and never ABOVE it: the attachment policy is still the
+   * outer bound and this narrows it.
+   */
+  SL_VOICE_NOTE_MAX_BYTES: z.coerce.number().int().positive().default(16 * 1024 * 1024),
+
   SL_SESSION_REMEMBER_TTL_SECONDS: z.coerce
     .number()
     .int()

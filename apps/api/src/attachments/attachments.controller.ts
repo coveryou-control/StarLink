@@ -16,7 +16,16 @@
  *
  * Everything else — the ladder, the audit, the grant — is one implementation.
  */
-import { Body, Controller, Get, Inject, Param, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  PayloadTooLargeException,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { z } from 'zod';
 import type pg from 'pg';
 import type { UUID } from '@starlink/shared-contracts';
@@ -24,7 +33,8 @@ import type { ConversationAuthzReader } from '@starlink/database';
 import { decide, toActorContext } from '@starlink/conversation-domain';
 import { recordDecision } from '../edge/authorization-metrics.js';
 import type { IdentityAuthorizationClient } from '@starlink/shared-contracts';
-import { AUTHZ_READER, DATABASE, IDENTITY_CLIENT } from '../tokens.js';
+import { AUTHZ_READER, CONFIG, DATABASE, IDENTITY_CLIENT } from '../tokens.js';
+import type { ApiConfig } from '../config.js';
 import {
   refuse,
   storageUnavailable,
@@ -36,10 +46,25 @@ import type { AccessPorts } from './attachment-access.js';
 
 const uuid = z.string().uuid();
 
+import { refuseVoiceNote } from './voice-note-limits.js';
+
 const intakeSchema = z.object({
   filename: z.string().min(1).max(400),
   declaredMime: z.string().min(1).max(200),
   declaredBytes: z.number().int().positive(),
+  /**
+   * How long a voice note runs, in milliseconds.
+   *
+   * The recorder is the only thing that can know this, so it arrives from the client and
+   * is therefore not trusted: bounded here against the configured maximum, bounded again
+   * by a CHECK in migration 0029, and used for nothing but the label beside a play button.
+   * A lie about it makes a bubble say the wrong number; it cannot make the file larger, or
+   * reach a conversation, or skip a scan.
+   *
+   * `positive`, so zero is refused — a voice note of no length is a failed recording, and
+   * accepting it would put an unplayable bubble in the thread.
+   */
+  durationMs: z.number().int().positive().optional(),
 });
 
 /**
@@ -139,6 +164,9 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
     @Inject(AUTHZ_READER) authz: ConversationAuthzReader,
     @Inject(IDENTITY_CLIENT) identity: IdentityAuthorizationClient,
     @Inject(DATABASE) pool: pg.Pool,
+    /* The voice-note ceilings. Configuration rather than constants, because the right
+       numbers are an operational judgement about storage. */
+    @Inject(CONFIG) private readonly config: ApiConfig,
   ) {
     super(attachments, authz, identity, pool);
   }
@@ -161,6 +189,15 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
       return refuse();
     }
 
+    /* The voice-note ceilings, before a grant exists — see `voice-note-limits.ts` for why
+       they are configuration rather than a five-minute constant, and why this refusal is
+       allowed to say what it is when §27.3 makes most of them uniform. */
+    const tooBig = refuseVoiceNote(parsed.data, {
+      maxSeconds: this.config.SL_VOICE_NOTE_MAX_SECONDS,
+      maxBytes: this.config.SL_VOICE_NOTE_MAX_BYTES,
+    });
+    if (tooBig !== undefined) throw new PayloadTooLargeException(tooBig);
+
     const grant = await this.attachments.grantUpload({
       conversationId: conversationId.data,
       uploaderId: session.principalId,
@@ -168,6 +205,7 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
       declaredMime: parsed.data.declaredMime,
       declaredBytes: parsed.data.declaredBytes,
       filename: parsed.data.filename,
+      ...(parsed.data.durationMs !== undefined ? { durationMs: parsed.data.durationMs } : {}),
       correlationId: request.correlationId,
     });
 

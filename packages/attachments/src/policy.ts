@@ -73,6 +73,25 @@ export const DEFAULT_POLICY: AttachmentPolicy = Object.freeze({
       'application/vnd.ms-excel',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'text/plain',
+      /*
+         Voice notes.
+
+         A voice note is an attachment, so this list is what decides whether one may exist
+         at all. Four types because browsers do not agree on what they record: Chrome and
+         Firefox produce `audio/webm` (Opus in a Matroska container), Safari produces
+         `audio/mp4` (AAC), and `audio/ogg` and `audio/mpeg` are here because a recorder
+         may fall back to either and a file the product refuses to accept after recording
+         it is the worst possible moment to find out.
+
+         Audio is not a document, and the reason it is safe to accept is the same reason a
+         picture is: the scanner sniffs the container's magic bytes and the download path
+         serves everything as `application/octet-stream` with `Content-Disposition:
+         attachment`, so nothing here is ever interpreted as script by a browser.
+      */
+      'audio/webm',
+      'audio/ogg',
+      'audio/mp4',
+      'audio/mpeg',
     ]),
     maxBytes: 25 * 1024 * 1024,
     // See the header: §28.2's exemption for employees is void once customers may upload.

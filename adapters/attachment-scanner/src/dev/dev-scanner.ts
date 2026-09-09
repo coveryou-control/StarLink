@@ -44,8 +44,19 @@ const SCANNER_NAME = 'dev-stub';
  */
 const EICAR = ['X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-', 'ANTIVIRUS-TEST-FILE!$H+H*'].join('');
 
-/** Magic-byte signatures, longest first so a prefix cannot shadow a longer match. */
-const SIGNATURES: readonly { readonly mime: string; readonly bytes: readonly number[] }[] = [
+/**
+ * Magic-byte signatures, longest first so a prefix cannot shadow a longer match.
+ *
+ * `at` is where the signature starts. Every one below begins at byte 0 except the ISO
+ * base-media brand, which sits at offset 4 behind a length field — an MP4 or M4A has no
+ * signature at all at position 0, so a sniffer that only ever looks at the start cannot
+ * see one. That is why the field exists rather than being assumed.
+ */
+const SIGNATURES: readonly {
+  readonly mime: string;
+  readonly bytes: readonly number[];
+  readonly at?: number;
+}[] = [
   { mime: 'application/pdf', bytes: [0x25, 0x50, 0x44, 0x46] }, // %PDF
   { mime: 'image/png', bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },
   { mime: 'image/jpeg', bytes: [0xff, 0xd8, 0xff] },
@@ -56,6 +67,24 @@ const SIGNATURES: readonly { readonly mime: string; readonly bytes: readonly num
   // a limitation this stub records rather than guesses past.
   { mime: 'application/zip', bytes: [0x50, 0x4b, 0x03, 0x04] },
   { mime: 'application/x-msdownload', bytes: [0x4d, 0x5a] }, // MZ — a Windows executable
+
+  /*
+     Audio, for voice notes.
+
+     WebM and Matroska share the EBML header, and a browser recording Opus produces the
+     former; there is no byte sequence that separates them, so the container is reported as
+     `audio/webm` and the declared type is what has to agree with it. A video/webm declared
+     as audio/webm would pass this check — which is why it does not matter: the download
+     path serves octet-stream with `Content-Disposition: attachment` either way, and the
+     player refuses anything it cannot decode as audio.
+  */
+  { mime: 'audio/webm', bytes: [0x1a, 0x45, 0xdf, 0xa3] }, // EBML — WebM / Matroska
+  { mime: 'audio/ogg', bytes: [0x4f, 0x67, 0x67, 0x53] }, // OggS
+  /* `ftyp`, four bytes into an ISO base-media file: MP4, M4A and everything Safari's
+     recorder produces. */
+  { mime: 'audio/mp4', bytes: [0x66, 0x74, 0x79, 0x70], at: 4 },
+  { mime: 'audio/mpeg', bytes: [0x49, 0x44, 0x33] }, // ID3 — an MP3 with a tag
+  { mime: 'audio/mpeg', bytes: [0xff, 0xfb] }, // a bare MPEG-1 Layer III frame
 ];
 
 /** Where the bytes come from. Real storage in production; a map in a test. */
@@ -166,8 +195,9 @@ const containsEicar = (bytes: Uint8Array): boolean => {
 
 const sniff = (bytes: Uint8Array): string | undefined => {
   for (const signature of SIGNATURES) {
-    if (bytes.byteLength < signature.bytes.length) continue;
-    if (signature.bytes.every((byte, index) => bytes[index] === byte)) return signature.mime;
+    const at = signature.at ?? 0;
+    if (bytes.byteLength < at + signature.bytes.length) continue;
+    if (signature.bytes.every((byte, index) => bytes[at + index] === byte)) return signature.mime;
   }
   // Plain text is the one type with no magic bytes. Recognised only if every byte in the
   // head is printable or ordinary whitespace — otherwise an unknown binary would pass as

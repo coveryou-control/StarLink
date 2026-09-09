@@ -228,6 +228,14 @@ export interface AttachmentView {
    * how its file is interpreted in every recipient's browser. Absent until the scan runs.
    */
   readonly contentType?: string;
+  /**
+   * Voice notes only: how long the recording runs, in milliseconds.
+   *
+   * Comes with the message so the bubble can label a play button without fetching the
+   * audio — a download grant is audited (§28.4), and issuing one per voice note on the
+   * page to draw a number would put reads in the ledger that nobody performed.
+   */
+  readonly durationMs?: number;
 }
 
 /** A structured mention, exactly as stored. Offsets index into `body`. */
