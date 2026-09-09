@@ -201,9 +201,20 @@ export function ConversationList({
   const shown = conversations.filter((conversation) => {
     /* Archive is not a shape of conversation but a different fetch, so it is not decided
        here — the shell asks the server for that list instead. */
-    const others = (conversation.participants ?? []).length;
-    if (view === 'groups') return others > 1;
-    if (view === 'direct') return others <= 1;
+    /*
+       Split on the conversation's TYPE, not on how many people are currently in it.
+
+       Counting participants meant a group moved between the two lists as members came and
+       went: remove one person from a three-member group and it vanished from Groups and
+       appeared under 1:1, while still being an `INTERNAL_GROUP` everywhere else in the
+       product — with a group avatar, a group title and an Add-member control. A two-person
+       group is a group whose others have left, and the person who created it still thinks
+       of it that way.
+
+       The type is the fact the server records; the head count is a property that changes.
+    */
+    if (view === 'groups') return conversation.conversationType !== 'INTERNAL_DIRECT';
+    if (view === 'direct') return conversation.conversationType === 'INTERNAL_DIRECT';
     if (view === 'unread') return conversation.unreadCount > 0;
     return true;
   });
