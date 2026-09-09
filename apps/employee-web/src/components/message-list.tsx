@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { api, ApiError, type AttachmentView } from '../lib/api-client';
@@ -314,6 +314,24 @@ function MessageRow({
 
   /** Where the context menu was summoned, or absent when it is closed. */
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | undefined>();
+  /**
+   * An in-flight touch long-press: where it began, and the timer that will open the menu.
+   *
+   * A ref rather than state — it changes on every pointer move and must not re-render a
+   * row of a list that can be hundreds long.
+   */
+  const longPress = useRef<
+    { from: { x: number; y: number }; timer: ReturnType<typeof setTimeout> } | undefined
+  >(undefined);
+
+  /* A row can unmount mid-press — a re-fetch replaces the list — and a timer that fires
+     afterwards would open a menu for a message no longer on screen. */
+  useEffect(
+    () => () => {
+      if (longPress.current !== undefined) clearTimeout(longPress.current.timer);
+    },
+    [],
+  );
   /** Which chip's detail panel is open, if any. */
   const [detailsFor, setDetailsFor] = useState<string | undefined>();
 
@@ -355,6 +373,50 @@ function MessageRow({
         if (message.redactedAt !== undefined) return;
         event.preventDefault();
         setMenuAt({ x: event.clientX, y: event.clientY });
+      }}
+      /*
+         The same menu, from a long press.
+
+         On a phone there was no way to reach any of this. `contextmenu` is not dispatched
+         by a touch long-press on Android Chrome, and iOS Safari answers it with its own
+         selection callout — so Reply, Copy, Forward, Pin, Save, Edit, Delete and Message
+         info were all unreachable, which is most of what the product does with a message.
+         Tapping did nothing either; the react button was the only control a finger could
+         find.
+
+         Held for 500ms, cancelled by movement. The movement check is what keeps this from
+         eating scrolls: a finger that travels more than ten pixels is scrolling the thread,
+         not pressing a message, and the timer is dropped without opening anything.
+      */
+      onPointerDown={(event) => {
+        if (event.pointerType !== 'touch' || message.redactedAt !== undefined) return;
+        const start = { x: event.clientX, y: event.clientY };
+        longPress.current = {
+          from: start,
+          timer: setTimeout(() => {
+            longPress.current = undefined;
+            setMenuAt(start);
+          }, 500),
+        };
+      }}
+      onPointerMove={(event) => {
+        const held = longPress.current;
+        if (held === undefined) return;
+        const moved =
+          Math.abs(event.clientX - held.from.x) + Math.abs(event.clientY - held.from.y);
+        if (moved <= 10) return;
+        clearTimeout(held.timer);
+        longPress.current = undefined;
+      }}
+      onPointerUp={() => {
+        if (longPress.current === undefined) return;
+        clearTimeout(longPress.current.timer);
+        longPress.current = undefined;
+      }}
+      onPointerCancel={() => {
+        if (longPress.current === undefined) return;
+        clearTimeout(longPress.current.timer);
+        longPress.current = undefined;
       }}
       /*
          The same menu, from the keyboard.

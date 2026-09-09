@@ -91,8 +91,11 @@ export function MessageContextMenu({
     const box = el.getBoundingClientRect();
     const margin = 8;
     setPosition({
-      x: Math.min(at.x, window.innerWidth - box.width - margin),
-      y: Math.min(at.y, window.innerHeight - box.height - margin),
+      /* Clamped at BOTH ends. `Math.min` alone puts the menu off the top of the screen
+         whenever it is taller than the space below the pointer — which on a phone is any
+         menu opened in the lower half of the thread. */
+      x: Math.max(margin, Math.min(at.x, window.innerWidth - box.width - margin)),
+      y: Math.max(margin, Math.min(at.y, window.innerHeight - box.height - margin)),
     });
   }, [at]);
 

@@ -10156,3 +10156,24 @@ input.signin-control {
   font-weight: 600;
   letter-spacing: 0.01em;
 }
+
+/* =====================================================================================
+   Long-press on a message, on a touch device.
+
+   The gesture only reaches the app if the browser is not already using it. Android Chrome
+   starts a text selection on a long press over text; iOS Safari raises its own callout.
+   Either way the message menu never opened, which is why Reply, Copy, Forward, Pin, Save,
+   Edit, Delete and Message info were unreachable on a phone.
+
+   Scoped to coarse pointers so a mouse loses nothing: selecting message text with a cursor
+   still works exactly as before. On touch the text stops being selectable, and "Copy text"
+   in the menu is what replaces it — which is the same trade every phone messenger makes,
+   and a better one than a selection handle you cannot aim at a 14px bubble.
+   ===================================================================================== */
+@media (hover: none) and (pointer: coarse) {
+  .message-main {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
