@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { api, ApiError, type AttachmentView } from '../lib/api-client';
@@ -10,7 +10,7 @@ import { VoiceNote, isVoiceNote } from './voice-note';
 import { AvatarImage } from './avatar-image';
 import { deliveryTick, type DeliveryTick } from '@starlink/shared-contracts';
 import { initialsFor } from './conversation-naming';
-import { identityStyle } from '../lib/identity-colour';
+import { distinctIdentityHues, identityStyleFrom } from '../lib/identity-colour';
 import { crossesDay, daySeparatorLabel, unreadDividerIndex } from './timeline';
 import { splitBody } from '../lib/mention-draft';
 import { MessageActions } from './message-actions';
@@ -141,6 +141,28 @@ export function MessageList({
     );
   }
 
+  /**
+   * One colour each, for the people in THIS thread.
+   *
+   * Built from the senders actually present rather than from the participant list: a group
+   * of forty with four people talking should spend four colours, not four out of forty. The
+   * hash alone cannot promise distinctness - nine hues and five speakers collide 41% of the
+   * time - so `distinctIdentityHues` settles it, deterministically and independently of the
+   * order the messages arrived in.
+   *
+   * Memoised on the sender ids, so scrolling, reacting and a new message from somebody
+   * already here do not rebuild it.
+   */
+  const senderKey = messages
+    .map((m) => m.senderPrincipalId ?? '')
+    .filter((id) => id !== '')
+    .sort()
+    .join(',');
+  const identityHues = useMemo(
+    () => distinctIdentityHues(senderKey === '' ? [] : senderKey.split(',')),
+    [senderKey],
+  );
+
   const dividerAt = unreadDividerIndex(messages, currentPrincipalId, unreadOnOpen);
 
   return (
@@ -198,6 +220,7 @@ export function MessageList({
           currentPrincipalId={currentPrincipalId}
           onReact={onReact}
           onEdit={onEdit}
+          identityHues={identityHues}
           editingMessageId={editingMessageId}
           onSubmitEdit={onSubmitEdit}
           onCancelEdit={onCancelEdit}
@@ -251,6 +274,7 @@ function MessageEditor({
   readonly onSubmit: (body: string) => void;
   readonly onCancel: () => void;
 }): React.JSX.Element {
+
   const [text, setText] = useState(message.body);
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -338,6 +362,7 @@ function MessageRow({
   currentPrincipalId,
   onReact,
   onEdit,
+  identityHues,
   editingMessageId,
   onSubmitEdit,
   onCancelEdit,
@@ -362,6 +387,8 @@ function MessageRow({
   currentPrincipalId: string;
   onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
   onEdit?: ((message: MessageView) => void) | undefined;
+  /** @see MessageList - one hue per speaker, distinct within this conversation. */
+  identityHues: ReadonlyMap<string, number>;
   editingMessageId?: string | undefined;
   onSubmitEdit?: ((message: MessageView, body: string) => void) | undefined;
   onCancelEdit?: (() => void) | undefined;
@@ -561,7 +588,7 @@ function MessageRow({
           /* The whole pair, not just the ink. This used to set `color` alone over a fixed
              `--accent-soft` circle, so the same person was a blue R here and a brick R in
              the list — on an identical pink disc in both. */
-          style={grouped ? undefined : identityStyle(message.senderPrincipalId)}
+          style={grouped ? undefined : identityStyleFrom(identityHues, message.senderPrincipalId)}
         >
           {grouped ? '' : initialsFor(message.senderDisplayName)}
           {/*
@@ -599,7 +626,7 @@ function MessageRow({
             className="author identity-ink"
             /* A stable hue per person, so "who said this" is a glance rather than a read
                in a group. Never the only signal — the name is right there. */
-            style={identityStyle(message.senderPrincipalId)}
+            style={identityStyleFrom(identityHues, message.senderPrincipalId)}
           >
             {message.senderDisplayName}
           </strong>

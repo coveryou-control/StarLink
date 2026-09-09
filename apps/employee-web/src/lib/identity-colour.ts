@@ -30,8 +30,20 @@ import type { CSSProperties } from 'react';
  * at least 24° from all five, so no monogram can be mistaken for a status, and they are
  * spread far enough from each other to be told apart at 32px.
  *
- * Six, matching the buckets the old function had: a conversation holds a handful of people,
- * and more buckets would mean finer distinctions than anybody can hold in their head.
+ * NINE, and the count is arithmetic rather than taste. Six was chosen to match the buckets
+ * the old function had, on the reasoning that a conversation holds a handful of people. That
+ * reasoning had the birthday problem the wrong way round: with six hues and four speakers the
+ * chance that all four differ is 6/6 x 5/6 x 4/6 x 3/6 = **28%**. Nearly three groups in four
+ * had two people wearing one colour, which is worse than no scheme at all - it says "these two
+ * are related" about two people who are not.
+ *
+ * Nine is as many as the constraints allow. Every hue must sit at least 24 degrees from all
+ * five reserved hues and at least 25 from its neighbours, and those exclusions leave three
+ * usable arcs - roughly 62-122, 170-205 and 253-337 - which hold nine and not ten.
+ *
+ * Nine still collides at five speakers, so the palette is only half the answer.
+ * `distinctIdentityHues` is the other half: within one conversation nobody shares a colour,
+ * whatever the hash says.
  *
  * ## Why a hue rather than a pair of colours
  *
@@ -40,7 +52,7 @@ import type { CSSProperties } from 'react';
  * extra rule rather than six more values. `identity-colour.test.ts` proves every hue clears
  * AA on its own tint in both themes.
  */
-export const IDENTITY_HUES = [95, 172, 198, 262, 300, 335] as const;
+export const IDENTITY_HUES = [68, 95, 120, 176, 201, 259, 285, 311, 336] as const;
 
 /** Hues the product already means something by. Kept here so the test can assert distance. */
 export const RESERVED_HUES = {
@@ -76,4 +88,79 @@ export function identityHue(id: string | undefined): number {
  */
 export function identityStyle(id: string | undefined): CSSProperties {
   return { ['--identity-h' as string]: String(identityHue(id)) };
+}
+
+/**
+ * One colour each, guaranteed, for the people in ONE conversation.
+ *
+ * ## Why the hash alone is not enough
+ *
+ * `identityHue` is a hash into nine buckets, so two colleagues in the same room can land on
+ * the same hue - and with five speakers it is more likely than not. A palette whose whole
+ * job is "tell these people apart at a glance" cannot leave that to chance: two matching
+ * names in one thread do not read as a coincidence, they read as a relationship.
+ *
+ * ## How the collisions are settled
+ *
+ * Everybody keeps their hashed hue where they can have it, so a person is usually the same
+ * colour in every room - which is the property `identity-colour`'s docblock is about, and
+ * which is worth keeping wherever it does not cost distinctness.
+ *
+ * Where two people want one hue, the id that sorts first keeps it and the other walks the
+ * palette to the next free one. Sorting by id rather than by arrival order is what makes
+ * this STABLE: the assignment does not depend on who spoke first, on which page of history
+ * has loaded, or on the order the server returned the participants in. Load an older page,
+ * scroll back, reopen the thread tomorrow - the same person is the same colour.
+ *
+ * ## When there are more people than hues
+ *
+ * Past nine, reuse is unavoidable and the function says so by simply wrapping. Ten people in
+ * one room is past the point where colour is doing the identifying anyway - the names are,
+ * and they are right there. What matters is that the first nine never collide.
+ */
+export function distinctIdentityHues(ids: readonly string[]): ReadonlyMap<string, number> {
+  const assigned = new Map<string, number>();
+  const taken = new Set<number>();
+
+  /* Sorted, and de-duplicated: the same id twice must not consume two hues. */
+  const ordered = [...new Set(ids.filter((id) => id !== ''))].sort();
+
+  for (const id of ordered) {
+    const preferred = identityHue(id);
+    if (!taken.has(preferred)) {
+      assigned.set(id, preferred);
+      taken.add(preferred);
+      continue;
+    }
+    /* Walk forward from the preferred hue so the substitute is still near the colour this
+       person wears elsewhere, rather than jumping to the other end of the wheel. */
+    const start = IDENTITY_HUES.indexOf(preferred as (typeof IDENTITY_HUES)[number]);
+    let placed = false;
+    for (let step = 1; step < IDENTITY_HUES.length; step += 1) {
+      const candidate = IDENTITY_HUES[(start + step) % IDENTITY_HUES.length]!;
+      if (taken.has(candidate)) continue;
+      assigned.set(id, candidate);
+      taken.add(candidate);
+      placed = true;
+      break;
+    }
+    /* Every hue is spoken for - more people than colours. See the note above. */
+    if (!placed) assigned.set(id, preferred);
+  }
+
+  return assigned;
+}
+
+/**
+ * The style for one person, from a map `distinctIdentityHues` built.
+ *
+ * Falls back to the bare hash for anybody the map does not know, so a message from somebody
+ * who has left the conversation still gets a colour rather than none.
+ */
+export function identityStyleFrom(
+  hues: ReadonlyMap<string, number>,
+  id: string | undefined,
+): CSSProperties {
+  const hue = id !== undefined ? hues.get(id) : undefined;
+  return { ['--identity-h' as string]: String(hue ?? identityHue(id)) };
 }
