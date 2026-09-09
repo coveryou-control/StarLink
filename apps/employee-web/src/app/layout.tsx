@@ -52,6 +52,28 @@ export default function RootLayout({ children }: { children: ReactNode }): React
       <head>
         <RuntimeOriginsScript />
         {/*
+          The three brand families, fetched here rather than from CSS.
+
+          `ds/fonts.css` used to open with `@import url('https://fonts.googleapis.com/…')`
+          and it never once loaded: an `@import` is only honoured before every other rule
+          in the sheet, and that file is inlined at line 53 of `globals.css`, behind the
+          ten `@font-face` declarations `emoji-font.css` brings in at line 1. The browser
+          drops such an import silently — no console error, no network request — so the
+          whole product rendered in `system-ui` while the tokens named Poppins.
+
+          A `<link>` cannot be invalidated by stylesheet ordering, and it starts the fetch
+          in parallel with the stylesheet instead of waiting for it to parse. The two
+          `preconnect`s open the TLS handshakes to both hosts before the CSS names them;
+          `gstatic` needs `crossOrigin` because font files are fetched anonymously and a
+          preconnect on the wrong credentials mode opens a connection nothing reuses.
+        */}
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap"
+        />
+        {/*
           The theme, resolved before the first paint.
 
           Read in a component effect it would arrive one render late, which is a white
