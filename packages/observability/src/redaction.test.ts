@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { createLogger } from './logger.js';
-import { REDACTED, isForbiddenKey, redact } from './redaction.js';
+import { REDACTED, isForbiddenKey, redact, redactValueText } from './redaction.js';
 
 const capture = () => {
   const lines: Record<string, unknown>[] = [];
@@ -172,5 +172,78 @@ describe('redact()', () => {
       ok: true,
       conversationId: 'conv-9',
     });
+  });
+});
+
+/**
+ * The gaps the 2026-09-08 audit found, and the boundary that must survive closing them.
+ *
+ * Content and PII keys used to match EXACTLY, so qualifying one switched the rule off:
+ * `displayName` was redacted and `senderDisplayName` — a live field at six call sites —
+ * was not. The convention "qualify your keys" is right for `name` and trains precisely the
+ * habit that defeated everything else.
+ */
+describe('qualified content keys are still content', () => {
+  it.each([
+    'senderDisplayName',
+    'customerDisplayName',
+    'noteBody',
+    'emailBody',
+    'requestBody',
+    'messagePreview',
+    'callTranscript',
+    'resultSnippet',
+  ])('redacts %s', (key) => {
+    expect((redact({ [key]: 'Archit Bali' }) as Record<string, unknown>)[key]).toBe(REDACTED);
+  });
+
+  it.each(['title', 'subject', 'note', 'internalNote', 'comment', 'searchQuery', 'username'])(
+    'redacts user-authored %s',
+    (key) => {
+      expect((redact({ [key]: 'Salary discussion' }) as Record<string, unknown>)[key]).toBe(
+        REDACTED,
+      );
+    },
+  );
+
+  /*
+     The other half, and the reason `name` and `text` are NOT substrings. CLAUDE.md promises
+     these pass; a fix that redacted them would make the logs useless and would be reverted
+     by the next person to debug a queue.
+  */
+  it.each([
+    ['teamName', 'claims'],
+    ['providerName', 'twilio'],
+    ['queueName', 'support'],
+    ['eventName', 'message.created.v1'],
+    ['contextId', 'ctx-1'],
+    ['conversationId', '018f5eed-de70-7000-8000-000000000002'],
+  ])('keeps operational %s', (key, value) => {
+    expect((redact({ [key]: value }) as Record<string, unknown>)[key]).toBe(value);
+  });
+});
+
+describe('a credential inside a URI', () => {
+  it('redacts a connection string even when the host has no dotted TLD', () => {
+    /* `@localhost` defeats the email pattern, so the password sailed through under an
+       innocent key like `url` or `dsn`. */
+    const out = redact({ url: 'postgres://starlink:S3cr3tPw@localhost:5432/starlink' }) as Record<
+      string,
+      unknown
+    >;
+    expect(String(out.url)).not.toContain('S3cr3tPw');
+  });
+
+  it('leaves an ordinary URL alone', () => {
+    const url = 'https://github.com/coveryou-control/StarLink';
+    expect((redact({ url }) as Record<string, unknown>).url).toBe(url);
+  });
+});
+
+describe('the log message is scrubbed, not only the context', () => {
+  it('removes an interpolated address and phone number', () => {
+    const out = redactValueText('could not deliver to archit@coveryou.co.in on +919876543210');
+    expect(out).not.toContain('archit@coveryou.co.in');
+    expect(out).not.toContain('919876543210');
   });
 });

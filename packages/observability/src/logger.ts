@@ -10,7 +10,7 @@
  * What it must NEVER carry is enforced in redaction.ts, not left to discipline.
  */
 import { pino, type Logger as PinoLogger } from 'pino';
-import { redact } from './redaction.js';
+import { redact, redactValueText } from './redaction.js';
 
 export type LogLevel = 'error' | 'warn' | 'info' | 'debug';
 
@@ -51,11 +51,24 @@ class StarlinkLogger implements Logger {
     // Redaction happens here — once, centrally — so that no call site can opt out of
     // it by passing an unusual shape.
     const merged = redact({ ...this.bound, ...context }) as Record<string, unknown>;
+    /**
+     * The MESSAGE is scrubbed as well as the context.
+     *
+     * `redact` was applied to the merged context only and the message string went to pino
+     * verbatim, so one idiomatic interpolated line would put a contact detail into a log
+     * aggregator whose access list is far wider than the message store's. Every current
+     * call site uses a static message with the data in the context object, so this was
+     * latent rather than leaking — and nothing enforced that it stayed so.
+     *
+     * Value patterns only. The key rule cannot help here, because a message has no keys, so
+     * this is the second layer working alone — which is why it errs toward over-redaction.
+     */
+    const safeMessage = redactValueText(message);
     if (this.sink !== undefined) {
-      this.sink({ level, msg: message, ...merged });
+      this.sink({ level, msg: safeMessage, ...merged });
       return;
     }
-    this.pinoLogger[level](merged, message);
+    this.pinoLogger[level](merged, safeMessage);
   }
 
   error(message: string, context?: LogContext): void {
