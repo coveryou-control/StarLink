@@ -186,6 +186,8 @@ export default function ThreadPage(): ReactNode {
    * Starts true, because a thread opens at the bottom.
    */
   const atBottom = useRef(true);
+  /** Monotonic ticket for `refetch`, so a superseded response is discarded. */
+  const requestSeq = useRef(0);
   /** True while a scroll this component caused is in flight. See `pinToBottom`. */
   const programmaticScroll = useRef(false);
   const trackerRef = useRef<{ reset: (id: string, seq: number) => void } | undefined>(undefined);
@@ -210,8 +212,26 @@ export default function ThreadPage(): ReactNode {
    * a sequence gap is detected — realtime is a hint, this is the truth (FR-RT-1).
    */
   const refetch = useCallback(async () => {
+    /**
+     * A ticket, so a slow response cannot overwrite a newer one.
+     *
+     * Nine call sites fire this — mount, every socket connect, a sequence gap, a reaction
+     * frame, sending, editing, deleting, the list nudge — with no coalescing. A burst
+     * issues several `GET /messages` in parallel and whichever lands LAST won, so the
+     * thread could revert to a snapshot taken before the newest message existed. This is
+     * also the one surface with no polling fallback, so nothing corrected it until the
+     * next event happened to arrive.
+     *
+     * The pattern is lifted from `customer-web/chat.tsx`, which has had it since it was
+     * written; the employee thread never got it.
+     */
+    const ticket = requestSeq.current + 1;
+    requestSeq.current = ticket;
+
     try {
       const page = await api.messages(conversationId);
+      /* Superseded while this was in flight: discard rather than apply late. */
+      if (ticket !== requestSeq.current) return;
       // The API returns newest-first for paging; the thread reads oldest-first.
       const ordered = [...page.messages].sort((a, b) => a.seq - b.seq);
       setMessages(ordered);
@@ -228,6 +248,9 @@ export default function ThreadPage(): ReactNode {
       const newest = ordered.at(-1);
       if (newest !== undefined) trackerRef.current?.reset(conversationId, newest.seq);
     } catch (cause) {
+      /* A superseded request's failure is not this thread's failure — reporting it would
+         replace a good render with an error the reader cannot act on. */
+      if (ticket !== requestSeq.current) return;
       if (cause instanceof ApiError && cause.isUnauthenticated) {
         onUnauthenticated();
         return;
@@ -238,7 +261,9 @@ export default function ThreadPage(): ReactNode {
           : 'Could not load this conversation.',
       );
     } finally {
-      setLoading(false);
+      /* Cleared regardless: the newest request owns the spinner, and an early return above
+         has already handed ownership to it. */
+      if (ticket === requestSeq.current) setLoading(false);
     }
   }, [conversationId, onUnauthenticated]);
 
