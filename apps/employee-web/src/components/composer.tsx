@@ -628,6 +628,36 @@ export function Composer({
   const readyFiles = staged.filter((file) => file.state === 'READY');
   const empty = body.trim() === '' && readyFiles.length === 0;
 
+  /**
+   * The microphone and the send button are the SAME control, in two states.
+   *
+   * Nothing to send, so the useful action is to record one; something to send, so it is to
+   * send it. Both present at once is two primary actions in one corner, and the one that is
+   * wrong at that moment is disabled — which is a control that exists to be refused.
+   *
+   * ## What counts as "something to send"
+   *
+   * `empty` already knows: text, or a bound attachment. So staging a document and typing
+   * nothing still shows send, which is right — the document is the message.
+   *
+   * ## Only on the icon variant
+   *
+   * A customer thread's send button carries WORDS ("Send to customer", "Save internal
+   * note"), and the words are doing work the swap would remove: which of two audiences this
+   * message is for is the single most consequential thing on that screen (ADR-021), and it
+   * must not be something that appears and disappears. There the named button stays put and
+   * the microphone stays beside it, exactly as before.
+   *
+   * ## While recording, neither rule applies
+   *
+   * The recorder takes the whole row, so `VoiceComposer` stays mounted regardless — pulling
+   * it out mid-recording would end the recording, which is the one thing §voice-note says
+   * must never happen silently.
+   */
+  const iconSend = !canReplyToCustomer;
+  const showMic = recordingVoice || !iconSend || empty;
+  const showSend = !recordingVoice && (!iconSend || !empty);
+
   return (
     <div
       className={`composer${isCustomerNote ? ' internal' : ''}${dragging ? ' dropping' : ''}`}
@@ -792,12 +822,14 @@ export function Composer({
           the whole row. It is rendered here rather than after the field so that the bar it
           becomes starts at the row's left edge, where the paperclip was.
         */}
-        <VoiceComposer
-          disabled={sending}
-          sending={sending}
-          onActiveChange={setRecordingVoice}
-          onRecorded={attachRecording}
-        />
+        {showMic ? (
+          <VoiceComposer
+            disabled={sending}
+            sending={sending}
+            onActiveChange={setRecordingVoice}
+            onRecorded={attachRecording}
+          />
+        ) : null}
 
         {recordingVoice ? null : (
         <div className="composer-field">
@@ -909,7 +941,7 @@ export function Composer({
           there is one audience and nothing to distinguish. On an internal thread the
           accessible name is still "Send"; it is the visible label that becomes a glyph.
         */}
-        {recordingVoice ? null : (
+        {showSend ? (
         <button
           type="button"
           className={`composer-send${canReplyToCustomer ? '' : ' icon'}`}
@@ -959,7 +991,7 @@ export function Composer({
             </svg>
           )}
         </button>
-        )}
+        ) : null}
       </div>
 
       {/*
