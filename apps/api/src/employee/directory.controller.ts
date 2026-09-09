@@ -194,6 +194,7 @@ function toEntry(employee: {
   teams: readonly { teamId: string; displayName: string }[];
   status: string;
   authority: string;
+  username?: string;
   employeeId?: string;
   reportsTo?: string;
   location?: string;
@@ -209,6 +210,10 @@ function toEntry(employee: {
        The panel's DETAILS list. Each is present only when the directory supplied it — see
        `EmployeeDisplay` for why absence is part of the contract rather than a gap.
     */
+    /* The handle, shown as `@archit.bali` under the name wherever a person is picked. It
+       is how two colleagues with the same display name are told apart, and it is already
+       what somebody types to find them. */
+    ...(employee.username !== undefined ? { username: employee.username } : {}),
     ...(employee.employeeId !== undefined ? { employeeId: employee.employeeId } : {}),
     ...(employee.reportsTo !== undefined ? { reportsTo: employee.reportsTo } : {}),
     ...(employee.location !== undefined ? { location: employee.location } : {}),

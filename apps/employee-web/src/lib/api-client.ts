@@ -320,6 +320,8 @@ export interface DirectoryEntry {
   readonly teams: readonly { teamId: string; displayName: string }[];
   readonly status: string;
   readonly authority: string;
+  /** `archit.bali`, rendered as `@archit.bali`. Absent when the directory has none. */
+  readonly username?: string;
   /**
    * The information panel's DETAILS list. Optional, all of them: the directory is HRMS's
    * and a field it does not carry must render as an absent row, never as a blank one.

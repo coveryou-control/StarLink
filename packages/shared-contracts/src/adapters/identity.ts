@@ -93,6 +93,15 @@ export interface EmployeeDisplay {
   readonly teams: readonly TeamRef[];
   readonly status: PrincipalStatus;
   readonly authority: 'CANONICAL' | 'TEMPORARY_AUTHORITY';
+  /**
+   * The handle a person is addressed by — `archit.bali`, rendered as `@archit.bali`.
+   *
+   * Optional like the panel fields below, and for the same reason: HRMS may not carry a
+   * handle, and a directory without one must be able to say so rather than inventing
+   * something that looks like one. Where it exists it is what tells two colleagues with the
+   * same display name apart, which a picker of two hundred people needs.
+   */
+  readonly username?: string;
 
   /**
    * What the employee panel shows about a colleague.

@@ -56,7 +56,17 @@ export function StartConversation({
   readonly openSignal?: number;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<Mode | undefined>();
+  /*
+     A TAB, not a fork you have to get past.
+
+     This opened on a two-item chooser — "New chat" / "New group" — and only then showed a
+     search. Two of the three steps were the product asking which of two words you meant
+     before letting you look anybody up, and the answer is almost always the first one. The
+     tabs sit above a list that is there from the moment the dialog opens, so choosing a
+     person is the first act and switching to a group is a change of mind rather than a
+     prerequisite.
+  */
+  const [mode, setMode] = useState<Mode>('chat');
   const [term, setTerm] = useState('');
   const [found, setFound] = useState<readonly DirectoryEntry[]>([]);
   const [chosen, setChosen] = useState<readonly DirectoryEntry[]>([]);
@@ -66,6 +76,17 @@ export function StartConversation({
   const [message, setMessage] = useState<string | undefined>();
   /** Set by the first completed search, so "no matches" cannot show before one ran. */
   const [searched, setSearched] = useState(false);
+  /**
+   * The people shown before anybody types: the caller's own team.
+   *
+   * The directory REFUSES an empty term (FR-SRCH-5) — "the list is not a thing this
+   * endpoint hands out" — so a picker cannot open on the whole company, and it should not:
+   * an unbounded staff dump is the cheapest reconnaissance there is. `listColleagues` is
+   * the bounded, already-sanctioned answer to "who can I talk to", and it is what the
+   * Connect panel shows for the same reason.
+   */
+  const [colleagues, setColleagues] = useState<readonly DirectoryEntry[]>([]);
+  const [loadingColleagues, setLoadingColleagues] = useState(false);
   const fieldRef = useRef<HTMLInputElement>(null);
   /** The dialog itself, so focus can be moved into it when it opens. */
   const panelRef = useRef<HTMLElement>(null);
@@ -89,7 +110,7 @@ export function StartConversation({
   const me = state.status === 'SIGNED_IN' ? state.me.principalId : undefined;
 
   const reset = (): void => {
-    setMode(undefined);
+    setMode('chat');
     setTerm('');
     setFound([]);
     setChosen([]);
@@ -104,14 +125,14 @@ export function StartConversation({
   };
 
   /*
-     Opened from the empty pane's "New chat" as well as from the button here — and that one
-     names a mode, so it lands on the search rather than on the fork.
+     Opened from the empty pane's "New chat" as well as from the button here. A caller that
+     names a mode selects that tab; one that does not gets the default, which is a chat.
   */
   useEffect(
     () =>
       onShellAction({
         onNewConversation: (requested) => {
-          setMode(requested);
+          setMode(requested ?? 'chat');
           setOpen(true);
         },
       }),
@@ -130,6 +151,35 @@ export function StartConversation({
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, [open, busy]);
+
+  /*
+     The caller's own team, loaded once per opening.
+
+     Not on mount: the dialog is mounted for the life of the shell and this would then be a
+     request on every sign-in for a panel most sessions never open.
+  */
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setLoadingColleagues(true);
+    void api
+      .colleagues()
+      .then((result) => {
+        if (!cancelled) setColleagues(result.entries.filter((c) => c.principalId !== me));
+      })
+      .catch(() => {
+        /* The search still works. An empty opening list is a worse dialog, not a broken
+           one, and saying "the directory is unavailable" over a field that functions would
+           be the louder lie. */
+        if (!cancelled) setColleagues([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingColleagues(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, me]);
 
   /* The field is the only thing to do once a mode is chosen, so it takes the caret. */
   useEffect(() => {
@@ -338,9 +388,27 @@ export function StartConversation({
             onClick={(event) => event.stopPropagation()}
           >
             <div className="start-panel-head">
-              <h2>
-                {mode === undefined ? 'New conversation' : mode === 'chat' ? 'New chat' : 'New group'}
-              </h2>
+              {/*
+                Tabs, so the two destinations are visible at once and switching between them
+                costs nothing. The chooser they replace made "which of these two words did
+                you mean" a step you had to finish before the product would show you a
+                single colleague.
+              */}
+              <div className="start-tabs" role="tablist" aria-label="What to start">
+                {(['chat', 'group'] as const).map((which) => (
+                  <button
+                    key={which}
+                    type="button"
+                    role="tab"
+                    aria-selected={mode === which}
+                    className={mode === which ? 'active' : undefined}
+                    disabled={busy}
+                    onClick={() => setMode(which)}
+                  >
+                    {which === 'chat' ? 'New chat' : 'New group'}
+                  </button>
+                ))}
+              </div>
               <button
                 type="button"
                 className="start-panel-close"
@@ -352,241 +420,216 @@ export function StartConversation({
               </button>
             </div>
 
-            {mode === undefined ? (
-              /*
-                The fork. Two rows rather than a segmented control: each is a destination
-                with a sentence explaining what you get, and a segmented control would make
-                them look like a setting on a form that is not there yet.
-              */
-              <ul className="start-modes">
-                <li>
-                  <button type="button" className="start-mode" onClick={() => setMode('chat')}>
-                    <span className="start-mode-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" width="20" height="20">
-                        <circle cx="12" cy="8.2" r="3.6" fill="none" stroke="currentColor" strokeWidth="1.7" />
-                        <path
-                          d="M5 19.2c0-3.2 3.1-5.2 7-5.2s7 2 7 5.2"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.7"
-                          strokeLinecap="round"
-                        />
-                      </svg>
+            {/*
+              The group's NAME comes first, above the people.
+
+              It used to appear only once somebody had been added, which meant the field
+              asked for last was the one blocking the button — with an empty name and two
+              members chosen, "Create group" sat disabled with nothing on screen saying why.
+              Asking for it up front makes the requirement visible before it can refuse
+              anything.
+            */}
+            {mode === 'group' ? (
+              <label className="stacked-field start-group-name">
+                <span className="sr-only">Group name</span>
+                <input
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                  maxLength={200}
+                  placeholder="Group name"
+                  required
+                />
+              </label>
+            ) : null}
+
+            {/*
+              The chosen people sit ABOVE the search, as removable chips, the way every
+              recipient field works. Below the results they would read as an outcome of the
+              search rather than as the thing being assembled.
+            */}
+            {mode === 'group' && chosen.length > 0 ? (
+              <ul className="chosen" aria-label="Chosen colleagues">
+                {chosen.map((c) => (
+                  <li key={c.principalId}>
+                    <span className="chosen-avatar" aria-hidden="true">
+                      {initialsFor(c.displayName)}
                     </span>
-                    {/*
-                      The label alone. It had a line of explanation under it — "One
-                      colleague, one thread" — and a two-item choice between "chat" and
-                      "group" does not need either of them defined. A subtitle that restates
-                      the noun above it is furniture that makes the row taller and the
-                      decision no easier.
-                    */}
-                    <span className="start-mode-text">
-                      <strong>New chat</strong>
-                    </span>
-                  </button>
-                </li>
-                <li>
-                  <button type="button" className="start-mode" onClick={() => setMode('group')}>
-                    <span className="start-mode-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" width="20" height="20">
-                        <circle cx="9" cy="8.4" r="3.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
-                        <path
-                          d="M2.8 19c0-3 2.8-4.8 6.2-4.8s6.2 1.8 6.2 4.8"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.7"
-                          strokeLinecap="round"
-                        />
-                        <path
-                          d="M16.4 5.6a3.2 3.2 0 0 1 0 5.7M18 14.6c2 .6 3.4 2.1 3.4 4.4"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.7"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                    </span>
-                    <span className="start-mode-text">
-                      <strong>New group</strong>
-                    </span>
-                  </button>
-                </li>
-              </ul>
-            ) : (
-              <>
-                {/*
-                  The chosen people sit ABOVE the search, as removable chips, the way every
-                  recipient field works. Below the results they would read as an outcome of
-                  the search rather than as the thing being assembled.
-
-                  Only in a group: a chat is one person and choosing them is the last act.
-                */}
-                {chosen.length > 0 ? (
-                  <ul className="chosen" aria-label="Chosen colleagues">
-                    {chosen.map((c) => (
-                      <li key={c.principalId}>
-                        <span>{c.displayName}</span>
-                        <button
-                          type="button"
-                          aria-label={`Remove ${c.displayName}`}
-                          onClick={() =>
-                            setChosen((was) => was.filter((x) => x.principalId !== c.principalId))
-                          }
-                        >
-                          <span aria-hidden="true">×</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : null}
-
-                <div className="start-search">
-                  <label>
-                    {/*
-                      `sr-only`: the placeholder says the same thing on screen, and a
-                      visible label above the field cost a row in a panel that already
-                      stacks several. The span keeps the input's accessible name, which a
-                      placeholder alone does not.
-                    */}
-                    <span className="sr-only">
-                      {mode === 'chat' ? 'Who do you want to talk to?' : 'Who is in this group?'}
-                    </span>
-                    <input
-                      ref={fieldRef}
-                      type="search"
-                      value={term}
-                      onChange={(e) => setTerm(e.target.value)}
-                      placeholder="Search by name, department or ID"
-                      autoComplete="off"
-                    />
-                  </label>
-                </div>
-
-                {/*
-                  A person is a row, not a line of text: avatar, name, department. The same
-                  shape as the People panel, because they are the same thing and looking
-                  different would make them feel like different features.
-
-                  In a chat the row STARTS the conversation. There is nothing else to
-                  decide, so a second press on a "Start" button would be the product asking
-                  a question it already has the answer to.
-                */}
-                <ul className="people-list found" aria-live="polite">
-                  {found.map((entry) => (
-                    <li key={entry.principalId}>
-                      <button
-                        type="button"
-                        className="person-row"
-                        disabled={busy}
-                        onClick={() => {
-                          if (mode === 'chat') {
-                            void create([entry]);
-                            return;
-                          }
-                          setChosen((was) => [...was, entry]);
-                          setFound((was) =>
-                            was.filter((x) => x.principalId !== entry.principalId),
-                          );
-                          setTerm('');
-                        }}
-                      >
-                        <span className="row-avatar" aria-hidden="true">
-                          {initialsFor(entry.displayName)}
-                        </span>
-                        <span className="person-text">
-                          <span className="person-name">{entry.displayName}</span>
-                          <span className="person-meta">
-                            {entry.department}
-                            {/*
-                              INTEGRATION_CONTRACTS §1 rule 4: an interim identity source
-                              must never be mistakable for a canonical one. The directory
-                              says so, and so does this.
-                            */}
-                            {entry.authority !== 'CANONICAL' ? (
-                              <span
-                                className="provisional"
-                                title="Directory data is interim (HRMS pending)"
-                              >
-                                {' · interim'}
-                              </span>
-                            ) : null}
-                          </span>
-                        </span>
-                        <span className="person-action" aria-hidden="true">
-                          {mode === 'chat' ? 'Chat' : 'Add'}
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-
-                {/*
-                  Two states, and they are not the same thing: "nothing matches" is an
-                  answer and "still looking" is not.
-
-                  There was a third — a line telling somebody to start typing, under an
-                  empty field whose placeholder already said "Search by name, department or
-                  ID". Instructions for a control that is explaining itself.
-                */}
-                {searching && found.length === 0 ? (
-                  <p className="muted result-note">Searching…</p>
-                ) : null}
-                {searched && !searching && found.length === 0 && message === undefined ? (
-                  <p className="muted result-note">No colleague matches that.</p>
-                ) : null}
-                {/*
-                  A group needs a name, asked for once there is a group to name.
-
-                  It was on screen from the moment the mode was chosen, which put an empty
-                  required field above an empty member list — the form asking for the last
-                  answer before the first. Every phone messenger collects the people and
-                  then names them, and it reads as one step following another rather than
-                  as a form to fill in.
-
-                  `createInternalConversation` refuses a group without a title
-                  (`TITLE_REQUIRED_FOR_GROUP`), and that refusal used to surface as "check
-                  the colleagues you chose" — which blames the one part of the form that was
-                  correct. The button below stays disabled until the field is filled, so the
-                  rule is visible before the request rather than after it.
-                */}
-                {mode === 'group' && chosen.length > 0 ? (
-                  <label className="stacked-field">
-                    <span>Name this group</span>
-                    <input
-                      value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      maxLength={200}
-                      placeholder="Q3 renewals huddle"
-                      required
-                    />
-                  </label>
-                ) : null}
-
-                {message !== undefined ? (
-                  <p role="alert" className="result-note result-note-error">
-                    {message}
-                  </p>
-                ) : null}
-
-                <div className="start-panel-buttons">
-                  {mode === 'group' ? (
+                    <span>{c.displayName.split(' ')[0]}</span>
                     <button
                       type="button"
-                      className="primary"
-                      onClick={() => void create(chosen, title)}
-                      disabled={busy || !canCreateGroup}
+                      aria-label={`Remove ${c.displayName}`}
+                      onClick={() =>
+                        setChosen((was) => was.filter((x) => x.principalId !== c.principalId))
+                      }
                     >
-                      {busy ? 'Creating…' : 'Create group'}
+                      <span aria-hidden="true">×</span>
                     </button>
-                  ) : null}
-                  {/* Back, not Cancel: the fork is one press away and losing a half-typed
-                      search to get to it would be the dialog punishing a change of mind. */}
-                  <button type="button" onClick={() => { reset(); }} disabled={busy}>
-                    Back
-                  </button>
-                </div>
-              </>
-            )}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            <div className="start-search">
+              <label>
+                {/* `sr-only`: the placeholder says the same thing on screen, and a visible
+                    label above the field cost a row in a panel that already stacks several.
+                    The span keeps the input's accessible name, which a placeholder alone
+                    does not. */}
+                <span className="sr-only">
+                  {mode === 'chat' ? 'Who do you want to talk to?' : 'Who is in this group?'}
+                </span>
+                <input
+                  ref={fieldRef}
+                  type="search"
+                  value={term}
+                  onChange={(e) => setTerm(e.target.value)}
+                  placeholder="Search name or @username…"
+                  autoComplete="off"
+                />
+              </label>
+            </div>
+
+            {/*
+              People, from the moment the dialog opens.
+
+              Before anybody types this is the caller's own team — the directory refuses an
+              empty term (FR-SRCH-5) and should, so the opening list is the bounded set
+              `listColleagues` already hands out. Typing switches to the search.
+            */}
+            <ul className="people-list found" aria-live="polite">
+              {(term.trim() === '' ? colleagues : found).map((entry) => {
+                const picked = chosen.some((c) => c.principalId === entry.principalId);
+                return (
+                  <li key={entry.principalId}>
+                    <button
+                      type="button"
+                      className={`person-row${picked ? ' picked' : ''}`}
+                      disabled={busy}
+                      aria-pressed={mode === 'group' ? picked : undefined}
+                      onClick={() => {
+                        if (mode === 'chat') {
+                          void create([entry]);
+                          return;
+                        }
+                        /* A row TOGGLES in a group. Pressing an added person again used to
+                           do nothing, because the row left the results the moment it was
+                           chosen — so undoing meant hunting for the chip. */
+                        setChosen((was) =>
+                          was.some((c) => c.principalId === entry.principalId)
+                            ? was.filter((c) => c.principalId !== entry.principalId)
+                            : [...was, entry],
+                        );
+                      }}
+                    >
+                      <span className="row-avatar" aria-hidden="true">
+                        {initialsFor(entry.displayName)}
+                      </span>
+                      <span className="person-text">
+                        <span className="person-name">{entry.displayName}</span>
+                        <span className="person-meta">
+                          {/* The handle, because it is what tells two people with the same
+                              name apart and what the field above offers to match. The
+                              department is the fallback for a directory with none. */}
+                          {entry.username !== undefined ? `@${entry.username}` : entry.department}
+                          {/* INTEGRATION_CONTRACTS §1 rule 4: an interim identity source must
+                              never be mistakable for a canonical one. */}
+                          {entry.authority !== 'CANONICAL' ? (
+                            <span
+                              className="provisional"
+                              title="Directory data is interim (HRMS pending)"
+                            >
+                              {' · interim'}
+                            </span>
+                          ) : null}
+                        </span>
+                      </span>
+                      {mode === 'group' ? (
+                        <span className={`person-check${picked ? ' on' : ''}`} aria-hidden="true">
+                          {picked ? (
+                            <svg viewBox="0 0 24 24" width="13" height="13" focusable="false">
+                              <path
+                                d="M5 12.5l4.5 4.5L19 7.5"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2.4"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              />
+                            </svg>
+                          ) : null}
+                        </span>
+                      ) : (
+                        <span className="person-action" aria-hidden="true">
+                          Chat
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+
+            {/*
+              Four states, and they are not the same thing: the team is still loading, the
+              team is genuinely empty, a search is running, a search found nothing.
+            */}
+            {term.trim() === '' && loadingColleagues && colleagues.length === 0 ? (
+              <ul className="people-list" aria-hidden="true">
+                {[0, 1, 2, 3].map((n) => (
+                  <li key={n}>
+                    <span className="person-row skeleton-row">
+                      <span className="skeleton skeleton-avatar" />
+                      <span className="skeleton-lines">
+                        <span className="skeleton skeleton-line" />
+                        <span className="skeleton skeleton-line short" />
+                      </span>
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            {term.trim() === '' && !loadingColleagues && colleagues.length === 0 ? (
+              <p className="muted result-note">
+                Nobody in your team yet — search for a colleague by name or @username.
+              </p>
+            ) : null}
+            {searching && found.length === 0 ? (
+              <p className="muted result-note">Searching…</p>
+            ) : null}
+            {term.trim() !== '' &&
+            searched &&
+            !searching &&
+            found.length === 0 &&
+            message === undefined ? (
+              <p className="muted result-note">No colleague matches that.</p>
+            ) : null}
+
+            {message !== undefined ? (
+              <p role="alert" className="result-note result-note-error">
+                {message}
+              </p>
+            ) : null}
+
+            {/*
+              A group's foot: what you have chosen, and the one action. A chat has neither —
+              pressing a person IS the action, and a second button would be the product
+              asking a question it already has the answer to.
+            */}
+            {mode === 'group' ? (
+              <div className="start-panel-foot">
+                <span className="muted">
+                  {chosen.length === 0 ? 'Choose at least two people' : `${chosen.length} selected`}
+                </span>
+                <button
+                  type="button"
+                  className="primary"
+                  onClick={() => void create(chosen, title)}
+                  disabled={busy || !canCreateGroup}
+                >
+                  {busy ? 'Creating…' : 'Create group'}
+                </button>
+              </div>
+            ) : null}
           </section>
         </div>,
         document.body,

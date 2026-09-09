@@ -587,6 +587,20 @@ select {
   color: inherit;
 }
 
+/*
+   `:not([type])` is load-bearing, not tidiness.
+
+   An `<input>` with no `type` attribute IS a text input to the browser, and is NOT matched
+   by `input[type='text']` — an attribute selector needs the attribute to be written. Four
+   fields in the product were missing it (the announcement title, the colleague picker, the
+   add-member field and the group name) and every one of them rendered with the browser's
+   default chrome: a heavier, squarer box beside the styled field directly under it.
+
+   Fixed here rather than by adding `type="text"` to those four, because the next bare input
+   somebody writes would look wrong again and the reason would be just as hard to spot the
+   second time.
+*/
+input:not([type]),
 input[type='text'],
 input[type='search'],
 input[type='password'],
@@ -10229,4 +10243,233 @@ input.signin-control {
 .row-draft {
   color: var(--accent-ink);
   font-weight: 600;
+}
+
+/* =====================================================================================
+   The start-a-conversation picker: tabs, a list that is there on open, and a group foot.
+
+   Every button below sets its own `height`. The base `button` rule sets `height: var(--row)`
+   on anything that does not override it, which is right for a row of actions and wrong for
+   a tab, a 20px check and a chip.
+   ===================================================================================== */
+.start-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+
+.start-tabs button {
+  height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: calc(var(--radius) - 3px);
+  background: none;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 550;
+}
+
+/*
+   The selected tab is a RAISED surface, not a tinted one.
+
+   Tinting it accent would put a filled coral block beside a coral "Create group" and make
+   the two compete; rule 1 keeps orange for the action. The underline carries the state and
+   the lifted card carries the grouping.
+*/
+.start-tabs button.active {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.start-tabs button.active::after {
+  content: '';
+  display: block;
+  height: 2px;
+  margin: 4px -6px -6px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.start-group-name {
+  margin: 0;
+}
+
+/*
+   The same height as the search field directly beneath it.
+
+   `.stacked-field input` is `--row-lg` (44px) because that pattern carries a visible label
+   above it; here the label is `sr-only` and the placeholder does the work, so a taller box
+   beside a 36px one just looked misaligned.
+*/
+.start-group-name input {
+  height: auto;
+}
+
+/* ---- chosen chips ------------------------------------------------------------------ */
+.chosen li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px 3px 3px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.chosen-avatar {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--accent-ink);
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.chosen li button {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* ---- the check, on a group row ----------------------------------------------------- */
+.person-check {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  /* An empty ring, so an unchosen row still shows WHERE the choice is made. A row with no
+     affordance until you hover is a row that looks inert on a touch screen. */
+  border: 1.5px solid var(--border-strong);
+  color: transparent;
+}
+
+.person-check.on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-contrast);
+}
+
+/* The chosen row tints, so the list reads as a set being assembled rather than as a
+   sequence of unrelated presses. */
+.person-row.picked {
+  background: var(--accent-soft);
+}
+
+/* ---- the group foot ---------------------------------------------------------------- */
+.start-panel-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.start-panel-foot button.primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
+}
+
+.start-panel-foot button.primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* =====================================================================================
+   Skeletons.
+
+   A grey shape the size of the thing that is coming, rather than the word "Loading". It
+   holds the layout still — the list does not jump when rows arrive — and it says how much
+   is on its way, which a spinner cannot.
+
+   One shared shimmer so every skeleton in the product moves at the same rate; two that
+   drift out of step read as two separate things loading.
+   ===================================================================================== */
+.skeleton {
+  display: block;
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    var(--surface-2) 0%,
+    color-mix(in srgb, var(--surface-2) 55%, var(--surface)) 50%,
+    var(--surface-2) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+
+@keyframes skeleton-sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+/*
+   Still, for anybody who asked for that.
+
+   A sweeping gradient is motion, and `prefers-reduced-motion` is not a preference about
+   decoration — it is a request from people for whom movement causes symptoms. The shape
+   still does its job standing still.
+*/
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}
+
+.skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  cursor: default;
+}
+
+.skeleton-avatar {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+}
+
+.skeleton-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.skeleton-line {
+  height: 9px;
+  width: 62%;
+}
+
+.skeleton-line.short {
+  width: 38%;
+  height: 8px;
 }
