@@ -286,7 +286,15 @@ export function ConversationSearch({
   };
 
   return (
-    <section className="search" aria-label="Search conversations">
+    <section
+      className="search"
+      aria-label="Search conversations"
+      /* The panel is a column of fixed-height blocks until there is something to scroll.
+         `flex: none` is right for a search field sitting above a conversation list, and
+         wrong the moment the results replace that list - so the state is on the element and
+         the stylesheet decides, rather than the height being guessed at in vh. */
+      data-results={searching ? 'true' : 'false'}
+    >
       {/*
         Still a `form`, so Enter submits and the field is a labelled control in a landmark
         — but submitting only re-focuses, because the results are already there. Removing
@@ -345,7 +353,15 @@ export function ConversationSearch({
         </div>
       </form>
 
-      <div aria-live="polite">
+      {/*
+        The live region is also the COLUMN the results live in, so it has to be one.
+
+        It was a bare `<div>`, which is `display: block` — so `.search-surface`'s `flex: 1`
+        below it resolved against nothing, the surface grew to its content, and 21 results
+        ran 768px past the bottom of the panel instead of scrolling inside it. A wrapper with
+        no styling is still a link in the chain.
+      */}
+      <div className="search-body" aria-live="polite">
         {busy ? <p className="muted result-note">Searching…</p> : null}
 
         {message !== undefined && !busy ? (
@@ -401,6 +417,20 @@ export function ConversationSearch({
               </p>
             ) : null}
 
+            {/*
+              ONE scroll container for every group, rather than one per group.
+
+              Each `.search-results` list used to cap itself at 34vh and scroll on its own.
+              With four groups on screen that reads as a reasonable division of the column;
+              with ONE — which is what choosing the "Messages" tab produces — it left a third
+              of the panel holding the list and two thirds holding nothing, and 38 results
+              behind a scrollbar three rows tall.
+
+              The lists no longer cap themselves. The area they sit in takes the height that
+              is left and scrolls once, so a filtered search fills the panel and an unfiltered
+              one runs the four groups past each other the way a page of results should.
+            */}
+            <div className="search-surface">
             {show('messages') && hits.length > 0 ? (
               <>
                 <p className="search-group">Messages</p>
@@ -534,6 +564,7 @@ export function ConversationSearch({
                 </ul>
               </>
             ) : null}
+            </div>
           </>
         ) : null}
       </div>

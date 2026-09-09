@@ -184,6 +184,47 @@ export function muteDurationLabel(minutes: number): string {
 export const likePattern = (term: string): string =>
   `%${term.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
 
+/**
+ * The shortest term that may match INSIDE a word.
+ *
+ * Three characters and under are anchored to a word boundary; four and over may match
+ * anywhere. The two cases that set the line, both real:
+ *
+ *   * "calculat" should find "recalculated". A tsquery cannot do it - `:*` is a prefix
+ *     operator - so an unanchored match is the only thing that reaches it, and losing that
+ *     would make the search worse at the thing people use it for.
+ *
+ *   * "hi" should NOT find "Arc-hi-t". Two letters appear inside an enormous number of
+ *     English words, so an unanchored short term returns almost everything and ranks the
+ *     one message somebody meant below forty they did not. Reported from use on 2026-09-09,
+ *     where searching "hi" returned the membership history of the company.
+ *
+ * Four is where a fragment stops being a coincidence and starts being a choice. It is a
+ * search-quality parameter, not a business value - nothing in a document says it, and
+ * nothing downstream depends on it being any particular number.
+ */
+export const SUBSTRING_SEARCH_MINIMUM = 4;
+
+/**
+ * How a message body is matched, given what somebody typed.
+ *
+ * A regex either way, so one column expression serves both and the trigram index
+ * (migration 0019) serves it: `gin_trgm_ops` supports `~*`.
+ *
+ * `\m` is PostgreSQL's start-of-word boundary. Short terms get it, long ones do not - see
+ * `SUBSTRING_SEARCH_MINIMUM` for the two cases that decided that.
+ *
+ * ## Escaping
+ *
+ * Every regex metacharacter is escaped, so a search for "c++" or "1+1" is a search for those
+ * characters rather than a quantifier applied to a preceding token - which at best finds
+ * nothing and at worst is a malformed pattern the database refuses.
+ */
+export const bodyMatchPattern = (term: string): string => {
+  const escaped = term.replace(/[.^$*+?()[\]{}|\\-]/g, (character) => `\\${character}`);
+  return term.length >= SUBSTRING_SEARCH_MINIMUM ? escaped : `\\m${escaped}`;
+};
+
 
 export const employeeRoutes = {
   /**

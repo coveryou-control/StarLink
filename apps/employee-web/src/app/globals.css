@@ -1328,7 +1328,58 @@ input[type='search']::-webkit-search-cancel-button {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  max-height: 34vh;
+}
+
+/*
+   The search takes the column when it is showing results.
+
+   `flex: none` above is correct for a field sitting over a conversation list. It is wrong
+   once the results REPLACE that list: the surface below then has nothing to fill, and the
+   panel keeps two thirds of its height for a list that is no longer there.
+*/
+.search[data-results='true'] {
+  flex: 1;
+  min-height: 0;
+}
+
+/*
+   An empty list column takes no space.
+
+   While a search is up the conversation list is unmounted, and this is its wrapper: without
+   the rule it kept `flex: 1` over nothing and the results were left with half a panel and a
+   blank half underneath. `flex: none` on an empty box is the whole fix; the box stays so the
+   list's scroll position survives clearing the search.
+*/
+.panel-body[data-idle='true'] {
+  flex: none;
+  padding: 0;
+}
+
+/*
+   The live region between the field and the results, which is also a column.
+
+   It carries `aria-live` and nothing else in the markup, which is exactly how it came to be
+   a bare block that broke the height chain: `.search-surface` asked for the remaining space
+   and its parent had none to give.
+*/
+.search-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+/*
+   The results area, and the only thing in it that scrolls.
+
+   Each list used to carry `max-height: 34vh; overflow-y: auto` of its own. With four groups
+   showing that reads as a division of the column; with one - which is exactly what choosing
+   the "Messages" tab produces - it pinned the list to a third of the panel, left the rest
+   blank, and put 38 results behind a scrollbar three rows tall.
+*/
+.search-surface {
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -6014,7 +6065,21 @@ input[type='search']::-webkit-search-cancel-button {
 .start-panel-head {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  justify-content: space-between;
+  gap: var(--space-3);
+  /* Negative margins so the rule below it runs the full width of the panel while the
+     panel keeps one padding value. A header that stops short of the edges reads as a
+     floating row rather than as the top of something. */
+  margin: calc(var(--space-4) * -1) calc(var(--space-4) * -1) 0;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.start-panel-head h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
 }
 
 .start-panel-head h2 {
@@ -6025,20 +6090,26 @@ input[type='search']::-webkit-search-cancel-button {
   letter-spacing: -0.02em;
 }
 
+/* Top-right, where every dialog in the product keeps its close. It used to sit immediately
+   after the tabs, in the middle of the header, which is the one place nobody looks for it. */
 .start-panel-close {
   flex: none;
-  width: 30px;
-  height: 30px;
+  /* 34, not 30: rule 6's touch minimum is 44 including the surrounding gap, and a 30px
+     circle in a corner is the control a thumb misses. */
+  width: 34px;
+  height: 34px;
   padding: 0;
   border: 0;
-  border-radius: 50%;
+  border-radius: var(--radius);
   background: transparent;
-  color: var(--text-subtle);
-  font-size: 20px;
-  line-height: 1;
+  color: var(--text-muted);
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+.start-panel-close:hover:not(:disabled) {
+  color: var(--text);
 }
 
 .start-panel-close:hover:not(:disabled) {
@@ -10441,8 +10512,16 @@ input.signin-control {
    on anything that does not override it, which is right for a row of actions and wrong for
    a tab, a 20px check and a chip.
    ===================================================================================== */
+/*
+   The two destinations, as a segmented control the width of the panel.
+
+   Full width rather than hugging their labels: they are the dialog's primary choice and
+   two small pills floating at the left of a 440px panel read as a filter on something
+   else. Equal halves also stop the control resizing when the labels change length.
+*/
 .start-tabs {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px;
   padding: 3px;
   border-radius: var(--radius);

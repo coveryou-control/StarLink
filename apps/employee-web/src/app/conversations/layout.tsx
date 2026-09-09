@@ -567,7 +567,24 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                 need the whole column to scroll, so the class is conditional rather than
                 a promise the customer workspace would break.
               */}
-              <div className={`panel-body${showCustomerWorkspace ? '' : ' chats-body'}`}>
+              {/*
+                `data-idle` while a search is up, and the stylesheet stops it claiming the
+                column.
+
+                Everything INSIDE this div is already unmounted while searching — the list
+                polls and pages, and a list behind a search is a list nobody can see doing
+                it. What stayed was the div: `flex: 1` on an empty box, holding 412 of the
+                panel's 900 pixels for nothing, so the results got half a column and
+                scrolled inside it while the other half sat blank underneath.
+
+                An attribute rather than not rendering it, because the wrapper is also where
+                the scroll position of the conversation list lives; unmounting it would send
+                a reader back to the top of their list every time they cleared a search.
+              */}
+              <div
+                className={`panel-body${showCustomerWorkspace ? '' : ' chats-body'}`}
+                data-idle={searching ? 'true' : 'false'}
+              >
                 {/*
                   Rendered ABOVE the list, not instead of it: a stale list plus an explicit
                   "this did not load" is more useful than either alone, and §34.4's rule is

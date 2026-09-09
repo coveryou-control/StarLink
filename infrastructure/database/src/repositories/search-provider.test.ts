@@ -316,8 +316,11 @@ describe('narrowing and results', () => {
     withDb('finds a term in the MIDDLE of a word, not only at its start', async () => {
       /*
          A tsquery match is anchored to token starts — `:*` is a prefix operator — so this
-         can only pass through the `ILIKE` half of the condition. "calculat" is inside
+         can only pass through the second half of the condition. "calculat" is inside
          "recalculated" and reachable no other way.
+
+         Eight characters, so it is over `SUBSTRING_SEARCH_MINIMUM` and matches unanchored.
+         The case below is the other side of that line.
       */
       const result = await provider.search(
         { principalId: INSIDER, includeInternal: true },
@@ -326,6 +329,34 @@ describe('narrowing and results', () => {
       expect(result.ok).toBe(true);
       if (!result.ok) return;
       expect(result.value.items.length).toBeGreaterThan(0);
+    });
+
+    withDb('does NOT match a two-letter term inside a word', async () => {
+      /*
+         The other side of `SUBSTRING_SEARCH_MINIMUM`, and the report that produced it.
+
+         Searching "hi" used to return every message containing "Archit" — and since every
+         membership note carries two full names, that was the membership history of the
+         company ranked above anything anybody had said. Two letters inside a word is a
+         coincidence, not a search.
+
+         Asserted as "no hit whose body only contains the term mid-word" rather than "no
+         hits at all", so a message that genuinely starts a word with "hi" still counts and
+         the test does not quietly become a claim that short searches find nothing.
+      */
+      const result = await provider.search(
+        { principalId: INSIDER, includeInternal: true },
+        'hi',
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      const midWordOnly = result.value.items.filter(
+        (hit) => !/\bhi/i.test(hit.snippet ?? '') && /hi/i.test(hit.snippet ?? ''),
+      );
+      expect(
+        midWordOnly.map((hit) => hit.snippet),
+        'a short term matched inside a word — "hi" is reaching things like "Archit"',
+      ).toEqual([]);
     });
 
     withDb('does not stem the term into something the person did not type', async () => {

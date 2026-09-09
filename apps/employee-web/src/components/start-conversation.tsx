@@ -382,33 +382,24 @@ export function StartConversation({
             */
             role="dialog"
             aria-modal="true"
-            aria-label="Start a conversation"
+            aria-labelledby="start-panel-title"
             /* The panel is inside the backdrop, so a click that lands on the form would
                bubble up and close the dialog the person is filling in. */
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="start-panel-head">
-              {/*
-                Tabs, so the two destinations are visible at once and switching between them
-                costs nothing. The chooser they replace made "which of these two words did
-                you mean" a step you had to finish before the product would show you a
-                single colleague.
-              */}
-              <div className="start-tabs" role="tablist" aria-label="What to start">
-                {(['chat', 'group'] as const).map((which) => (
-                  <button
-                    key={which}
-                    type="button"
-                    role="tab"
-                    aria-selected={mode === which}
-                    className={mode === which ? 'active' : undefined}
-                    disabled={busy}
-                    onClick={() => setMode(which)}
-                  >
-                    {which === 'chat' ? 'New chat' : 'New group'}
-                  </button>
-                ))}
-              </div>
+            {/*
+              A titled header with the close at its far RIGHT.
+
+              Three things were wrong with what this replaces, and they compounded. There was
+              no title, so the tab labels were doing double duty as the dialog's name — which
+              is why "New chat" read as a heading and as a control at the same time. The close
+              sat immediately after the tabs, mid-header, where every other dialog in the
+              product puts it in the corner. And with nothing between the header and the
+              field, the panel had no structure at all: three unrelated things stacked in a
+              white box.
+            */}
+            <header className="start-panel-head">
+              <h2 id="start-panel-title">New conversation</h2>
               <button
                 type="button"
                 className="start-panel-close"
@@ -416,8 +407,43 @@ export function StartConversation({
                 disabled={busy}
                 aria-label="Close"
               >
-                <span aria-hidden="true">×</span>
+                {/* Drawn, not the `×` character, which renders at whatever weight the body
+                    font gives it — a hairline at 20px in this typeface. */}
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                  <path
+                    d="m6.5 6.5 11 11m0-11-11 11"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.8"
+                    strokeLinecap="round"
+                  />
+                </svg>
               </button>
+            </header>
+
+            {/*
+              Tabs, so the two destinations are visible at once and switching between them
+              costs nothing. The chooser they replace made "which of these two words did
+              you mean" a step you had to finish before the product would show you a
+              single colleague.
+
+              Below the header now rather than inside it: they are a choice WITHIN the
+              dialog, not its name.
+            */}
+            <div className="start-tabs" role="tablist" aria-label="What to start">
+              {(['chat', 'group'] as const).map((which) => (
+                <button
+                  key={which}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === which}
+                  className={mode === which ? 'active' : undefined}
+                  disabled={busy}
+                  onClick={() => setMode(which)}
+                >
+                  {which === 'chat' ? 'Chat with one person' : 'Group'}
+                </button>
+              ))}
             </div>
 
             {/*
@@ -589,8 +615,18 @@ export function StartConversation({
               </ul>
             ) : null}
             {term.trim() === '' && !loadingColleagues && colleagues.length === 0 ? (
+              /*
+                 The old line read "Nobody in your team yet", which is a claim about the
+                 company and usually a false one — it means only that the CALLER's team has
+                 no other members recorded, which is the ordinary state of a new joiner and
+                 of anybody the directory has not placed on a team yet. It sounded like the
+                 product was empty.
+
+                 What is actually true is that this list is a shortcut, not the directory:
+                 everybody is reachable, by name or by handle.
+              */
               <p className="muted result-note">
-                Nobody in your team yet — search for a colleague by name or @username.
+                Start typing to find anyone in the company — by name, or by @username.
               </p>
             ) : null}
             {searching && found.length === 0 ? (
