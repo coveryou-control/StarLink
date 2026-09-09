@@ -373,6 +373,101 @@ export async function removeParticipant(
   });
 }
 
+/* ------------------------------------------------------------------------ leaving ---- */
+
+export interface LeaveConversationCommand {
+  readonly conversationId: UUID;
+  readonly principalId: UUID;
+  readonly correlationId: string;
+}
+
+export type LeaveConversationFailure = 'NOT_A_PARTICIPANT' | 'NOT_AN_INTERNAL_GROUP';
+
+export type LeaveConversationResult =
+  | {
+      readonly ok: true;
+      /** Set when the leaver was the group's creator and the role had to pass on. */
+      readonly creatorPassedTo?: UUID;
+    }
+  | { readonly ok: false; readonly reason: LeaveConversationFailure };
+
+/**
+ * Leaving a group you are in.
+ *
+ * ## Why this is not `removeParticipant` with yourself as the target
+ *
+ * That command refuses self-removal outright, and it is right to. Its reasoning is about
+ * OWNED conversations: an owner who ends their own participation still holds
+ * `current_owner_id`, so the thread stays accountable to them while `listForPrincipal` —
+ * which inner-joins live participation — stops showing it to them. Work they own and
+ * cannot find, which is the defect rule 7 exists to prevent. It also refuses anybody but
+ * the group's creator, because otherwise the newest member of a twelve-person group could
+ * remove the other eleven.
+ *
+ * Neither reason reaches a person leaving an internal group. There is no owner to strand:
+ * `current_owner_id` comes from `service_cases`, and an internal conversation has none. And
+ * leaving is not an exercise of authority over anybody else — it is the one membership
+ * change that needs no permission over another person, which is exactly why the creator
+ * rule must not apply to it.
+ *
+ * So it is a separate command rather than a hole cut in that one. Both guards there stay
+ * exactly as strict as they were.
+ *
+ * ## Groups only
+ *
+ * Not a one-to-one: leaving one leaves the other person talking into a thread that can
+ * never be answered, and the thing somebody actually wants there is to stop seeing it,
+ * which is archive. Not a customer conversation: those run on ownership and the way out of
+ * one is a transfer, which exists.
+ *
+ * ## The creator handing over
+ *
+ * `CREATOR` is the only role permitted to remove somebody from a group (migration 0023).
+ * A creator who leaves therefore takes the group's only administrator with them, and the
+ * remaining members keep a thread nobody can ever manage. The role passes to the
+ * longest-standing remaining participant — the group's version of rule 7: the accountable
+ * position is reassigned, never left empty.
+ *
+ * The LAST person may still leave, and then nobody holds it. That is not an orphan; it is
+ * an empty room. The history stays answerable either way, because participation is dated
+ * rather than deleted (BR-09, §24.3).
+ */
+export async function leaveConversation(
+  command: LeaveConversationCommand,
+  deps: ConversationDeps,
+): Promise<LeaveConversationResult> {
+  return deps.store.transaction(async (tx) => {
+    const conversationType = await tx.loadConversationType(command.conversationId);
+    if (conversationType !== 'INTERNAL_GROUP') {
+      return { ok: false, reason: 'NOT_AN_INTERNAL_GROUP' };
+    }
+
+    const participants = await tx.listParticipants(command.conversationId);
+    const leaver = participants.find((p) => p.principalId === command.principalId);
+    if (leaver === undefined) return { ok: false, reason: 'NOT_A_PARTICIPANT' };
+
+    /* Chosen BEFORE the participation is ended, from the ordered list the store returns,
+       so the successor is the earliest-joined of the people who are staying. */
+    const successor =
+      leaver.role === 'CREATOR'
+        ? participants.find((p) => p.principalId !== command.principalId)
+        : undefined;
+
+    const ended = await tx.endParticipation(
+      command.conversationId,
+      command.principalId,
+      deps.now().toISOString(),
+    );
+    if (!ended) return { ok: false, reason: 'NOT_A_PARTICIPANT' };
+
+    if (successor !== undefined) {
+      await tx.setParticipantRole(command.conversationId, successor.principalId, 'CREATOR');
+    }
+
+    return successor === undefined ? { ok: true } : { ok: true, creatorPassedTo: successor.principalId };
+  });
+}
+
 /* ---------------------------------------------------------------------- renaming ---- */
 
 export interface RenameConversationCommand {

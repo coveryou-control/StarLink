@@ -10944,3 +10944,46 @@ input.signin-control {
     font-size: 12px;
   }
 }
+
+
+/* =====================================================================================
+   Leaving a group.
+
+   The foot of the participants panel, below a rule. It is the only control there that acts
+   on YOU rather than on the group, and it cannot be undone from your side — BR-05 needs a
+   live participant to grant participation, so getting back in is somebody else's decision.
+   ===================================================================================== */
+.member-leave {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border);
+}
+
+/*
+   Quiet until pressed, then explicit.
+
+   Not a filled red button sitting in a panel people open to see who is in a group. The
+   destructive weight belongs on the CONFIRMATION, where the act is actually taken — a
+   permanently loud control in a panel used for something else is a control people learn to
+   look past, which is the opposite of careful.
+*/
+.member-leave-open {
+  width: 100%;
+  height: 34px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--danger, #e5484d);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.member-leave-open:active:not(:disabled) {
+  opacity: 0.7;
+}
+
+.member-leave .history-warning button.member-leave-go {
+  background: var(--danger, #e5484d);
+  border-color: transparent;
+  color: #fff;
+}

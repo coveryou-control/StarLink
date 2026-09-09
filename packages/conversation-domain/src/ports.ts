@@ -164,6 +164,19 @@ export interface ConversationWriteTransaction {
   ): Promise<void>;
   /** Ends future access. Does NOT delete the row: who could have read what is history (BR-09). */
   endParticipation(conversationId: UUID, principalId: UUID, at: Timestamp): Promise<boolean>;
+  /**
+   * Changes a live participant's role in this conversation.
+   *
+   * Exists for one case: the creator of a group leaving it. `CREATOR` is what permits
+   * removing anybody from a group (migration 0023), so a group whose creator walks out
+   * keeps its members and loses the only person who could ever manage them. Handing the
+   * role on is the group's version of rule 7 — the accountable position is reassigned,
+   * never left empty.
+   *
+   * Deliberately narrow. This is not an "appoint an admin" capability: nothing calls it
+   * except `leaveConversation`, and migration 0023 records why there is no way to have two.
+   */
+  setParticipantRole(conversationId: UUID, principalId: UUID, role: string): Promise<void>;
   loadConversationType(conversationId: UUID): Promise<ConversationType | undefined>;
 
   /**

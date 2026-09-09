@@ -342,6 +342,13 @@ export const employeeRoutes = {
     participant: (conversationId: string, principalId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/participants/${principalId}`,
     /**
+     * Leaving a group yourself — a different act from removing somebody, and a different
+     * route because the rules differ. `participant` above refuses self-removal and anybody
+     * who is not the group's creator; leaving needs no authority over another person.
+     */
+    leave: (conversationId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/${conversationId}/leave`,
+    /**
      * The SLA clocks for one conversation (§22.5, §23.5).
      *
      * An EMPLOYEE route, and only an employee route. §22.5's table gives the customer
@@ -511,6 +518,7 @@ export const EMPLOYEE_ROUTE_INVENTORY: readonly { method: string; path: string }
   { method: 'PUT', path: employeeRoutes.conversations.preferences(':id') },
   { method: 'POST', path: employeeRoutes.conversations.participants(':id') },
   { method: 'DELETE', path: employeeRoutes.conversations.participant(':id', ':pid') },
+  { method: 'POST', path: employeeRoutes.conversations.leave(':id') },
   { method: 'GET', path: employeeRoutes.conversations.sla(':id') },
   { method: 'GET', path: employeeRoutes.conversations.attachments(':id') },
   { method: 'POST', path: employeeRoutes.conversations.attachments(':id') },

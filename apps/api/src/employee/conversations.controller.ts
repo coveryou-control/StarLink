@@ -13,6 +13,7 @@ import {
   addParticipant,
   createInternalConversation,
   decide,
+  leaveConversation,
   removeParticipant,
   renameConversation,
   toActorContext,
@@ -791,6 +792,73 @@ export class EmployeeConversationsController {
       outcome: 'SUCCEEDED',
       correlationId: request.correlationId,
       detail: { removedPrincipal: principalId.data },
+    });
+  }
+
+  /**
+   * Leaving a group you are in.
+   *
+   * ## Why this is not the DELETE above with your own id
+   *
+   * That route removes SOMEBODY ELSE, and the domain refuses both self-removal and any
+   * remover who is not the group's creator — deliberately, and both guards stay. Leaving
+   * is a different act: it needs no authority over another person, which is precisely why
+   * the creator rule must not govern it. Two operations, two routes, two sets of rules
+   * that cannot be confused for one another at the call site.
+   *
+   * ## Authorized as a READ
+   *
+   * `conversation.read` is the right permission, and it is not a shortcut. What this
+   * discloses is whether the conversation exists and is yours, which is exactly what a
+   * read discloses — and leaving requires no permission over anybody else. Asking for
+   * `conversation.participant.remove` would refuse every ordinary member of a group they
+   * are sitting in, which is the bug this route exists to fix.
+   *
+   * Membership is still proved inside the transaction by the domain, so the object check
+   * here cannot be raced by a departure that happens between the two.
+   */
+  @Post(':conversationId/leave')
+  @HttpCode(204)
+  async leave(
+    @Param('conversationId') conversationIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<void> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    if (!conversationId.success) return refuse();
+
+    const session = request.session!;
+    if (!(await this.mayActOn(session.principalId, conversationId.data, 'conversation.read'))) {
+      return refuse();
+    }
+
+    const result = await leaveConversation(
+      {
+        conversationId: conversationId.data,
+        principalId: session.principalId,
+        correlationId: request.correlationId,
+      },
+      { store: this.store, now: () => new Date(), newId: () => crypto.randomUUID() },
+    );
+
+    if (!result.ok) return refuse();
+
+    /*
+       Audited as a membership change, because that is what it is — and the ledger is how
+       "who could have read this, and until when" stays answerable (BR-09). The handover is
+       recorded on the same entry rather than as a second one: it is a consequence of this
+       act, not an act of its own, and nobody performed it.
+    */
+    await this.audit.record({
+      actorId: session.principalId,
+      actorKind: 'EMPLOYEE',
+      action: 'conversation.participant.leave',
+      targetKind: 'conversation',
+      targetId: conversationId.data,
+      outcome: 'SUCCEEDED',
+      correlationId: request.correlationId,
+      detail: {
+        ...(result.creatorPassedTo !== undefined ? { creatorPassedTo: result.creatorPassedTo } : {}),
+      },
     });
   }
 

@@ -81,9 +81,20 @@ class PgConversationTransaction implements ConversationWriteTransaction {
 
   async listParticipants(conversationId: UUID): Promise<readonly NewParticipant[]> {
     const result = await this.client.query(
+      /*
+         ORDERED, because one caller now depends on which row comes first.
+
+         When a group's creator leaves, the role passes to the longest-standing remaining
+         member, and "longest-standing" has to mean something a second run agrees with.
+         Postgres makes no promise about row order without an ORDER BY, so before this the
+         successor was whatever the planner happened to produce. `principal_id` breaks a
+         tie between two people added in the same statement — arbitrary, but stable, which
+         is the property that matters.
+      */
       `SELECT principal_id, principal_kind, role, reply_authority
          FROM conversation.participants
-        WHERE conversation_id = $1 AND effective_to IS NULL`,
+        WHERE conversation_id = $1 AND effective_to IS NULL
+        ORDER BY effective_from, principal_id`,
       [conversationId],
     );
     return result.rows.map((row) => ({
@@ -92,6 +103,18 @@ class PgConversationTransaction implements ConversationWriteTransaction {
       role: row.role,
       replyAuthority: row.reply_authority,
     }));
+  }
+
+  async setParticipantRole(conversationId: UUID, principalId: UUID, role: string): Promise<void> {
+    /* Live rows only. A dated-out participation is history (BR-09) and must not acquire a
+       role it never held — and the person leaving is dated out by the same transaction, so
+       without this the handover could land back on them. */
+    await this.client.query(
+      `UPDATE conversation.participants
+          SET role = $3
+        WHERE conversation_id = $1 AND principal_id = $2 AND effective_to IS NULL`,
+      [conversationId, principalId, role],
+    );
   }
 
   async addParticipant(

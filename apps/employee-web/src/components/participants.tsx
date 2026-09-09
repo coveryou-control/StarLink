@@ -25,6 +25,9 @@
  * because the second would be a promise the product cannot keep.
  */
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+
+import { useRefreshConversations } from './active-conversation';
 import { initialsFor } from './conversation-naming';
 import { PresenceDot, useOnlineSet } from './presence';
 import { AvatarImage } from './avatar-image';
@@ -45,6 +48,9 @@ export function Participants({
   const [found, setFound] = useState<readonly DirectoryEntry[]>([]);
   const [pending, setPending] = useState<DirectoryEntry | undefined>();
   const [busy, setBusy] = useState(false);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const router = useRouter();
+  const refreshConversations = useRefreshConversations();
   const [message, setMessage] = useState<string | undefined>();
 
   /**
@@ -199,6 +205,39 @@ export function Participants({
     }
   };
 
+  /**
+   * Leaving, asked for before it happens.
+   *
+   * Irreversible from this side: BR-05 requires a LIVE participant to grant participation,
+   * so somebody who walks out cannot walk back in — a colleague still inside has to add
+   * them, and that re-exposes the history under BR-07. Worth one question.
+   */
+  const leave = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      await api.leaveConversation(conversationId);
+      /*
+         The LIST is refreshed, and the thread is not.
+
+         `router.refresh()` alone left the conversation sitting in the sidebar until a hard
+         reload — the list is client state fetched by the shell, not server-rendered markup
+         for Next to re-request. `refreshConversations` is what the shell exposes for
+         exactly this, and it is the same call the add and remove paths make.
+
+         Deliberately NOT `onChanged`, which the other handlers use: that also re-fetches
+         the CONVERSATION, and the conversation is the one thing that has just stopped
+         being ours to read. It would spend a request to be told 404 and flash a refusal on
+         a page already navigating away.
+      */
+      refreshConversations();
+      router.push('/conversations');
+    } catch {
+      setMessage('That did not go through. You are still in this group.');
+      setBusy(false);
+      setConfirmingLeave(false);
+    }
+  };
+
   const remove = async (principalId: string, name: string): Promise<void> => {
     setBusy(true);
     try {
@@ -332,14 +371,18 @@ export function Participants({
           </h3>
           <ul>
             {/*
-              You, and no control beside you.
+              You, and no × beside you.
 
-              `removeParticipant` refuses self-removal in the DOMAIN, with a documented
-              reason: an owner who ends their own participation still holds
-              `current_owner_id` while dropping out of `listForPrincipal`, which is the
-              "owns work they cannot find" defect through a different door — and BR-05
-              stops them re-adding themselves. Leaving is a real thing to want and it is
-              not this operation.
+              `removeParticipant` refuses self-removal in the DOMAIN, and its reasons are
+              about OWNED conversations: an owner who ends their own participation still
+              holds `current_owner_id` while dropping out of `listForPrincipal`, which is
+              the "owns work they cannot find" defect through a different door.
+
+              Leaving is a real thing to want, and it is now a real thing to do — but as
+              "Leave group" at the foot of this panel, not as an × in the members list. An
+              × next to your own name is the same glyph that removes other people, and the
+              two acts are not the same act: one needs the group's admin, the other needs
+              nobody's permission at all.
             */}
             <li>
               <span className="row-avatar" aria-hidden="true">
@@ -459,6 +502,49 @@ export function Participants({
               Cancel
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {/*
+        Leaving, and only from a group.
+
+        A one-to-one is refused by the server — leaving one leaves the other person talking
+        into a thread that can never be answered, and what somebody wants there is archive.
+        The control is absent rather than disabled for the same reason the remove control
+        is: a disabled button puts the shape of an action in front of somebody who can
+        never take it.
+
+        At the FOOT, and separated by a rule. It is the one thing on this panel that acts
+        on you rather than on the group, and it cannot be undone from your side.
+      */}
+      {isGroup ? (
+        <div className="member-leave">
+          {confirmingLeave ? (
+            <div className="history-warning" role="alertdialog" aria-label="Leave this group?">
+              <p>
+                You will stop receiving messages here, and the conversation leaves your list.
+                {/* Said plainly, because it is the part people do not expect. */} Someone
+                still in the group would have to add you back.
+              </p>
+              <div>
+                <button type="button" className="member-leave-go" onClick={() => void leave()} disabled={busy}>
+                  {busy ? 'Leaving…' : 'Leave group'}
+                </button>
+                <button type="button" onClick={() => setConfirmingLeave(false)} disabled={busy}>
+                  Stay
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="member-leave-open"
+              onClick={() => setConfirmingLeave(true)}
+              disabled={busy}
+            >
+              Leave group
+            </button>
+          )}
         </div>
       ) : null}
 

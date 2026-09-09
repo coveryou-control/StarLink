@@ -53,6 +53,18 @@ function createStore(seed: Conv[] = []) {
           found.messageCount += 1;
           systemMessages.push({ conversationId, body });
         },
+        /* Only `leaveConversation` calls this, and only to hand a departing creator's role
+           on. Recorded on the participant so the group tests can see it happen. */
+        async setParticipantRole(conversationId, principalId, role) {
+          const found = conversations.get(conversationId);
+          if (found === undefined) return;
+          /* Replaced rather than mutated: `NewParticipant` is readonly, which is the point
+             of it — a role changes by writing a new row's worth of facts, not by reaching
+             into one the domain is holding. */
+          found.participants = found.participants.map((p) =>
+            p.principalId === principalId ? { ...p, role } : p,
+          );
+        },
         async setTitle(conversationId, title) {
           const found = conversations.get(conversationId);
           if (found === undefined) return false;

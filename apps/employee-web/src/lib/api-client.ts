@@ -621,6 +621,16 @@ export const api = {
       method: 'DELETE',
     }),
 
+  /**
+   * Leave a group you are in.
+   *
+   * Not `removeParticipant(id, me)`: that route refuses self-removal outright, and
+   * refuses anybody who is not the group's creator. Two operations with different rules,
+   * kept apart here as well as on the server.
+   */
+  leaveConversation: (conversationId: string) =>
+    request<void>(employeeRoutes.conversations.leave(conversationId), { method: 'POST' }),
+
   /* ---------------------------------------------------- attachments (SL-054/055/056) */
 
   /**
