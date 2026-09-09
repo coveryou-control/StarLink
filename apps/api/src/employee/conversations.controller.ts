@@ -24,6 +24,7 @@ import {
 } from '@starlink/conversation-domain';
 import type { ConversationAuthzReader, PgPinStore,
   PgArchiveStore,
+  PgConversationReader,
   PgStarStore,
 } from '@starlink/database';
 import {
@@ -58,6 +59,19 @@ import { recordDecision } from '../edge/authorization-metrics.js';
 import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
 
 type ArchiveStore = Pick<PgArchiveStore, 'set' | 'archivedIds'>;
+/**
+ * The one WRITE the conversation reader carries, named separately rather than added to the
+ * domain port.
+ *
+ * `ConversationReader` is a read port and must stay one - a write on it would be visible to
+ * every caller that only ever reads, and the next person adding a method would take the
+ * precedent. It lives on the Pg implementation beside the query that reads the pin back,
+ * which is real cohesion, and this intersection is how the controller asks for both without
+ * the domain package learning about a table it has no rules for.
+ *
+ * The same shape `ArchiveStore` above uses, for the same reason.
+ */
+type AnnouncementPins = Pick<PgConversationReader, 'setAnnouncementPinned'>;
 type StarListStore = Pick<PgStarStore, 'listFor'>;
 
 const uuid = z.string().uuid();
@@ -167,7 +181,7 @@ const listSchema = z.object({
 export class EmployeeConversationsController {
   constructor(
     @Inject(CONVERSATION_STORE) private readonly store: ConversationStore,
-    @Inject(CONVERSATION_READER) private readonly reader: ConversationReader,
+    @Inject(CONVERSATION_READER) private readonly reader: ConversationReader & AnnouncementPins,
     @Inject(ARCHIVE_STORE) private readonly archive: ArchiveStore,
     @Inject(STAR_STORE) private readonly stars: StarListStore,
     @Inject(READ_STATE_STORE) private readonly readState: ReadStateStore,
@@ -569,6 +583,76 @@ export class EmployeeConversationsController {
     });
 
     return { mayPost: decision.allow };
+  }
+
+  /**
+   * Pins an announcement for the whole company, or unpins it.
+   *
+   * ## Authorized as PUBLISHING, not as reading
+   *
+   * `conversation.announcement.post` — the same permission that opens one. Holding a notice
+   * at the top of everybody's board is an editorial decision about what the company should
+   * be looking at, which is the same authority as issuing one and emphatically not
+   * something every reader has. Every employee is a participant of every announcement, so
+   * authorizing this as `conversation.read` would have handed it to all of them.
+   *
+   * Decided against the LOADED conversation, so the type is checked as well as the
+   * permission: `decide()` sees an `INTERNAL_ANNOUNCEMENT` resource or it sees something
+   * else, and a caller pointing this at a group gets the uniform refusal.
+   *
+   * ## Audited
+   *
+   * §31.1 audits the exercise of authority. Changing what the whole company sees first is
+   * one, and unpinning is audited too — "who took that down" is exactly the question asked
+   * afterwards.
+   */
+  @Post('announcements/:conversationId/pin')
+  async pinAnnouncement(
+    @Param('conversationId') conversationIdRaw: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const parsed = z.object({ pinned: z.boolean() }).safeParse(body);
+    if (!conversationId.success || !parsed.success) return refuse();
+
+    const session = request.session!;
+    const allowed = await this.mayActOn(
+      session.principalId,
+      conversationId.data,
+      'conversation.announcement.post',
+    );
+    if (!allowed) {
+      await this.audit.record({
+        actorId: session.principalId,
+        actorKind: 'EMPLOYEE',
+        action: 'conversation.announcement.post',
+        targetKind: 'conversation',
+        targetId: conversationId.data,
+        outcome: 'REFUSED',
+        correlationId: request.correlationId,
+      });
+      return refuse();
+    }
+
+    await this.reader.setAnnouncementPinned(
+      conversationId.data,
+      session.principalId,
+      parsed.data.pinned,
+    );
+
+    await this.audit.record({
+      actorId: session.principalId,
+      actorKind: 'EMPLOYEE',
+      action: 'conversation.announcement.post',
+      targetKind: 'conversation',
+      targetId: conversationId.data,
+      outcome: 'SUCCEEDED',
+      correlationId: request.correlationId,
+      detail: { pinned: parsed.data.pinned },
+    });
+
+    return { conversationId: conversationId.data, pinned: parsed.data.pinned };
   }
 
   @Post(':conversationId/participants')

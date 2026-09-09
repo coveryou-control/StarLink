@@ -335,6 +335,15 @@ export const employeeRoutes = {
     firstRun: `${EMPLOYEE_API_BASE}/conversations/first-run`,
     announce: `${EMPLOYEE_API_BASE}/conversations/announcements`,
     announcePermission: `${EMPLOYEE_API_BASE}/conversations/announcements/permission`,
+    /**
+     * Hold an announcement at the top of the board for everybody (POST), or let it go.
+     *
+     * Under `/announcements/` rather than beside `preferences`, and the path is the whole
+     * distinction: `preferences` is one reader's own ordering of their own list, and this
+     * is an editorial act on a company notice. Two things called a pin, two routes.
+     */
+    announcementPin: (conversationId: string) =>
+      `${EMPLOYEE_API_BASE}/conversations/announcements/${conversationId}/pin`,
     messages: (conversationId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/messages`,
     read: (conversationId: string) => `${EMPLOYEE_API_BASE}/conversations/${conversationId}/read`,

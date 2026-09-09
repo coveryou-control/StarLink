@@ -72,6 +72,28 @@ export interface ConversationSummary {
   readonly participantCount: number;
   readonly unreadCount: number;
   /**
+   * Who issued this announcement. Absent on every other conversation type.
+   *
+   * The CREATOR, not the newest sender. An announcement is issued by somebody, and when a
+   * second person with the permission replies inside it the board must still say whose
+   * notice it is - "Rahul" on a notice from the leadership team would be a wrong
+   * attribution on the one screen where attribution is the point.
+   */
+  readonly publisherName?: string;
+  /**
+   * When a publisher pinned this announcement for EVERYBODY, if one has.
+   *
+   * A third thing called a pin, and the third distinct fact - see migration 0032.
+   * `pinned` below is this reader's own ordering of their own chat list and says nothing
+   * to anybody else; this is an editorial decision about a company notice, and only
+   * somebody who may publish one can make it.
+   *
+   * A timestamp rather than a boolean so the board can order by it: two pinned notices
+   * need a sequence, and "whichever was pinned most recently" is the only one available
+   * that a publisher can influence.
+   */
+  readonly pinnedForEveryone?: Timestamp;
+  /**
    * Enough to draw a tick on the list row, without opening the conversation.
    *
    * A row can show delivery state only if it knows three things about the newest message:

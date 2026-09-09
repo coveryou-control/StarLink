@@ -317,11 +317,23 @@ export function AttachmentPicker({
                 <span className="muted"> · still being checked</span>
               ) : null}
               {/*
-                §28.1: an uploaded file is reachable by NOBODY until it is bound to a
-                message. Saying "ready to send" rather than "uploaded" keeps that true in
-                the person's head — the file is not shared yet.
+                READY says NOTHING, and that is the point.
+
+                It used to read "· ready to send". That caption made sense when a file spent
+                up to ten seconds in "still being checked" first: the pair told a person the
+                wait was over. The check now runs inside the announce and finishes in tens of
+                milliseconds — measured at 96ms from picking the file to a usable send — so
+                the two states no longer form a sequence anybody watches, and all the caption
+                does is narrate the normal case.
+
+                A chip that says the file is attached IS the message. §28.1's point — that an
+                uploaded file is reachable by nobody until it is bound — is still true and
+                still worth knowing, and it is not something to tell somebody on every
+                attachment; the send button being usable says the same thing more usefully.
+
+                The other three states keep their words, because each of them is a REASON the
+                thing a person expected has not happened.
               */}
-              {item.state === 'READY' ? <span className="muted"> · ready to send</span> : null}
               {item.state === 'FAILED' ? <span role="alert"> · {item.problem}</span> : null}
               <button
                 type="button"

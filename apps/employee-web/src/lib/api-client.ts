@@ -178,6 +178,21 @@ export interface ConversationSummary {
   readonly participantCount: number;
   readonly unreadCount: number;
   /**
+   * Who issued this announcement. Absent on every other conversation type.
+   *
+   * The CREATOR, not the newest sender — see the server's own note. On the one screen where
+   * attribution is the point, a reply from a second publisher must not rename the notice.
+   */
+  readonly publisherName?: string;
+  /**
+   * When a publisher pinned this announcement for EVERYBODY, if one has.
+   *
+   * A different pin from `pinned` below, which is this reader's own ordering of their own
+   * chat list and says nothing to anybody else. Three things in this product are called a
+   * pin; migration 0032 lists all three and why they are three.
+   */
+  readonly pinnedForEveryone?: string;
+  /**
    * Enough for a list row to draw a tick on the newest message without opening the thread.
    *
    * `readWatermark` is the lowest read position among the OTHER participants, so a row
@@ -601,6 +616,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ title }),
     }),
+
+  /** Holds an announcement at the top of everybody's board, or lets it go. */
+  pinAnnouncement: (conversationId: string, pinned: boolean) =>
+    request<{ conversationId: string; pinned: boolean }>(
+      employeeRoutes.conversations.announcementPin(conversationId),
+      { method: 'POST', body: JSON.stringify({ pinned }) },
+    ),
 
   /**
    * Whether the caller may open one.

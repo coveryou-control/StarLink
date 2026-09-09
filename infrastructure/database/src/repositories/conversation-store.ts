@@ -387,6 +387,38 @@ export class PgConversationReader implements ConversationReader {
   constructor(private readonly pool: pg.Pool) {}
 
   /**
+   * Holds an announcement at the top of the board for everybody, or lets it go.
+   *
+   * Idempotent in both directions: pinning twice is one row, unpinning something that was
+   * never pinned is not an error. A publisher pressing the control twice must not produce a
+   * failure, and two publishers pinning the same notice must not produce two rows.
+   *
+   * The AUTHORIZATION is not here. The controller decides, against the loaded conversation,
+   * with `decide()` - a store method that checked a permission would be a second place the
+   * rule lives (§38).
+   */
+  async setAnnouncementPinned(
+    conversationId: UUID,
+    pinnedBy: UUID,
+    pinned: boolean,
+  ): Promise<void> {
+    if (!pinned) {
+      await this.pool.query(
+        'DELETE FROM conversation.announcement_pins WHERE conversation_id = $1',
+        [conversationId],
+      );
+      return;
+    }
+    await this.pool.query(
+      `INSERT INTO conversation.announcement_pins (conversation_id, pinned_by)
+       VALUES ($1, $2)
+       ON CONFLICT (conversation_id) DO UPDATE
+         SET pinned_by = EXCLUDED.pinned_by, pinned_at = now()`,
+      [conversationId, pinnedBy],
+    );
+  }
+
+  /**
    * Has this person ever been in a conversation at all?
    *
    * ## Why the LIST cannot answer this
@@ -462,6 +494,8 @@ export class PgConversationReader implements ConversationReader {
     const result = await this.pool.query(
       `SELECT c.conversation_id, c.conversation_type, c.title, c.state, c.sensitivity,
               c.last_activity_at, c.last_message_preview, c.participant_count,
+              author.display_name AS publisher_name,
+              ap.pinned_at AS announcement_pinned_at,
               /*
                  Unread MESSAGES, which a membership note is not.
 
@@ -585,6 +619,20 @@ export class PgConversationReader implements ConversationReader {
                ORDER BY lm.seq DESC
                LIMIT 1
          ) newest ON true
+         /*
+            Who PUBLISHED it, and whether it is pinned for everybody.
+
+            Both are announcement facts and both are joined unconditionally rather than
+            behind a CASE, because a LEFT JOIN on a primary key costs a lookup and a CASE in
+            the join condition costs a planner that cannot use the index. Every other
+            conversation type gets NULL in both, which is what the projection below reads.
+
+            created_by is the publisher rather than the newest sender on purpose: an
+            announcement is issued by somebody, and if a second person with the permission
+            replies in it the board must still say whose notice it is.
+         */
+         LEFT JOIN identity.principals author ON author.principal_id = c.created_by
+         LEFT JOIN conversation.announcement_pins ap ON ap.conversation_id = c.conversation_id
         WHERE ($3::timestamptz IS NULL
                OR (c.last_activity_at, c.conversation_id) < ($3::timestamptz, $4::uuid))
           /*
@@ -617,7 +665,26 @@ export class PgConversationReader implements ConversationReader {
            No backticks in here. This is a JS template literal, and one would end the string
            at the comment - see the platform note in CLAUDE.md.
         */
-        ORDER BY COALESCE(cp.pinned, false) DESC, c.last_activity_at DESC, c.conversation_id DESC
+        /*
+           Pinned announcements come first, and that is a THIRD sort key rather than a
+           replacement for either of the two below it.
+
+           cp.pinned is one person's own ordering of their chat list; ap.pinned_at is a
+           publisher holding a notice at the top of the board for the whole company. They
+
+           No backticks in here. This is a JS template literal and one would end the string
+           - the same platform note the preview lateral above carries.
+           never both apply to one row - an announcement is not in the chat list - so the
+           keys can share an ORDER BY without either weakening the other.
+
+           The keyset above still agrees with it: the cursor is only ever taken from the
+           LAST row of a page, so a boundary inside the pinned block compares pinned to
+           pinned and one after it compares unpinned to unpinned.
+        */
+        ORDER BY (ap.conversation_id IS NOT NULL) DESC,
+                 COALESCE(cp.pinned, false) DESC,
+                 c.last_activity_at DESC,
+                 c.conversation_id DESC
         LIMIT $2`,
       [principalId, limit, before?.lastActivityAt ?? null, before?.id ?? null, scope],
     );
@@ -632,6 +699,14 @@ export class PgConversationReader implements ConversationReader {
       ...(row.last_message_preview !== null ? { lastMessagePreview: row.last_message_preview } : {}),
       participantCount: row.participant_count,
       unreadCount: row.unread_count,
+      /* Announcement facts. Absent on every other type rather than null, so a reader that
+         does not know about them cannot accidentally render one. */
+      ...(row.publisher_name !== null && row.conversation_type === 'INTERNAL_ANNOUNCEMENT'
+        ? { publisherName: row.publisher_name as string }
+        : {}),
+      ...(row.announcement_pinned_at !== null
+        ? { pinnedForEveryone: (row.announcement_pinned_at as Date).toISOString() }
+        : {}),
       /* Always present, unlike most of this projection: false is a real answer here and
          "absent" would make every unset conversation indistinguishable from a query that
          did not ask. */
