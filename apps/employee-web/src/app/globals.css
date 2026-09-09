@@ -11830,3 +11830,125 @@ input.signin-control {
     border-radius: 0;
   }
 }
+
+/* =====================================================================================
+   The two empty states
+
+   `conversations/page.tsx` explains why there are two. What the stylesheet adds is that
+   they share a frame: the same tile, the same heading rhythm, the same pair of buttons in
+   the same place. A returning user who has seen the welcome once should recognise the
+   quiet version as the same screen with less on it, not meet a second design.
+   ===================================================================================== */
+
+/* The welcome is taller than the quiet state and needs room to breathe at the top. */
+.empty-splash.welcome {
+  gap: var(--space-5);
+  max-width: 520px;
+}
+
+/* "Welcome to StarLink" - the product's own name in the brand colour, and the only place
+   in the application where a word is coloured for emphasis. It is the one screen that is
+   introducing the product rather than being it. */
+.welcome-mark {
+  color: var(--accent);
+}
+
+.welcome-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  width: 100%;
+}
+
+.welcome-cards li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  text-align: left;
+}
+
+.welcome-cards strong {
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+}
+
+.welcome-cards span:last-child {
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.welcome-card-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+/*
+   The three notes at the foot of the quiet state.
+
+   Not buttons, and styled so nobody tries: no border, no fill, no hover. They say what the
+   place is for to somebody hesitating over the two real controls above them.
+*/
+.empty-notes {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-4) 0 0;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: center;
+  gap: var(--space-6);
+  width: 100%;
+  max-width: 420px;
+}
+
+.empty-notes li {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--text-base);
+  color: var(--text-muted);
+}
+
+.empty-notes strong {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.empty-note-mark {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  margin-bottom: 2px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--text-secondary);
+}
+
+/* One column on a phone: two cards side by side at 360px is two words per line. */
+@media (max-width: 560px) {
+  .welcome-cards {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .empty-notes {
+    gap: var(--space-4);
+  }
+}

@@ -586,6 +586,15 @@ export const api = {
       { method: 'POST' },
     ),
 
+  /**
+   * Has the caller ever been in a conversation?
+   *
+   * The empty thread pane asks, because an empty list means two different things and the
+   * right thing to say differs completely between them.
+   */
+  firstRun: () =>
+    request<{ hasEverConversed: boolean }>(employeeRoutes.conversations.firstRun),
+
   /** Opens an announcement addressed to every active employee. */
   announce: (title: string) =>
     request<{ conversationId: string }>(employeeRoutes.conversations.announce, {

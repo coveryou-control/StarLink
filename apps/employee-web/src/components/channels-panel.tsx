@@ -132,9 +132,9 @@ export function ChannelsPanel({
       );
       return undefined;
     }
-    // `onLoaded` is a fresh closure every render in the shell; depending on it would reload
-    // the directory on every parent render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    /* Deliberately empty. `onLoaded` is a fresh closure every render in the shell, so
+       depending on it would reload the directory on every parent render - and the shell
+       renders on every keystroke in the search field above it. */
   }, []);
 
   useEffect(() => {

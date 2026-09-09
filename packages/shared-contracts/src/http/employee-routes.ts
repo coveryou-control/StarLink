@@ -290,6 +290,8 @@ export const employeeRoutes = {
     /** One person's mute and pin for one thread. See the table's own note on whose. */
     preferences: (conversationId: string) =>
       `${EMPLOYEE_API_BASE}/conversations/${conversationId}/preferences`,
+    /** Whether the caller has ever been in a conversation - see the empty pane. */
+    firstRun: `${EMPLOYEE_API_BASE}/conversations/first-run`,
     announce: `${EMPLOYEE_API_BASE}/conversations/announcements`,
     announcePermission: `${EMPLOYEE_API_BASE}/conversations/announcements/permission`,
     messages: (conversationId: string) =>

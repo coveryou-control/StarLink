@@ -431,6 +431,27 @@ export class EmployeeConversationsController {
    * first 2000 employees and silently missed the rest would be worse than one that did not
    * open, because nobody would know which they had.
    */
+  /**
+   * Is this the caller's first time here?
+   *
+   * Asked by the empty thread pane, which has two quite different things to say: a welcome
+   * for somebody who has never started a conversation, and a plain "nothing open" for
+   * somebody who has and simply has nothing selected. Showing the welcome every time
+   * anybody closed a thread would be the product failing to recognise its own users.
+   *
+   * No authorization beyond the session, and none is needed: the answer is one boolean
+   * about the CALLER, derived from their own participation. It discloses nothing about
+   * anybody else and nothing they could not learn by looking at their own sidebar.
+   *
+   * Declared before `:conversationId`-shaped routes would be, though this controller has
+   * none - the same care `announcements/permission` takes.
+   */
+  @Get('first-run')
+  async firstRun(@Req() request: AuthenticatedRequest): Promise<unknown> {
+    const session = request.session!;
+    return { hasEverConversed: await this.reader.hasEverConversed(session.principalId) };
+  }
+
   @Post('announcements')
   async announce(@Body() body: unknown, @Req() request: AuthenticatedRequest): Promise<unknown> {
     const parsed = announceSchema.safeParse(body);

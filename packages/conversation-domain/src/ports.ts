@@ -261,6 +261,13 @@ export interface ConversationCursor {
 }
 
 export interface ConversationReader {
+  /**
+   * Has this person ever been in a conversation of their own?
+   *
+   * Answers the one question an empty list cannot: whether the emptiness is a new joiner or
+   * somebody who has archived everything. See the implementation for what counts.
+   */
+  hasEverConversed(principalId: UUID): Promise<boolean>;
   /** The caller's threads, newest activity first. Scoped by participation, not filtered after. */
   listForPrincipal(
     principalId: UUID,

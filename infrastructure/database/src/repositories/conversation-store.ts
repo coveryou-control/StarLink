@@ -387,6 +387,47 @@ export class PgConversationReader implements ConversationReader {
   constructor(private readonly pool: pg.Pool) {}
 
   /**
+   * Has this person ever been in a conversation at all?
+   *
+   * ## Why the LIST cannot answer this
+   *
+   * The empty inbox and the new joiner look identical from the client: both have nothing to
+   * show. They are not the same person. Somebody who archived their last thread this morning
+   * does not want to be welcomed to the product, and somebody on their first day does not
+   * want a shrug.
+   *
+   * ## What counts, and what deliberately does not
+   *
+   * Only INTERNAL_DIRECT and INTERNAL_GROUP - conversations somebody chose to be in.
+   *
+   * Announcements are excluded because every active employee is made a participant of every
+   * one at the moment it is posted (see 0014). A joiner who happened to arrive before an
+   * announcement would have "history" they had no part in, and the welcome would never be
+   * shown to anybody in a workspace that had ever posted one.
+   *
+   * Channels are excluded for a weaker version of the same reason: a department channel can
+   * carry membership somebody was given rather than sought. Joining one is a real act, but
+   * it is not the act this question is about, which is "have you talked to anybody here".
+   *
+   * ## Ended participation still counts
+   *
+   * No `effective_to` filter. Somebody who left every group they were in has still used the
+   * product, and re-welcoming them would be the product forgetting them.
+   */
+  async hasEverConversed(principalId: UUID): Promise<boolean> {
+    const result = await this.pool.query(
+      `SELECT 1
+         FROM conversation.participants p
+         JOIN conversation.conversations c ON c.conversation_id = p.conversation_id
+        WHERE p.principal_id = $1
+          AND c.conversation_type IN ('INTERNAL_DIRECT', 'INTERNAL_GROUP')
+        LIMIT 1`,
+      [principalId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  /**
    * The caller's threads.
    *
    * Scope is applied by JOINING participation, not by fetching everything and

@@ -33,7 +33,6 @@ import {
   SharedFiles,
 } from '../../../components/conversation-info';
 import { ConversationSearch } from '../../../components/conversation-search';
-import { ConfirmDialog } from '../../../components/confirm-dialog';
 import { GroupGlyph } from '../../../components/group-glyph';
 import { PinnedBar } from '../../../components/pinned-bar';
 import { ForwardDialog } from '../../../components/forward-dialog';
