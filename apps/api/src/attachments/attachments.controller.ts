@@ -78,7 +78,7 @@ class AttachmentPlumbing {
        * enforces as a join on every read. §21.5's model is that participation grants that
        * conversation and nothing else (rule 3).
        */
-      mayReadConversation: async (principalId, conversationId) => {
+      mayActOnConversation: async (principalId, conversationId, action) => {
         if (actorKind === 'CUSTOMER') {
           const row = await this.pool.query(
             `SELECT 1 FROM conversation.participants
@@ -97,10 +97,10 @@ class AttachmentPlumbing {
         const claims = await this.identity.resolvePrincipal(principalId);
         if (!claims.ok) return false;
         return recordDecision(
-          'conversation.read',
+          action,
           decide({
             actor: toActorContext(claims.value),
-            action: 'conversation.read',
+            action,
             resource,
             now: at,
           }),
@@ -157,7 +157,7 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
     const at = new Date().toISOString();
     // Authorized against the CONVERSATION before anything is granted: the right to
     // attach is the right to write here, and §28.1 rejects before bytes exist.
-    if (!(await this.portsFor(at, 'EMPLOYEE').mayReadConversation(session.principalId, conversationId.data))) {
+    if (!(await this.portsFor(at, 'EMPLOYEE').mayActOnConversation(session.principalId, conversationId.data, 'conversation.read'))) {
       return refuse();
     }
 
@@ -241,9 +241,12 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
 
     const at = new Date().toISOString();
     const ports = this.portsFor(at, 'EMPLOYEE');
-    const allowed = await ports.mayReadConversation(
+    const allowed = await ports.mayActOnConversation(
       request.session!.principalId,
       conversationId.data,
+      /* The shared-files LIST is metadata about the conversation, not the bytes — a read.
+         The download action is evaluated where the bytes are actually handed over. */
+      'conversation.read',
     );
     if (!allowed) return refuse();
 
@@ -339,7 +342,7 @@ export class CustomerAttachmentsController extends AttachmentPlumbing {
 
     const session = request.session!;
     const at = new Date().toISOString();
-    if (!(await this.portsFor(at, 'CUSTOMER').mayReadConversation(session.principalId, conversationId.data))) {
+    if (!(await this.portsFor(at, 'CUSTOMER').mayActOnConversation(session.principalId, conversationId.data, 'conversation.read'))) {
       return refuse();
     }
 
