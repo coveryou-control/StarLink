@@ -4249,13 +4249,34 @@ input[type='search']::-webkit-search-cancel-button {
     transform var(--dur) var(--ease);
 }
 
+/*
+   A disc, and the glyph points RIGHT.
+
+   The named variant beside it ("Send to customer") stays a rounded rectangle, because it is
+   a button with words in it. This one has no words - the glyph is the whole label - and a
+   circle is what a single-glyph primary action looks like everywhere people have used one.
+
+   The paper plane replaced an arrow up on 2026-09-09; `composer.tsx` carries the reasoning.
+   The colour is unchanged: StarLink's accent, which is the coral this product reserves for
+   the one thing on a screen that should be acted on.
+*/
 .composer-send.icon {
   width: 40px;
   padding: 0;
-  border-radius: var(--radius);
+  border-radius: 50%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+
+/*
+   The plane sits a hair left of centre when it is centred.
+
+   Its visual mass is in the tail, so geometric centring reads as pushed right - the
+   classic play-button problem. One pixel is the whole correction and it is worth the line.
+*/
+.composer-send.icon svg {
+  margin-left: -1px;
 }
 
 /*

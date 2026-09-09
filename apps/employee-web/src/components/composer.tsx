@@ -924,17 +924,37 @@ export function Composer({
               'Send to customer'
             )
           ) : (
-            /* An arrow UP, as the reference draws it — not a paper plane. On a colleague
-               thread the button has no words, so the glyph is the whole label, and "up" is
-               the one every messaging application uses for send. */
+            /*
+               A paper plane pointing RIGHT.
+
+               It was an arrow up, on the reasoning that "up" is what every messaging
+               application uses for send. That was not right and the correction came from
+               use: the reference screens people actually compare this against send to the
+               right, and up is the gesture for a thread you are appending to on a PHONE,
+               where the composer sits under the messages. Here it sits beside them, and the
+               message travels along the row.
+
+               Drawn as a filled plane rather than a stroked chevron because the button is a
+               solid disc — a hairline glyph on a filled accent circle reads as a hole in it,
+               and at 20px the stroke was the thinnest thing on the screen.
+
+               The shape only. Nothing here borrows a colour: the disc stays StarLink's
+               accent, which is the coral this product uses for the one thing on a screen
+               that should be acted on.
+            */
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
               <path
-                d="M12 19.5V5m0 0-6.5 6.5M12 5l6.5 6.5"
+                d="M3.4 11.3 19.1 4.6a.7.7 0 0 1 .93.93L13.36 21.2a.7.7 0 0 1-1.3-.05l-2.2-6.06a.7.7 0 0 0-.42-.42l-6.06-2.2a.7.7 0 0 1-.05-1.3Z"
+                fill="currentColor"
+              />
+              {/* The fold. One line, and it is what makes the shape read as a plane rather
+                  than as a triangle with a notch in it. */}
+              <path
+                d="m10.1 14.2 3.6-3.6"
                 fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+                stroke="var(--accent)"
+                strokeWidth="1.4"
                 strokeLinecap="round"
-                strokeLinejoin="round"
               />
             </svg>
           )}
