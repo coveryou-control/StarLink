@@ -172,6 +172,42 @@ export class S3ObjectStorage implements ObjectStorageProvider {
   }
 
   /**
+   * The quarantined bytes, for the scanner.
+   *
+   * ## Why this exists on the driver and not on the port
+   *
+   * `ObjectStorageProvider` deliberately has no read method: the application never streams
+   * file contents (ADR-012), so a general read would be an affordance nothing should use.
+   * The mock exposes one for dev, and this is the same shape for the S3 driver — reachable
+   * by the scanner wiring, invisible to everything that goes through the port.
+   *
+   * ## Why it was needed
+   *
+   * The scanner's byte reader was `storage instanceof MockObjectStorage ? … : undefined`.
+   * `LocalObjectStorage` extends the mock so it worked; `S3ObjectStorage` does not, so
+   * every read returned `undefined`, every scan reported QUARANTINE_OBJECT_MISSING, and
+   * nothing was ever promoted to BOUND — no attachment in a deployed environment would
+   * ever have been downloadable. Fail-closed, and silent.
+   *
+   * A real scanner (N-06) reads the object itself with its own credentials and will not
+   * use this. It is what makes the DEV scanner usable against MinIO or S3 in staging,
+   * which is the configuration that would otherwise fail invisibly.
+   */
+  async readQuarantine(key: string): Promise<Uint8Array | undefined> {
+    if (!key.startsWith(QUARANTINE_PREFIX)) return undefined;
+    try {
+      const result = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      return new Uint8Array(await S3ObjectStorage.collect(result.Body));
+    } catch {
+      /* Missing, or unreadable. Both mean the scanner has nothing to look at, and the
+         caller already treats that as "could not run" rather than "clean". */
+      return undefined;
+    }
+  }
+
+  /**
    * A short-lived presigned GET.
    *
    * Authorization happened before this was called — the URL itself is a bearer capability,

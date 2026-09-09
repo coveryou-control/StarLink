@@ -555,8 +555,26 @@ const providers: Provider[] = [
      * The production scanner is N-06 and carries a recurring cost that D-07's answer
      * ("claims only") commits us to.
      */
-    useFactory: (storage: ObjectStorageProvider) =>
-      new DevAttachmentScanner({
+    useFactory: (storage: ObjectStorageProvider) => {
+      const candidate = (storage as { readQuarantine?: unknown }).readQuarantine;
+      /**
+       * A driver with no way to hand the scanner its bytes cannot be scanned against, and
+       * that must be a refusal at startup rather than a scan loop that never promotes.
+       * Every driver in the tree has one; a new one that forgets will stop here with its
+       * name attached instead of failing silently in production.
+       */
+      if (typeof candidate !== 'function') {
+        throw new Error(
+          `StarLink API refused to start:
+  - the attachment scanner has no way to read ` +
+            `bytes from ${storage.constructor.name}. It needs a readQuarantine(key) method; ` +
+            'without one every scan reports the object missing and no attachment is ever ' +
+            'promoted to BOUND.',
+        );
+      }
+      const reader = candidate.bind(storage) as (key: string) => Promise<Uint8Array | undefined>;
+
+      return new DevAttachmentScanner({
         /**
          * Where the scanner gets its bytes.
          *
@@ -568,10 +586,25 @@ const providers: Provider[] = [
          * returning undefined at runtime.
          */
         storage: {
-          read: async (key) =>
-            storage instanceof MockObjectStorage ? storage.readQuarantine(key) : undefined,
+          /**
+           * Found by CAPABILITY, not by concrete class.
+           *
+           * This was `storage instanceof MockObjectStorage ? … : undefined`, and the
+           * comment above claimed the narrowing made a driver without the method fail to
+           * compile. It did not. `LocalObjectStorage` extends the mock so dev worked;
+           * `S3ObjectStorage` does not, so under the only deployable driver every read
+           * returned `undefined`, every scan reported QUARANTINE_OBJECT_MISSING, and no
+           * attachment was ever promoted to BOUND. Fail-closed — nothing unscanned became
+           * reachable — but no attachment would have been downloadable either, and nothing
+           * said so.
+           *
+           * Asking whether the driver HAS a reader is the check that survives a new driver
+           * being added, which is what the `instanceof` was reaching for.
+           */
+          read: async (key) => reader(key),
         },
-      }),
+      });
+    },
   },
   AttachmentService,
   {
