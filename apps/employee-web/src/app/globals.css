@@ -9006,9 +9006,21 @@ input.signin-control {
      radius means this never has to know which. */
 }
 
+/*
+   Every tile that can hold a photograph, and both properties are load-bearing.
+
+   `.avatar-photo` is `position: absolute; inset: 0`, so without `position: relative` here
+   it resolves against whatever IS positioned further up - and on 2026-09-09 that was the
+   message row, which stretched a 256px photograph into a black band the full width of the
+   thread. `.message-avatar` was added to this list the same day, for exactly that.
+
+   `overflow: hidden` is what makes a square photograph round: the radius is on the tile and
+   the image inherits it, but a `cover` fit still paints outside the curve without this.
+*/
 .row-avatar,
 .chat-avatar,
 .rail-avatar,
+.message-avatar,
 .sidenav-you-avatar {
   position: relative;
   overflow: hidden;
