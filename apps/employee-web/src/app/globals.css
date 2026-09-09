@@ -170,8 +170,29 @@
      to be read. This is the same hue two steps lighter: still unmistakably "mine", still
      white text at well over AA, and no longer a hole in the page.
   */
-  --bubble-mine: #676676;
-  --bubble-mine-ink: var(--btn-primary-label);
+  /*
+     Own messages are a PALE LAVENDER with dark text — the "Soft, light bubbles" direction.
+
+     They were a mid-grey slab with white text, which made a run of your own messages the
+     heaviest thing in a thread whose job is to be read. Tinting instead of darkening keeps
+     "mine" unmistakable at a glance while a long thread stays light all the way down, which
+     is the whole point of the direction.
+
+     Everything derived — the meta, the ticks, a quoted reply inside your own bubble — is a
+     `color-mix` of `--bubble-mine-ink`, so flipping the ink from light to dark carries all
+     of them with it and none had to be restated.
+  */
+  --bubble-mine: #e9e7fb;
+  --bubble-mine-ink: #262340;
+  /*
+     The hairline around a photograph or a video.
+
+     A picture sent edge to edge has no boundary of its own, so a light image on the light
+     thread ground simply stopped, with nothing to say where. The frame is deliberately
+     fainter than `--border`: it has to separate the picture from the page without becoming
+     a box drawn around every photo in the thread.
+  */
+  --media-frame: rgb(23 22 31 / 12%);
   --bubble-them: var(--base-surface-primary);
 
   /* --- status ----------------------------------------------------------------------
@@ -335,6 +356,19 @@
    restated.
 */
 :root[data-theme='dark'] {
+  /*
+     The same lavender identity, inverted rather than reused.
+
+     A pale bubble with dark text is right on paper and wrong on a dim page — it would be
+     the brightest thing on screen, on every message you sent. So the hue is kept and the
+     lightness swapped: a deep lavender carrying light ink, still obviously "mine" and still
+     distinct from the incoming bubble beside it.
+  */
+  --bubble-mine: #383357;
+  --bubble-mine-ink: #ece9fb;
+  /* Light on a dim ground, for the same reason the incoming bubble lifts rather than
+     darkens: a darker line on a dark page is not a line. */
+  --media-frame: rgb(255 255 255 / 15%);
   /* Lifted off a black page, so the rail is still a distinct plane rather than a seam. */
   --rail-bg: var(--neutral-100);
   --rail-fg: rgb(255 255 255 / 55%);
@@ -9393,6 +9427,7 @@ input.signin-control {
   display: block;
   overflow: hidden;
   border-radius: 10px;
+  border: 1px solid var(--media-frame);
   /*
      A plain pixel bound, deliberately NOT `min(320px, 100%)`.
 
@@ -9565,12 +9600,17 @@ input.signin-control {
 .message-row.media-only .message-main {
   padding: 0;
   overflow: hidden;
+  /* The bubble owns the rounded corner here, so it owns the frame too — a border on the
+     media inside would be clipped square against a rounded edge. */
+  border: 1px solid var(--media-frame);
 }
 
 .message-row.media-only .message-main .attachment-media,
 .message-row.media-only .message-main .attachment-media img,
 .message-row.media-only .message-main .attachment-media video {
   border-radius: 0;
+  /* Not doubled: the bubble above is already drawing it. */
+  border: 0;
 }
 
 .message-row.media-only .message-main .bubble-meta {
@@ -10176,4 +10216,17 @@ input.signin-control {
     -webkit-user-select: none;
     user-select: none;
   }
+}
+
+/* =====================================================================================
+   "Draft:" on a conversation row.
+
+   The accent, because this is the one thing on the row the person still has to act on —
+   rule 1 says orange is a SIGNAL, and an unfinished message is exactly that. The text
+   after it stays the ordinary preview colour, so the label carries the emphasis and the
+   words stay readable.
+   ===================================================================================== */
+.row-draft {
+  color: var(--accent-ink);
+  font-weight: 600;
 }

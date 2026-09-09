@@ -82,6 +82,12 @@ describe('the theme switch is wired to the design system', () => {
      * One small block is legitimate and expected: the handful of values that are NOT kit
      * tokens (the rail's translucent overlays, the scrollbar thumb). The bound is what
      * stops a whole palette creeping back in.
+     *
+     * Raised from 8 to 9 on 2026-09-09 for the light-bubble direction. `--bubble-mine`,
+     * `--bubble-mine-ink` and `--media-frame` cannot be expressed as kit tokens: the export
+     * carries brand, critical, info, neutral, success and warning ramps and no violet at
+     * all, so a lavender has nowhere else to live. Set to the EXACT current count rather
+     * than left with slack — the next addition should have to justify itself here too.
      */
     const blocks = [...css.matchAll(/:root\[data-theme='dark'\]\s*\{([^}]*)\}/g)];
     expect(blocks.length, 'expected exactly one local dark block').toBe(1);
@@ -90,7 +96,7 @@ describe('the theme switch is wired to the design system', () => {
       declarations.length,
       'the local dark block has grown into a second palette; it should only carry values ' +
         'the design system does not define',
-    ).toBeLessThanOrEqual(8);
+    ).toBeLessThanOrEqual(9);
   });
 
   it('offers exactly the three choices the module can resolve', () => {
