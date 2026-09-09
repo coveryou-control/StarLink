@@ -213,6 +213,11 @@ export class EmployeeSearchController {
         ...(hit.senderDisplayName !== undefined
           ? { senderDisplayName: hit.senderDisplayName }
           : {}),
+        /* So a result can carry the sender's face. See the contract for why this discloses
+           nothing the name beside it does not. */
+        ...(hit.senderPrincipalId !== undefined
+          ? { senderPrincipalId: hit.senderPrincipalId }
+          : {}),
       })),
       ...(result.page.nextCursor !== undefined ? { nextCursor: result.page.nextCursor } : {}),
     };

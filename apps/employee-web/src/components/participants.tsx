@@ -64,6 +64,8 @@ export function Participants({
   const { state: session } = useSession();
   const members = active?.participants ?? [];
   const meName = session.status === 'SIGNED_IN' ? session.me.displayName : 'You';
+  /** For your own avatar in the members list — the stamp map always carries the caller. */
+  const signedInId = session.status === 'SIGNED_IN' ? session.me.principalId : undefined;
   const isGroup = active?.conversationType === 'INTERNAL_GROUP';
 
   /**
@@ -387,6 +389,19 @@ export function Participants({
             <li>
               <span className="row-avatar" aria-hidden="true">
                 {initialsFor(meName)}
+                {/*
+                   Your own picture, which this row alone was missing.
+
+                   Every other member below renders one and this did not, so the person
+                   whose photograph it is - the one person guaranteed to know they have set
+                   one - was the only member of the group shown as two letters. Reported
+                   from use on 2026-09-09.
+
+                   `signedInId` rather than a lookup: the stamp map always carries the
+                   caller (the shell adds them explicitly, because a summary need not list
+                   the reader among its own participants).
+                */}
+                <AvatarImage principalId={signedInId} alt="" />
               </span>
               <span className="person-name">
                 {meName} <span className="muted">(you)</span>

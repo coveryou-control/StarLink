@@ -9021,6 +9021,9 @@ input.signin-control {
 .chat-avatar,
 .rail-avatar,
 .message-avatar,
+.search-avatar,
+.person-avatar,
+.chosen-avatar,
 .sidenav-you-avatar {
   position: relative;
   overflow: hidden;

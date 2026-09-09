@@ -211,6 +211,7 @@ export class PgSearchProvider implements SearchProvider {
                    system-authored message has no sender and must still be findable.
                 */
                 sender.display_name AS sender_display_name,
+                m.sender_principal_id AS sender_principal_id,
                 ts_headline('${FTS_CONFIG}', m.body, ${PREFIX_QUERY},
                             'MaxFragments=1, MaxWords=18, MinWords=5, StartSel=<<, StopSel=>>') AS snippet,
                 ts_rank(m.search_vector, ${PREFIX_QUERY}) AS rank
@@ -237,6 +238,9 @@ export class PgSearchProvider implements SearchProvider {
             createdAt: (row.created_at as Date).toISOString() as Timestamp,
             ...(row.sender_display_name !== null && row.sender_display_name !== undefined
               ? { senderDisplayName: row.sender_display_name as string }
+              : {}),
+            ...(row.sender_principal_id !== null && row.sender_principal_id !== undefined
+              ? { senderPrincipalId: row.sender_principal_id as string }
               : {}),
           }),
         ),

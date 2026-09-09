@@ -469,6 +469,8 @@ export interface SearchHit {
   /** Who wrote it and when — see the contract for why the conversation's name is not here. */
   readonly createdAt?: string;
   readonly senderDisplayName?: string;
+  /** So the row can draw their photograph rather than their initials. */
+  readonly senderPrincipalId?: string;
 }
 
 /** An in-app notification (§29.2, §19.6). Body-free by design — it points, it does not tell. */

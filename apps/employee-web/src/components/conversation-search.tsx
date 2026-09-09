@@ -50,6 +50,7 @@ import {
 import { conversationLabel, initialsFor, relativeTime as when } from './conversation-naming';
 import { extensionOf, formatBytes } from './attachment-picker';
 import { requestBrowseDirectory } from '../lib/shell-actions';
+import { AvatarImage } from './avatar-image';
 
 /**
  * The reference's four tabs. "All" is not a fourth query — it is the other three, shown
@@ -442,6 +443,9 @@ export function ConversationSearch({
                           {hit.senderDisplayName === undefined
                             ? '·'
                             : initialsFor(hit.senderDisplayName)}
+                          {/* The sender's picture over their initials, as every other list
+                              of people in the product now does. */}
+                          <AvatarImage principalId={hit.senderPrincipalId} alt="" />
                         </span>
                         <span className="search-text">
                           {/*
@@ -551,6 +555,7 @@ export function ConversationSearch({
                       <button type="button" onClick={() => requestBrowseDirectory()}>
                         <span className="search-avatar" aria-hidden="true">
                           {initialsFor(person.displayName)}
+                          <AvatarImage principalId={person.principalId} alt="" />
                         </span>
                         <span className="search-text">
                           <span className="search-name">{person.displayName}</span>
