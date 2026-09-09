@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { identityStyle } from '../lib/identity-colour';
 import type { ReactNode } from 'react';
 
 import { initialsFor } from './conversation-naming';
@@ -62,7 +63,7 @@ export function MentionPicker({
           }}
         >
           <span className="avatar-wrap">
-            <span className="row-avatar" aria-hidden="true">
+            <span className="row-avatar identity" aria-hidden="true" style={identityStyle(candidate.principalId)}>
               {candidate.principalId === undefined ? '@' : initialsFor(candidate.label)}
             </span>
             {candidate.principalId !== undefined ? (

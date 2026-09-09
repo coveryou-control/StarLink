@@ -8,6 +8,7 @@ import { initialsFor } from './conversation-naming';
 import { PresenceDot, PresenceProvider } from './presence';
 import { useSession } from './session-provider';
 import { usePresence } from '../lib/use-presence';
+import { identityStyle } from '../lib/identity-colour';
 import { api, ApiError, type DirectoryEntry } from '../lib/api-client';
 
 /**
@@ -271,7 +272,7 @@ export function Directory({
                 disabled={opening !== undefined}
               >
                 <span className="avatar-wrap">
-                  <span className="row-avatar" aria-hidden="true">
+                  <span className="row-avatar identity" aria-hidden="true" style={identityStyle(entry.principalId)}>
                     {initialsFor(entry.displayName)}
                   </span>
                   <PresenceDot principalId={entry.principalId} />

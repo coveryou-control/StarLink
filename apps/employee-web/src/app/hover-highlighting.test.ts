@@ -16,6 +16,9 @@ import { describe, expect, it } from 'vitest';
  *
  * So the line is held here. Adding one back fails the build with the selector named.
  *
+ * Two selectors are exempt by name — see `EXEMPT_EXACT` below for the conversation row and
+ * why it is the one place the sweep went too far. Everything else still fails.
+ *
  * ## What is still allowed, and why the distinction matters
  *
  * `:hover` itself is not the problem. Two different things wear it:
@@ -46,7 +49,28 @@ const CSS = readFileSync(join(__dirname, 'globals.css'), 'utf8');
 const PAINTS_A_BOX =
   /^\s*(background|background-color|background-image|box-shadow|outline|border|border-color|border-[a-z]+-color|filter|backdrop-filter)\s*:/i;
 
+/**
+ * The two exemptions, and they are exemptions rather than holes.
+ *
+ * The scrollbar thumb keeps its darkening — it is the browser's own convention for "you
+ * can grab this", six pixels wide, and not drawn behind any content.
+ *
+ * `.conversation-row` was added on 2026-09-09, after an external review measured the list
+ * and found no feedback of any kind under the pointer. It is the case this ban was never
+ * really about. The rows are the primary navigation of the product, they carry no divider
+ * between them by deliberate choice (see the comment above the rule), and with no fill on
+ * hover there was nothing at all telling you which of eight rows a click would open. The
+ * sweep that removed fifty-nine incidental highlights had taken the one doing a job with
+ * them.
+ *
+ * Written as exact selectors, not a prefix. `.conversation-row .something:hover` is not
+ * exempt, and neither is the next component that would like to be.
+ */
 const EXEMPT_SELECTOR = /::-webkit-scrollbar/;
+const EXEMPT_EXACT = new Set([
+  '.conversation-row:hover',
+  ".conversation-row[aria-current='page']:hover",
+]);
 
 /** Every `selector { declarations }` pair, comment- and nesting-aware enough for this file. */
 function leafRules(css: string): { selector: string; body: string }[] {
@@ -68,7 +92,8 @@ describe('hover states never paint a highlight', () => {
     (rule) =>
       rule.selector.includes(':hover') &&
       !rule.selector.startsWith('@') &&
-      !EXEMPT_SELECTOR.test(rule.selector),
+      !EXEMPT_SELECTOR.test(rule.selector) &&
+      !EXEMPT_EXACT.has(rule.selector),
   );
 
   it('finds the hover rules it is supposed to be checking', () => {
@@ -91,6 +116,17 @@ describe('hover states never paint a highlight', () => {
       .sort();
 
     expect(offenders).toEqual([]);
+  });
+
+  it('exempts exactly two selectors, and no more', () => {
+    /*
+       The exemption list is the part of this guard most likely to grow — it is one line to
+       add a selector and the reason always sounds good in the moment. Pinning the count
+       means widening it is a deliberate edit to a test that says why, rather than a line
+       in a component's diff.
+    */
+    expect(EXEMPT_EXACT.size).toBe(2);
+    expect([...EXEMPT_EXACT].every((s) => s.startsWith('.conversation-row'))).toBe(true);
   });
 
   it('keeps hover rules that only reveal a control', () => {

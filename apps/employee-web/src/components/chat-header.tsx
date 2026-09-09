@@ -12,6 +12,7 @@ import { AvatarImage, ConversationAvatarImage } from './avatar-image';
 import { DeclaredStatusBadge, PresenceDot, useIsOnline, useOnlineSet } from './presence';
 import { useColleague } from './conversation-info';
 import type { ConversationSummary } from '../lib/api-client';
+import { identityStyle } from '../lib/identity-colour';
 
 /**
  * Who you are talking to, at the top of the thread.
@@ -180,7 +181,11 @@ export function ChatHeader({
     <>
       {isGroup ? null : (
         <span className="avatar-wrap">
-          <span className={`chat-avatar${isGroup ? ' group' : ''}`} aria-hidden="true">
+          <span
+            className={`chat-avatar identity${isGroup ? ' group' : ''}`}
+            aria-hidden="true"
+            style={identityStyle(isGroup ? conversation?.conversationId : others[0]?.principalId)}
+          >
             {conversation !== undefined && avatarFor(conversation).isGroup ? (
               <>
                 <GroupGlyph />
@@ -320,7 +325,11 @@ export function ChatHeader({
         {isGroup && others.length > 0 ? (
           <span className="avatar-stack" aria-hidden="true">
             {others.slice(0, 3).map((person) => (
-              <span key={person.principalId} className="chat-avatar stacked">
+              <span
+                key={person.principalId}
+                className="chat-avatar stacked identity"
+                style={identityStyle(person.principalId)}
+              >
                 {initialsFor(person.displayName)}
               </span>
             ))}

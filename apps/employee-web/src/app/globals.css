@@ -370,6 +370,41 @@
      darkens: a darker line on a dark page is not a line. */
   --media-frame: rgb(255 255 255 / 15%);
   /* Lifted off a black page, so the rail is still a distinct plane rather than a seam. */
+  /*
+     Raised means LIGHTER, and in dark it did not.
+
+     The export makes `--base-surface-primary` the extreme at both ends: white in light,
+     pure black in dark. That is right for a page and wrong for everything the product
+     builds out of it — the header, the composer, a card, the selected row and the incoming
+     bubble all take `--surface`, and in dark they were therefore rgb(0,0,0) sitting on a
+     rgb(23,23,23) thread. Every raised object in the product was the darkest thing on the
+     screen. Measured: incoming bubble 1.17:1 against the thread, selected row 1.17:1
+     against the list, and both of them BELOW their own ground rather than above it. The
+     hierarchy was not flat, it was inverted.
+
+     Re-pointed, not re-declared. These name kit tokens, so a re-export moves them and
+     nothing here can drift out of step with it — which is the thing this block is bounded
+     to prevent. `neutral-100-2` and `neutral-50-2` are the export's slightly blue-shifted
+     darks; they read as surfaces rather than as absence, which flat grey at these values
+     does not.
+  */
+  --surface: var(--neutral-100-2);
+  /*
+     Theirs, lifted off the page.
+
+     Rule 2 draws the incoming bubble as "white with a 1px hairline", and in light that is
+     exactly right — the hairline carries the edge and the fill barely needs to. In dark the
+     same rule resolved to PURE BLACK with a hairline, on a near-black thread, which is not
+     the dark equivalent of that drawing: black on black has no white-on-off-white to fall
+     back on. A group read as one visible speaker and one invisible one.
+
+     A step above the surface everything else sits on, so a run of incoming messages reads
+     as objects rather than as gaps between the ones you sent.
+  */
+  --bubble-them: var(--neutral-200-2);
+  --surface-2: var(--neutral-50-2);
+  --bg: var(--neutral-0);
+  --chat-bg: var(--neutral-0);
   --rail-bg: var(--neutral-100);
   --rail-fg: rgb(255 255 255 / 55%);
   --rail-item-active: rgb(255 255 255 / 14%);
@@ -1601,6 +1636,10 @@ input[type='search']::-webkit-search-cancel-button {
    drawing: orange here would put a second loud element beside the unread badges, which
    are the thing in this column that has to be noticed.
 */
+/* The ONE place the kit's neutral primary survives, and the comment above says why: orange
+   here would compete with the unread badges a foot away, which are the thing in this column
+   that has to be noticed. Every other use of it — the panel action, the settings tab, the
+   empty pane, the photo dialog — was a primary ACTION and is now accent. */
 .filter-pill.active {
   background: var(--btn-primary-bg);
   box-shadow: none;
@@ -1763,9 +1802,38 @@ input[type='search']::-webkit-search-cancel-button {
    thing the eye follows down the column is the avatars and the gaps, not a stack of rules.
 */
 
+/*
+   The row answers the pointer. The ONE exemption to the no-hover-highlight rule.
+
+   `hover-highlighting.test.ts` bans painting a box behind the pointer, and its reason is
+   sound: fifty-nine of them had accumulated before anybody named what they had done, and
+   the product felt shaded on everything you touched. That ban is still in force everywhere
+   else, and the test now fails for any selector but this one.
+
+   This is the exception because it is the case the ban was never really about. These rows
+   are the primary navigation of the product, they carry no divider between them, and until
+   now nothing at all happened when you pointed at one — so there was no way to tell which
+   of eight rows a click was about to open. A sweep aimed at incidental shading had removed
+   the one place it was doing a job.
+
+   DARKER on hover, where the selected row is LIGHTER. Opposite directions on purpose: a
+   hover tint moving the same way as selection would make every row you pass look like the
+   one you are in. Mixing from `--text` rather than naming a grey is what makes that hold
+   in dark, where the same declaration lightens instead.
+
+   Not `--hover`: that token resolves to `--base-surface-secondary`, which is the colour of
+   the column these rows sit on. It would have been a no-op.
+*/
 .conversation-row:hover {
   color: inherit;
   text-decoration: none;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+
+/* The selected row keeps its own card under the pointer — without this it dims as you
+   reach for the thing you are already reading. */
+.conversation-row[aria-current='page']:hover {
+  background: var(--surface);
 }
 
 /* Same reason: the back control and any other anchor inside the chrome. */
@@ -1785,6 +1853,34 @@ input[type='search']::-webkit-search-cancel-button {
 .conversation-row[aria-current='page'] {
   background: var(--surface);
   box-shadow: var(--hairline);
+}
+
+/*
+   And an accent bar down its leading edge.
+
+   The card alone measured 1.04:1 against the column in light and 1.14:1 in dark. The
+   hairline does carry it, and the comment above is right that the card survives greyscale
+   — but a fill that close to its ground means the hairline is carrying it ALONE, and a
+   hairline is one pixel of a colour that is itself low-contrast. In a list of eight rows
+   that is not enough to answer "which one am I in" at a glance.
+
+   A bar rather than a stronger fill, because rule 1 reserves orange for signals and the
+   active destination is one of the jobs it names. It adds a signal instead of replacing
+   the card, so the greyscale argument still holds and now there are two cues rather than
+   one and a half.
+
+   `::after` and not a border: a border would change the row's box and shift every avatar
+   three pixels when a row became selected.
+*/
+.conversation-row[aria-current='page']::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--accent);
 }
 
 /* Two lines, each a name-and-trailing-item pair. `min-width: 0` on both the column and the
@@ -4548,10 +4644,20 @@ input[type='search']::-webkit-search-cancel-button {
   font-weight: 500;
 }
 
+/*
+   Accent, not the kit's neutral primary.
+
+   `--btn-primary-bg` resolves to a near-black that appears nowhere in the palette this
+   product is drawn from, and it was being used for three unrelated jobs — this button, the
+   active settings tab, and the empty pane's "New chat". Three "primary" languages, one of
+   which won every screen it appeared on because black beats coral at a glance. Orange is
+   the signal (rule 1); a panel's one action is what a signal is for.
+*/
 .details-identity-actions button.primary {
-  background: var(--btn-primary-bg);
+  background: var(--accent);
   box-shadow: none;
-  color: var(--btn-primary-label);
+  color: var(--accent-contrast);
+  font-weight: 600;
 }
 
 /* =====================================================================================
@@ -5268,10 +5374,18 @@ input[type='search']::-webkit-search-cancel-button {
 /* Selected is the kit's filled primary — CY Grey, not orange. Rule 1 keeps the signal
    colour for things that want attention, and a settings section you are already reading
    does not. */
+/*
+   Selected, not primary — and those are different jobs wearing the same black.
+
+   A filled near-black tab is the loudest object on the settings screen and it is only
+   telling you where you already are. The accent TINT is the same selected-state language
+   the sidebar uses for its active destination, so the product now says "you are here" one
+   way instead of three.
+*/
 .settings-nav-item.active {
-  background: var(--btn-primary-bg);
-  color: var(--btn-primary-label);
-  font-weight: 500;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
 }
 
 .settings-content {
@@ -5384,9 +5498,10 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .settings-actions button.primary {
-  background: var(--btn-primary-bg);
+  background: var(--accent);
   box-shadow: none;
-  color: var(--btn-primary-label);
+  color: var(--accent-contrast);
+  font-weight: 600;
 }
 
 .settings-actions button:disabled {
@@ -10220,8 +10335,9 @@ input.signin-control {
 
 .photo-dialog-foot button.primary {
   border-color: transparent;
-  background: var(--btn-primary-bg);
-  color: var(--btn-primary-label);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
 }
 
 .photo-dialog-foot button:disabled {
@@ -10986,4 +11102,76 @@ input.signin-control {
   background: var(--danger, #e5484d);
   border-color: transparent;
   color: #fff;
+}
+
+
+/* =====================================================================================
+   IDENTITY COLOUR
+
+   One colour per person, the same on every surface. `identity-colour.ts` carries the
+   reasoning and the hue list; this is the half that turns one number into a matched pair.
+
+   Both values come from the SAME `--identity-h`, so the tint and the ink cannot drift
+   apart — which is exactly what had happened before: a hashed blue monogram on a fixed
+   pink circle, because the ink was hashed in the thread and the tint was a flat token
+   everywhere. Two half-schemes overlapping.
+
+   Placed at the end of the sheet deliberately. `.row-avatar.group` and the other avatar
+   variants are single-class-plus-element selectors of the same specificity, and later
+   wins — a group SHOULD take a per-conversation tint, which is what stops Archive being
+   six identical grey glyphs.
+
+   `--identity-h` is set inline by the component, from the principal id. Where nothing sets
+   it the fallback keeps the old accent tint, so a surface not yet converted looks exactly
+   as it did rather than falling back to grey.
+   ===================================================================================== */
+/*
+   Written at two-class specificity, not one.
+
+   `.row-avatar.group` and `.chat-avatar.group` are (0,2,0) and would beat a bare
+   `.identity` no matter where in the sheet it sat — which is why groups stayed grey on the
+   first attempt. Tinting them is the point: Archive was six rows of the identical grey
+   people-glyph, two pairs of which shared a name and were therefore not distinguishable
+   from one another at all.
+*/
+.identity,
+.row-avatar.identity,
+.chat-avatar.identity,
+.message-avatar.identity {
+  background: hsl(var(--identity-h, 7) 65% 91%);
+  color: hsl(var(--identity-h, 7) 62% 28%);
+}
+
+/*
+   The name above a message takes the INK only — there is no circle behind it, so the pair's
+   tint would be a highlight nobody asked for. `identity-colour.test.ts` checks this ink
+   against the page as well as against its own tint, for that reason.
+*/
+.identity-ink {
+  color: hsl(var(--identity-h, 7) 62% 28%);
+}
+
+/*
+   Dark: the pair inverts rather than dimming. A tint derived for a white page is a pale
+   disc on a black one — the brightest thing in the column, and attached to whichever
+   person happened to be talking.
+*/
+:root[data-theme='dark'] .identity,
+:root[data-theme='dark'] .row-avatar.identity,
+:root[data-theme='dark'] .chat-avatar.identity,
+:root[data-theme='dark'] .message-avatar.identity {
+  background: hsl(var(--identity-h, 7) 30% 24%);
+  color: hsl(var(--identity-h, 7) 70% 76%);
+}
+
+:root[data-theme='dark'] .identity-ink {
+  color: hsl(var(--identity-h, 7) 70% 76%);
+}
+
+/* A photograph covers the tint entirely, so the ring around it should not be a colour the
+   picture has nothing to do with. */
+.identity:has(img),
+.row-avatar.identity:has(img),
+.chat-avatar.identity:has(img) {
+  background: var(--surface-2);
 }

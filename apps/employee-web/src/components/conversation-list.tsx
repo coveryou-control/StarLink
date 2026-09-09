@@ -14,6 +14,7 @@ import { GroupGlyph } from './group-glyph';
 import { AvatarImage, ConversationAvatarImage } from './avatar-image';
 import { ConversationRowMenu } from './conversation-row-menu';
 import { api } from '../lib/api-client';
+import { identityStyle } from '../lib/identity-colour';
 import { MAX_PINNED_CONVERSATIONS } from '@starlink/shared-contracts';
 import { deliveryTick } from '@starlink/shared-contracts';
 import type { ConversationSummary } from '../lib/api-client';
@@ -402,8 +403,17 @@ export function ConversationList({
                 */}
                 <span className="avatar-wrap">
                   <span
-                    className={`row-avatar${avatarFor(conversation).isGroup ? ' group' : ''}`}
+                    className={`row-avatar identity${avatarFor(conversation).isGroup ? ' group' : ''}`}
                     aria-hidden="true"
+                    /* A group is hashed on the CONVERSATION, a person on the principal — so
+                       a group is one recognisable colour too. Archive was six rows of the
+                       same grey glyph, two pairs of which shared a name and were therefore
+                       indistinguishable. */
+                    style={identityStyle(
+                      avatarFor(conversation).isGroup
+                        ? conversation.conversationId
+                        : conversation.participants?.[0]?.principalId,
+                    )}
                   >
                     {avatarFor(conversation).isGroup ? (
                       <>

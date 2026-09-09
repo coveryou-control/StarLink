@@ -8,7 +8,8 @@ import { extensionOf, formatBytes } from './attachment-picker';
 import { AttachmentMedia, mediaKindOf } from './attachment-media';
 import { VoiceNote, isVoiceNote } from './voice-note';
 import { deliveryTick, type DeliveryTick } from '@starlink/shared-contracts';
-import { initialsFor, senderColour } from './conversation-naming';
+import { initialsFor } from './conversation-naming';
+import { identityStyle } from '../lib/identity-colour';
 import { crossesDay, daySeparatorLabel, unreadDividerIndex } from './timeline';
 import { splitBody } from '../lib/mention-draft';
 import { MessageActions } from './message-actions';
@@ -456,9 +457,12 @@ function MessageRow({
       */}
       {!isMine ? (
         <span
-          className="message-avatar"
+          className={`message-avatar${grouped ? '' : ' identity'}`}
           aria-hidden="true"
-          style={grouped ? undefined : { color: senderColour(message.senderPrincipalId) }}
+          /* The whole pair, not just the ink. This used to set `color` alone over a fixed
+             `--accent-soft` circle, so the same person was a blue R here and a brick R in
+             the list — on an identical pink disc in both. */
+          style={grouped ? undefined : identityStyle(message.senderPrincipalId)}
         >
           {grouped ? '' : initialsFor(message.senderDisplayName)}
         </span>
@@ -483,10 +487,10 @@ function MessageRow({
       {showHead ? (
         <div className="message-head">
           <strong
-            className="author"
+            className="author identity-ink"
             /* A stable hue per person, so "who said this" is a glance rather than a read
                in a group. Never the only signal — the name is right there. */
-            style={{ color: senderColour(message.senderPrincipalId) }}
+            style={identityStyle(message.senderPrincipalId)}
           >
             {message.senderDisplayName}
           </strong>
