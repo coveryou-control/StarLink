@@ -31,7 +31,7 @@ import { ConfirmDialog } from './confirm-dialog';
  * permanent tab to say it. The unread counts on the conversation rows are unchanged; §29.6
  * calls those "the unread mechanism" and nothing here touches them.
  */
-export type RailSection = 'chats' | 'people' | 'announcements' | 'settings';
+export type RailSection = 'chats' | 'channels' | 'people' | 'announcements' | 'settings';
 
 /**
  * Which slice of the chat list the sidebar is showing.
@@ -156,6 +156,28 @@ const SECTIONS: readonly {
     ),
   },
   {
+    id: 'channels',
+    label: 'Channels',
+    /*
+       A hash. The one glyph in this product borrowed from another, and deliberately: it is
+       what "a room you can join" looks like to everybody who has used a workplace messenger,
+       and inventing a private symbol for it would cost a person the one thing an icon is
+       for.
+
+       Drawn rather than typed. A literal '#' renders at whatever weight the body font gives
+       it, which at 22px on a dark rail is a hairline.
+    */
+    icon: (
+      <path
+        d="M9.4 4 7.8 20M16.2 4l-1.6 16M4.6 9h15M3.8 15h15"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+    ),
+  },
+  {
     id: 'announcements',
     label: 'Announcements',
     /* A megaphone. Drawn rather than an emoji: an emoji renders at whatever weight and
@@ -234,12 +256,33 @@ const SECTIONS: readonly {
  */
 export const RAIL_SECTIONS: readonly RailSection[] = [
   'chats',
+  'channels',
   'people',
   'announcements',
   'settings',
 ];
 
-const PHONE_SECTIONS: readonly RailSection[] = ['chats', 'people', 'announcements', 'settings'];
+/*
+   FIVE on a phone now, not four.
+
+   The note above this line argued for four on the arithmetic that five targets across a
+   320px screen leaves 64px each against a 44px minimum - which is an argument for four
+   COMFORTABLE tabs, not against five usable ones. 64 is comfortably over the minimum; what
+   suffers at five is the LABEL, and `bottom-bar.test.ts` measures both rather than
+   estimating either.
+
+   The alternative was leaving Channels off, and that is not a smaller change: a destination
+   absent from the phone is a destination a phone user does not have. The whole point of
+   this feature is discovering rooms you are not in, and there is no other route to the
+   directory.
+*/
+const PHONE_SECTIONS: readonly RailSection[] = [
+  'chats',
+  'channels',
+  'people',
+  'announcements',
+  'settings',
+];
 
 const PHONE_LABELS: Readonly<Partial<Record<RailSection, string>>> = { settings: 'You' };
 
@@ -659,6 +702,37 @@ function DesktopSidebar({
               <path d="M17 8.5h4M19 6.5v4" {...stroke} strokeLinecap="round" />
             </svg>
             <span>Connect</span>
+          </button>
+        </li>
+        {/*
+          Channels.
+
+          A destination of its own rather than a seventh row under Chats, and that is the
+          whole information architecture of the feature. The rows under Chats are FILTERS
+          over conversations you are already in; this is a directory of rooms most of which
+          you are not in. Putting it there would have made "Channels" mean "the channels I
+          happen to be a member of", and there would then be nowhere in the product to
+          discover one.
+
+          Note what is NOT here: a row per department. The sidebar names the destination and
+          the directory does the listing, which is what keeps a company with forty
+          departments from having a forty-item sidebar.
+        */}
+        <li>
+          <button
+            type="button"
+            className="sidenav-item"
+            aria-current={active === 'channels' ? 'page' : undefined}
+            onClick={() => onSelect('channels')}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path
+                d="M9.4 4 7.8 20M16.2 4l-1.6 16M4.6 9h15M3.8 15h15"
+                {...stroke}
+                strokeLinecap="round"
+              />
+            </svg>
+            <span>Channels</span>
           </button>
         </li>
         {/*

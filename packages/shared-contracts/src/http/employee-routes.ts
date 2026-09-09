@@ -250,6 +250,33 @@ export const employeeRoutes = {
    * the adapter boundary exists to prevent.
    */
   statuses: `${EMPLOYEE_API_BASE}/statuses`,
+  /**
+   * Channels - the internal rooms.
+   *
+   * A tree of their own, unlike announcements, and the difference is worth stating. An
+   * announcement's only endpoints are "open one" and "may I", both of which are operations
+   * on the conversation collection. A channel has a DIRECTORY, an access policy that is
+   * edited, an archive state and a join - none of which is an operation on a conversation,
+   * and all of which would be a stranger under `/conversations` than they are here.
+   *
+   * What is NOT here is every content route: messages, reactions, attachments, read state,
+   * participants, leave. Those stay on `/conversations/:id`, because a channel IS one, and
+   * a duplicate tree for them is the second place for the rules to live that §38 warns
+   * about. The split is: the ROOM's own properties here, everything inside it there.
+   */
+  channels: {
+    list: `${EMPLOYEE_API_BASE}/channels`,
+    create: `${EMPLOYEE_API_BASE}/channels`,
+    /** May the caller open one at all - asked before the control is drawn. */
+    permission: `${EMPLOYEE_API_BASE}/channels/permission`,
+    /** The departments and teams an audience may name, read from identity. */
+    scopes: `${EMPLOYEE_API_BASE}/channels/scopes`,
+    /** One channel's policy and the caller's standing in it (GET), or an edit (PATCH). */
+    one: (conversationId: string) => `${EMPLOYEE_API_BASE}/channels/${conversationId}`,
+    archive: (conversationId: string) =>
+      `${EMPLOYEE_API_BASE}/channels/${conversationId}/archive`,
+    join: (conversationId: string) => `${EMPLOYEE_API_BASE}/channels/${conversationId}/join`,
+  },
   conversations: {
     list: `${EMPLOYEE_API_BASE}/conversations`,
     create: `${EMPLOYEE_API_BASE}/conversations`,

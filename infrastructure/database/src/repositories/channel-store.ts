@@ -349,6 +349,40 @@ export class PgChannelStore {
     }
   }
 
+  /**
+   * The departments and teams a channel's audience can name.
+   *
+   * Read from `identity`, which is where they come from, rather than typed into a form. A
+   * free-text scope is how a channel ends up addressed to "Techonlogy" and reaches nobody -
+   * §27.2's rule says a blank must not match a blank, and a MISSPELLING behaves exactly
+   * like a blank while looking deliberate.
+   *
+   * These are not business values (rule 10). They are the contents of the identity
+   * directory, which is upstream data StarLink reads and does not decide.
+   */
+  async availableScopes(): Promise<{
+    readonly departments: readonly string[];
+    readonly teams: readonly { readonly teamId: string; readonly displayName: string }[];
+  }> {
+    const [departments, teams] = await Promise.all([
+      this.pool.query(
+        `SELECT DISTINCT department FROM identity.principals
+          WHERE kind = 'EMPLOYEE' AND department IS NOT NULL AND btrim(department) <> ''
+          ORDER BY department`,
+      ),
+      this.pool.query(
+        `SELECT team_id, display_name FROM identity.teams ORDER BY display_name`,
+      ),
+    ]);
+    return {
+      departments: departments.rows.map((row) => row.department as string),
+      teams: teams.rows.map((row) => ({
+        teamId: row.team_id as string,
+        displayName: row.display_name as string,
+      })),
+    };
+  }
+
   async audienceOf(conversationId: UUID): Promise<readonly ChannelAudienceEntry[]> {
     const result = await this.pool.query(
       `SELECT scope_kind, scope_id FROM conversation.channel_audience

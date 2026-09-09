@@ -239,6 +239,28 @@ export class EmployeeChannelsController {
   }
 
   /**
+   * What an audience may be addressed to.
+   *
+   * Behind `directory.read`, which is the permission that already governs reading the staff
+   * list - department and team NAMES are directory facts, and this returns nothing a person
+   * who may page the directory could not already assemble from it. It is not free of
+   * authorization, though: `directory.read` was once in the vocabulary and evaluated
+   * nowhere, and any new joiner could page the entire staff list.
+   *
+   * Declared BEFORE `:conversationId`, or Nest matches "scopes" as a conversation id.
+   */
+  @Get('scopes')
+  async scopes(@Req() request: AuthenticatedRequest): Promise<unknown> {
+    const session = request.session!;
+    const claims = await this.identity.resolvePrincipal(session.principalId);
+    if (!claims.ok) return refuse();
+    if (!holdsAction(toActorContext(claims.value), 'directory.read', new Date().toISOString())) {
+      return refuse();
+    }
+    return this.channels.availableScopes();
+  }
+
+  /**
    * Opens a channel.
    *
    * ## Why `holdsAction` and not `decide`

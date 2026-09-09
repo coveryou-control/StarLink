@@ -5,7 +5,12 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { avatarFor, conversationLabel, initialsFor } from './conversation-naming';
+import {
+  avatarFor,
+  channelSubtitle,
+  conversationLabel,
+  initialsFor,
+} from './conversation-naming';
 import { GroupGlyph } from './group-glyph';
 import { ChatHeaderMenu } from './chat-header-menu';
 import { AvatarImage, ConversationAvatarImage } from './avatar-image';
@@ -105,7 +110,15 @@ export function ChatHeader({
   const name =
     conversation !== undefined ? conversationLabel(conversation) : 'Conversation';
   const others = conversation?.participants ?? [];
-  const isGroup = conversationType === 'INTERNAL_GROUP' || others.length > 1;
+  /*
+     A channel is checked FIRST, and never falls through to the group heuristic.
+
+     Its summary carries a member count and no participant names, so `others.length > 1`
+     reads false for a channel of forty people and the header would draw it as a one-to-one
+     with somebody's initials on it.
+  */
+  const isChannel = conversationType === 'INTERNAL_CHANNEL';
+  const isGroup = !isChannel && (conversationType === 'INTERNAL_GROUP' || others.length > 1);
 
   /**
    * A subtitle only when it says something the title does not.
@@ -187,7 +200,12 @@ export function ChatHeader({
      nothing takes its place. With neither fact there is no line, which is the honest
      rendering of knowing nothing beyond the name already in the title.
   */
-  const subtitle = isGroup
+  const subtitle = isChannel
+    ? /* The room's membership, from the count the summary carries. A channel has no
+         participant NAMES here - the directory sends a number - and that is the honest
+         thing to show rather than a list of the three the header happens to know. */
+      channelSubtitle(conversation?.participantCount ?? 0)
+    : isGroup
     ? groupSubtitle()
     : [department, otherIsOnline ? 'Active now' : undefined].filter(Boolean).join(' · ') ||
       undefined;
@@ -201,7 +219,29 @@ export function ChatHeader({
   */
   const ChatIdentity = (): ReactNode => (
     <>
-      {isGroup ? null : (
+      {/*
+        A channel gets a hash in a neutral tile, not an identity tint.
+
+        The identity palette means A PERSON — one hue per colleague, the same everywhere they
+        appear. Tinting a room with it would put "Technology" into the same visual language
+        as a colleague called Tanvi, which is the exact confusion `identity-colour.ts` exists
+        to remove. A room is furniture; it gets the surface colour.
+      */}
+      {isChannel ? (
+        <span className="chat-avatar channel" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="19" height="19" focusable="false">
+            <path
+              d="M9.4 4 7.8 20M16.2 4l-1.6 16M4.6 9h15M3.8 15h15"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+            />
+          </svg>
+        </span>
+      ) : null}
+
+      {isGroup || isChannel ? null : (
         <span className="avatar-wrap">
           <span
             className={`chat-avatar identity${isGroup ? ' group' : ''}`}
@@ -327,7 +367,9 @@ export function ChatHeader({
           className="chat-identity-group chat-identity-button"
           onClick={onToggleDetails}
           aria-expanded={detailsOpen}
-          aria-label={isGroup ? 'Group details' : 'Contact details'}
+          aria-label={
+            isChannel ? 'Channel details' : isGroup ? 'Group details' : 'Contact details'
+          }
         >
           <ChatIdentity />
         </button>
@@ -344,7 +386,7 @@ export function ChatHeader({
           faster than a number, and the useful action is the one that opens the membership.
           In a one-to-one both are already answered by the avatar to the left of the name.
         */}
-        {isGroup && others.length > 0 && !compact ? (
+        {isGroup && !isChannel && others.length > 0 && !compact ? (
           <span className="avatar-stack" aria-hidden="true">
             {others.slice(0, 3).map((person) => (
               <span
@@ -361,14 +403,14 @@ export function ChatHeader({
           </span>
         ) : null}
 
-        {isGroup && onToggleDetails !== undefined && !narrow ? (
+        {(isGroup || isChannel) && onToggleDetails !== undefined && !narrow ? (
           <button
             type="button"
             className="chat-header-named"
             onClick={onToggleDetails}
             aria-expanded={detailsOpen}
           >
-            Group info
+            {isChannel ? 'Channel info' : 'Group info'}
           </button>
         ) : null}
 

@@ -108,10 +108,26 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
  */
 export function avatarFor(conversation: ConversationSummary): {
   readonly text: string;
+  /** True for anything drawn as a mark rather than as initials — a group OR a channel. */
   readonly isGroup: boolean;
+  /** True only for a channel, which gets a hash rather than the two-figure group glyph. */
+  readonly isChannel?: boolean;
 } {
   const others = conversation.participants ?? [];
-  const isGroup = conversation.conversationType === 'INTERNAL_GROUP' || others.length > 1;
+  /*
+     A CHANNEL is not a group, and this is where the two most easily get confused.
+
+     `others.length > 1` is a reasonable heuristic for "more than two people are in this",
+     and it is wrong for a channel in the one direction that matters: a channel's summary
+     carries no participant list at all (the directory sends a count, not names), so the
+     heuristic would call an empty channel a one-to-one and draw somebody's initials on it.
+     Named explicitly, before the heuristic gets a chance.
+  */
+  const isChannel = conversation.conversationType === 'INTERNAL_CHANNEL';
+  const isGroup =
+    !isChannel && (conversation.conversationType === 'INTERNAL_GROUP' || others.length > 1);
+
+  if (isChannel) return { text: '', isGroup: true, isChannel: true };
 
   if (!isGroup) {
     return { text: initialsFor(conversationLabel(conversation)), isGroup: false };
@@ -125,12 +141,25 @@ export function avatarFor(conversation: ConversationSummary): {
    * somebody called R. R., and a list of five groups became five two-letter circles nobody
    * could tell apart from the direct messages between them.
    *
-   * Then it was `#`, which fixed that and introduced its own claim: a hash means a CHANNEL,
-   * and StarLink has no channels. Callers now render `GroupGlyph` when `isGroup`, and the
-   * empty string is what they fall back to if one ever forgets — a blank tile, which is
-   * wrong but not a lie about what the conversation is.
+   * Then it was `#`, which fixed that and introduced its own claim: a hash means a CHANNEL.
+   * StarLink now HAS channels, and the hash is theirs — which is the reason a group must not
+   * borrow it. Callers render `GroupGlyph` when `isGroup`, and the empty string is what they
+   * fall back to if one ever forgets: a blank tile, which is wrong but not a lie about what
+   * the conversation is.
    */
   return { text: '', isGroup: true };
+}
+
+/**
+ * A channel's subtitle: what it is, and how many people are in it.
+ *
+ * The DESCRIPTION when there is one, because that is what somebody scanning a header wants
+ * to know about a room they have just opened; the member count otherwise, which is the only
+ * other true thing the summary carries.
+ */
+export function channelSubtitle(memberCount: number, description?: string): string {
+  if (description !== undefined && description.trim() !== '') return description;
+  return `${memberCount} ${memberCount === 1 ? 'member' : 'members'}`;
 }
 
 /**

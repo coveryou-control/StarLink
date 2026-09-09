@@ -13,9 +13,12 @@ import { useSession } from '../../../components/session-provider';
 import {
   ApiError,
   api,
+  type ChannelAudienceEntry,
+  type ChannelSummary,
   type MessageView,
   type PinnedMessage,
 } from '../../../lib/api-client';
+import { ChannelInfo } from '../../../components/channel-info';
 import { useRealtime } from '../../../lib/use-realtime';
 import { ChatHeader } from '../../../components/chat-header';
 import {
@@ -745,6 +748,8 @@ export default function ThreadPage(): ReactNode {
   const canOpenDetails = lifecycleState === undefined;
   const others = activeConversation?.participants ?? [];
   const isAnnouncement = conversationType === 'INTERNAL_ANNOUNCEMENT';
+  const isChannel = conversationType === 'INTERNAL_CHANNEL';
+
   const isGroup = !isAnnouncement && (conversationType === 'INTERNAL_GROUP' || others.length > 1);
   /* Exactly one other person, and not a broadcast: the only shape with a colleague to
      describe. `others` is empty until the summary loads, which is neither. */
@@ -827,6 +832,61 @@ export default function ThreadPage(): ReactNode {
    * than showing it a beat late, and false is also the safe answer if the request fails.
    */
   const [mayAnnounce, setMayAnnounce] = useState(false);
+
+  /**
+   * The channel this thread is, when it is one.
+   *
+   * ## Why this is fetched rather than derived
+   *
+   * Whether somebody may post here is a function of the room's policy, their membership and
+   * their role — the same three inputs `decide()` uses. Working it out in the browser would
+   * be re-implementing the decision in a second language against a copy of the data, which
+   * is exactly the divergence §38 records. So the server answers, and this holds the answer.
+   *
+   * `mayPost === false` is what hides the composer. Not a disabled one: a composer that
+   * refuses on submit teaches people the product is unreliable, and a disabled one still
+   * puts a text field in front of somebody with nothing to do with it. The same call the
+   * announcement above makes, for the same reason.
+   */
+  const [channel, setChannel] = useState<ChannelSummary | undefined>();
+  const [channelAudience, setChannelAudience] = useState<
+    readonly ChannelAudienceEntry[] | undefined
+  >();
+  const [joining, setJoining] = useState(false);
+
+  const refreshChannel = useCallback(async (): Promise<void> => {
+    try {
+      const result = await api.channel(conversationId);
+      setChannel(result.channel);
+      setChannelAudience(result.audience);
+    } catch {
+      /* Fail CLOSED. A policy we could not read is not a policy that permits: the composer
+         stays away and the thread renders read-only rather than offering a send that the
+         server will refuse. */
+      setChannel(undefined);
+      setChannelAudience(undefined);
+    }
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (conversationType !== 'INTERNAL_CHANNEL') {
+      setChannel(undefined);
+      setChannelAudience(undefined);
+      return;
+    }
+    void refreshChannel();
+  }, [conversationType, refreshChannel]);
+
+  /*
+     Read-only until the server says otherwise, including while the policy is still in
+     flight. A composer that appears and then vanishes a moment later is worse than one
+     that appears a moment late, and the other direction - offered before we know - is a
+     send that 404s.
+
+     Declared HERE rather than beside `isChannel`, because it reads state that is declared
+     further down the component; the compiler said so, which is the useful kind of review.
+  */
+  const channelReadOnly = isChannel && channel?.mayPost !== true;
   useEffect(() => {
     if (!isAnnouncement) {
       setMayAnnounce(false);
@@ -1253,7 +1313,49 @@ export default function ThreadPage(): ReactNode {
         </p>
       ) : null}
 
-      {error === undefined && conversationType !== undefined && !(isAnnouncement && !mayAnnounce) ? (
+      {/*
+        Why there is no composer, and what to do about it.
+
+        Three different reasons, three different sentences, because "you cannot post here"
+        is not useful and the three situations have genuinely different next steps: join,
+        ask an administrator, or nothing (it is archived). A silent absence would read as a
+        page that failed to finish loading.
+      */}
+      {channelReadOnly && channel !== undefined ? (
+        <p className="channel-readonly">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+            <rect x="5" y="10.5" width="14" height="9" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+            <path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+          </svg>
+          {channel.archived
+            ? 'This channel is archived. Its history stays here and nothing new can be posted.'
+            : channel.membership === 'NONE'
+              ? 'You are reading this channel without being in it. Join to post.'
+              : 'Only channel admins can post here. You can still read and react.'}
+          {channel.mayJoin ? (
+            <button
+              type="button"
+              disabled={joining}
+              onClick={() => {
+                setJoining(true);
+                void api
+                  .joinChannel(conversationId)
+                  .then(() => refreshChannel())
+                  .then(() => refreshConversations())
+                  .catch(() => undefined)
+                  .finally(() => setJoining(false));
+              }}
+            >
+              {joining ? 'Joining…' : 'Join'}
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+
+      {error === undefined &&
+      conversationType !== undefined &&
+      !(isAnnouncement && !mayAnnounce) &&
+      !channelReadOnly ? (
         <Composer
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(undefined)}
@@ -1420,8 +1522,23 @@ export default function ThreadPage(): ReactNode {
 
         <div className="details-body">
         <div className="details-identity">
-          <span className={`chat-avatar${isGroup ? ' group' : ''}`} aria-hidden="true">
-            {isGroup ? (
+          <span
+            className={`chat-avatar${isChannel ? ' channel' : isGroup ? ' group' : ''}`}
+            aria-hidden="true"
+          >
+            {isChannel ? (
+              /* The room's own mark, the same one the header and the directory row use.
+                 One symbol per kind of thing, everywhere it appears. */
+              <svg viewBox="0 0 24 24" width="22" height="22" focusable="false">
+                <path
+                  d="M9.4 4 7.8 20M16.2 4l-1.6 16M4.6 9h15M3.8 15h15"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            ) : isGroup ? (
               <GroupGlyph />
             ) : activeConversation !== undefined ? (
               avatarFor(activeConversation).text
@@ -1455,6 +1572,12 @@ export default function ThreadPage(): ReactNode {
                    whole point of the audience, and it is the one the server maintains.
                 */
                 `Announcement · ${activeConversation?.participantCount ?? 0} people`
+              : isChannel
+                ? /* The count the DIRECTORY maintains: a channel summary carries no
+                     participant names, and the mapped count can lag a join by a refresh. */
+                  `Channel · ${channel?.memberCount ?? 0} ${
+                    (channel?.memberCount ?? 0) === 1 ? 'member' : 'members'
+                  }`
               : isGroup
                 ? `${others.length + 1} members`
                 : 'Direct message'}
@@ -1500,6 +1623,26 @@ export default function ThreadPage(): ReactNode {
           directory rows are the reverse: they are one person's facts, and a group has no
           single answer to "reports to".
         */}
+        {/*
+          A channel says what it is and who it is for, above its membership.
+
+          First in the panel because it is the question a person opening a room asks before
+          "who else is here": whether what they write goes to four people or four hundred.
+          `mayManage` came from the server, so the edit and archive controls appear for
+          exactly the people the server will accept them from.
+        */}
+        {isChannel && channel !== undefined ? (
+          <ChannelInfo
+            channel={channel}
+            audience={channelAudience}
+            onChanged={() => {
+              void refreshChannel();
+              void refetch();
+              refreshConversations();
+            }}
+          />
+        ) : null}
+
         {isAnnouncement ? (
           /*
              An announcement's membership is not editable, by anybody.
@@ -1547,7 +1690,15 @@ export default function ThreadPage(): ReactNode {
               React remounted it and the confirmation it had just rendered ("… they can now
               read 4 earlier messages") vanished in the same frame it appeared.
             */}
-            {isGroup || addPeopleOpen ? (
+            {/*
+              A channel's membership is the SAME component a group's is.
+
+              `Participants` adds, removes and lists; which of those this person may actually
+              do is `decide()`'s answer, and for a channel that is "administrators only"
+              rather than BR-05's "anyone inside". The component does not need to know the
+              difference — it asks, and the server refuses what it refuses.
+            */}
+            {isGroup || isChannel || addPeopleOpen ? (
               <Participants
                 conversationId={conversationId}
                 onChanged={() => {

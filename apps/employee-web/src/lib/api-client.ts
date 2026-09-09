@@ -118,6 +118,49 @@ export interface ConversationParticipantRef {
   readonly role?: string;
 }
 
+/**
+ * A channel, as the directory and the details panel need it.
+ *
+ * `mayRead`, `mayPost`, `mayManage` and `mayJoin` are the SERVER's answers, not the
+ * client's guesses. The client never derives a permission from the three policy enums — it
+ * would be deriving `decide()` a second time in a different language, which is the
+ * divergence §38 records. It renders what it is told, and every action re-decides anyway.
+ */
+export interface ChannelSummary {
+  readonly conversationId: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly purpose: 'DEPARTMENT' | 'TEAM' | 'PROJECT' | 'OTHER';
+  readonly visibility: 'EVERYONE' | 'DEPARTMENTS' | 'SELECTED';
+  readonly readAccess: 'ANYONE_WHO_CAN_SEE' | 'MEMBERS';
+  readonly postAccess: 'ANYONE_WHO_CAN_READ' | 'MEMBERS' | 'ADMINS';
+  readonly archived: boolean;
+  readonly memberCount: number;
+  readonly membership: 'ADMIN' | 'MEMBER' | 'NONE';
+  readonly unreadCount: number;
+  readonly lastActivityAt: string;
+  readonly mayRead: boolean;
+  readonly mayPost: boolean;
+  readonly mayManage: boolean;
+  readonly mayJoin: boolean;
+}
+
+export interface ChannelAudienceEntry {
+  readonly scopeKind: 'DEPARTMENT' | 'TEAM' | 'PRINCIPAL';
+  readonly scopeId: string;
+}
+
+/** Everything a channel is created or edited with. The three questions plus its identity. */
+export interface ChannelPolicyInput {
+  readonly name: string;
+  readonly description?: string;
+  readonly purpose: ChannelSummary['purpose'];
+  readonly visibility: ChannelSummary['visibility'];
+  readonly readAccess: ChannelSummary['readAccess'];
+  readonly postAccess: ChannelSummary['postAccess'];
+  readonly audience: readonly ChannelAudienceEntry[];
+}
+
 export interface ConversationSummary {
   readonly conversationId: string;
   readonly conversationType: string;
@@ -471,6 +514,76 @@ export const api = {
            caller's request is byte-for-byte what it was. */
         ...(options.archived === true ? { archived: 'true' } : {}),
       })}`,
+    ),
+
+  /* ------------------------------------------------------------------------ channels */
+
+  /**
+   * Every channel this person is allowed to know exists.
+   *
+   * Note what the server does NOT do: filter the list down to what they may read. A
+   * visible, members-only channel comes back with `mayRead: false`, because "there is a
+   * Technology channel and you are not in it" is the information that makes joining
+   * something a person can ask for rather than guess at.
+   */
+  channels: (options: { includeArchived?: boolean } = {}) =>
+    request<{ channels: readonly ChannelSummary[] }>(
+      `${employeeRoutes.channels.list}${
+        options.includeArchived === true ? '?includeArchived=true' : ''
+      }`,
+    ),
+
+  /** One channel, plus its audience when the caller may edit it. */
+  channel: (conversationId: string) =>
+    request<{ channel: ChannelSummary; audience?: readonly ChannelAudienceEntry[] }>(
+      employeeRoutes.channels.one(conversationId),
+    ),
+
+  /**
+   * Whether the caller may open one.
+   *
+   * A convenience, exactly like `mayAnnounce`: the POST decides again and that decision is
+   * the boundary. A reader shown a control that answers 404 learns the product is
+   * unreliable, which is worse than not seeing the control.
+   */
+  mayCreateChannel: () => request<{ mayCreate: boolean }>(employeeRoutes.channels.permission),
+
+  /**
+   * The departments and teams an audience may name.
+   *
+   * Fetched rather than typed. A free-text scope is how a channel ends up addressed to
+   * "Techonlogy" and reaches nobody — a misspelling behaves exactly like a blank while
+   * looking deliberate (§27.2).
+   */
+  channelScopes: () =>
+    request<{
+      departments: readonly string[];
+      teams: readonly { teamId: string; displayName: string }[];
+    }>(employeeRoutes.channels.scopes),
+
+  createChannel: (input: ChannelPolicyInput & { memberIds?: readonly string[] }) =>
+    request<{ conversationId: string }>(employeeRoutes.channels.create, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  /** Replaces the whole policy. A partial edit is not offered — see the store's note. */
+  updateChannel: (conversationId: string, input: ChannelPolicyInput) =>
+    request<{ conversationId: string }>(employeeRoutes.channels.one(conversationId), {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+
+  setChannelArchived: (conversationId: string, archived: boolean) =>
+    request<{ conversationId: string; archived: boolean }>(
+      employeeRoutes.channels.archive(conversationId),
+      { method: 'POST', body: JSON.stringify({ archived }) },
+    ),
+
+  joinChannel: (conversationId: string) =>
+    request<{ conversationId: string; joined: boolean }>(
+      employeeRoutes.channels.join(conversationId),
+      { method: 'POST' },
     ),
 
   /** Opens an announcement addressed to every active employee. */

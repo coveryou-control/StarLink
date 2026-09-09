@@ -7,6 +7,7 @@ import type { ReactNode } from 'react';
 import { AppRail, RAIL_SECTIONS, type RailSection, type ChatView } from '../../components/app-rail';
 import { useMediaQuery } from '../../lib/use-media-query';
 import { AnnouncementsPanel } from '../../components/announcements-panel';
+import { ChannelsPanel } from '../../components/channels-panel';
 import { ConversationList } from '../../components/conversation-list';
 import { ConversationSearch } from '../../components/conversation-search';
 import { SettingsPanel } from '../../components/settings-panel';
@@ -17,7 +18,9 @@ import { TeamLoadPanel } from '../../components/team-load';
 import { Directory } from '../../components/directory';
 import { BrandMark } from '../../components/brand';
 import { useSession } from '../../components/session-provider';
-import { api, ApiError, type ConversationSummary } from '../../lib/api-client';
+import { api, ApiError, type ConversationSummary,
+  type ChannelSummary,
+} from '../../lib/api-client';
 import { customerWorkspaceEnabled } from '../../lib/runtime-origins';
 import { watchSystemTheme } from '../../lib/theme';
 import { onShellAction, requestNewConversation } from '../../lib/shell-actions';
@@ -77,6 +80,35 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
    * one thing — naming the thread column when the open conversation is an announcement.
    */
   const [announcements, setAnnouncements] = useState<readonly ConversationSummary[]>([]);
+
+  /**
+   * The channels the directory has loaded, held here for the same one reason.
+   *
+   * A channel is not in `conversations` — the chats list excludes them by scope, exactly as
+   * it excludes announcements — so without this the thread column has no name, no
+   * description and no member count for the room it is showing, and renders "Conversation"
+   * with a dot for an avatar.
+   *
+   * Mapped to the summary shape the header already understands rather than teaching the
+   * header a second one. The extra channel facts travel separately to the info panel, which
+   * is the only place that needs them.
+   */
+  const [channels, setChannels] = useState<readonly ChannelSummary[]>([]);
+  const channelSummaries = useMemo<readonly ConversationSummary[]>(
+    () =>
+      channels.map((channel) => ({
+        conversationId: channel.conversationId,
+        conversationType: 'INTERNAL_CHANNEL',
+        title: channel.name,
+        sensitivity: 'ORDINARY',
+        lastActivityAt: channel.lastActivityAt,
+        participantCount: channel.memberCount,
+        unreadCount: channel.unreadCount,
+        pinned: false,
+        participants: [],
+      })),
+    [channels],
+  );
 
   /* The one width question the MARKUP asks. Everything else responsive is the stylesheet's. */
   const onPhone = useMediaQuery('(max-width: 640px)');
@@ -226,7 +258,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   */
   const activeConversation =
     conversations.find((c) => c.conversationId === params.id) ??
-    announcements.find((c) => c.conversationId === params.id);
+    announcements.find((c) => c.conversationId === params.id) ??
+    channelSummaries.find((c) => c.conversationId === params.id);
 
   useEffect(() => {
     if (state.status === 'SIGNED_OUT') router.replace('/sign-in');
@@ -647,6 +680,23 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
             is, exactly as People and Notifications do — the rail switches the PANEL and the
             thread stays put.
           */}
+          {/*
+            Channels: a DIRECTORY, not a list of threads.
+
+            Same relation to the thread column as every other panel — the rail switches the
+            panel, opening a room moves the thread column, and the panel stays where it is.
+          */}
+          {section === 'channels' ? (
+            <ChannelsPanel
+              onLoaded={setChannels}
+              activeId={params.id}
+              onOpen={(id) => {
+                router.push(`/conversations/${id}`);
+                void refresh();
+              }}
+            />
+          ) : null}
+
           {section === 'announcements' ? (
             <AnnouncementsPanel
               onLoaded={setAnnouncements}
