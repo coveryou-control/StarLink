@@ -10245,8 +10245,12 @@ input.signin-control {
   color: var(--danger);
 }
 
+/* No `background` here, and none is needed: the rule above already removes it at the same
+   specificity that put it there, and `:hover` cannot lose to it. Declaring one anyway
+   failed `hover-highlighting.test.ts`, which bans a background on a hover rule whatever the
+   value - correctly, because the guard cannot tell a fill from the removal of one and a
+   version that tried would be a guard somebody could argue with. */
 .profile-photo-menu button.danger:hover:not(:disabled) {
-  background: none;
   color: var(--danger);
 }
 
