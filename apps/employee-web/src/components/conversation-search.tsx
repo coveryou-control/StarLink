@@ -42,6 +42,7 @@ import {
   api,
   ApiError,
   type ConversationSummary,
+  type ConversationTitleHit,
   type DirectoryEntry,
   type SearchHit,
   type SharedFile,
@@ -54,7 +55,7 @@ import { requestBrowseDirectory } from '../lib/shell-actions';
  * The reference's four tabs. "All" is not a fourth query — it is the other three, shown
  * together, which is what "one result set" means on screen 04.
  */
-type Facet = 'all' | 'messages' | 'files' | 'people';
+type Facet = 'all' | 'messages' | 'groups' | 'files' | 'people';
 
 const DEBOUNCE_MS = 300;
 /**
@@ -169,6 +170,9 @@ export function ConversationSearch({
   const [hits, setHits] = useState<readonly SearchHit[] | undefined>();
   const [files, setFiles] = useState<readonly (SharedFile & { conversationId: string })[]>([]);
   const [people, setPeople] = useState<readonly DirectoryEntry[]>([]);
+  /* Conversations matched by TITLE. The placeholder has always said "groups"; until now
+     nothing answered for them. A 1:1 has no title, so these are groups and announcements. */
+  const [groups, setGroups] = useState<readonly ConversationTitleHit[]>([]);
   /** Boolean, not a count — see `api.search`. True when the server found anything. */
   const [matched, setMatched] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -177,7 +181,7 @@ export function ConversationSearch({
 
   const query = term.trim();
   const active = query.length >= MIN_LENGTH;
-  const total = (hits?.length ?? 0) + files.length + people.length;
+  const total = (hits?.length ?? 0) + groups.length + files.length + people.length;
   /* "All" is the other three together — see the `Facet` note. */
   const show = (which: Facet): boolean => facet === 'all' || facet === which;
 
@@ -186,6 +190,7 @@ export function ConversationSearch({
       setHits(undefined);
       setFiles([]);
       setPeople([]);
+      setGroups([]);
       setMessage(undefined);
       setBusy(false);
       return;
@@ -211,6 +216,14 @@ export function ConversationSearch({
           })
           .catch(() => {
             if (!cancelled) setFiles([]);
+          });
+        void api
+          .searchConversations(query)
+          .then((result) => {
+            if (!cancelled) setGroups(result.conversations);
+          })
+          .catch(() => {
+            if (!cancelled) setGroups([]);
           });
         void api
           .directory(query)
@@ -357,6 +370,7 @@ export function ConversationSearch({
                   [
                     ['all', 'All', total],
                     ['messages', 'Messages', hits.length],
+                    ['groups', 'Groups', groups.length],
                     ['files', 'Files', files.length],
                     ['people', 'People', people.length],
                   ] as const
@@ -434,6 +448,29 @@ export function ConversationSearch({
                             ) : null}
                           </span>
                           <span className="search-snippet">{highlight(hit.snippet, query)}</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+
+            {show('groups') && groups.length > 0 ? (
+              <>
+                <p className="search-group">Groups</p>
+                <ul className="search-results">
+                  {groups.map((group) => (
+                    <li key={group.conversationId}>
+                      <button type="button" onClick={() => onOpenConversation(group.conversationId)}>
+                        <span className="search-avatar" aria-hidden="true">
+                          {initialsFor(group.title)}
+                        </span>
+                        <span className="search-text">
+                          <span className="search-name">{group.title}</span>
+                          <span className="search-context">
+                            {group.participantCount} members · {when(group.lastActivityAt)}
+                          </span>
                         </span>
                       </button>
                     </li>

@@ -433,6 +433,12 @@ export const employeeRoutes = {
      * for one endpoint to answer two questions.
      */
     files: `${EMPLOYEE_API_BASE}/search/files`,
+    /**
+     * Conversations whose TITLE matches, so the box that says "people, groups, files"
+     * answers for the middle one too. A one-to-one has no title, so this only ever returns
+     * groups and announcements.
+     */
+    conversations: `${EMPLOYEE_API_BASE}/search/conversations`,
   },
   notifications: {
     /** §19.6's server-owned notification list; §20.7's "notification list on load". */
@@ -527,6 +533,7 @@ export const EMPLOYEE_ROUTE_INVENTORY: readonly { method: string; path: string }
   { method: 'GET', path: employeeRoutes.directory.one(':pid') },
   { method: 'GET', path: employeeRoutes.search.messages },
   { method: 'GET', path: employeeRoutes.search.files },
+  { method: 'GET', path: employeeRoutes.search.conversations },
   { method: 'GET', path: employeeRoutes.admin.accounts },
   { method: 'GET', path: employeeRoutes.admin.rolesFor(':pid') },
   { method: 'POST', path: employeeRoutes.admin.roles },

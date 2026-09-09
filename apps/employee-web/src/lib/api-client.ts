@@ -196,6 +196,15 @@ export interface DeclaredStatusView {
 }
 
 /** One file shared in a conversation, for the information panel. Metadata only. */
+/** A conversation matched by its title. Groups and announcements only — a 1:1 has none. */
+export interface ConversationTitleHit {
+  readonly conversationId: string;
+  readonly title: string;
+  readonly conversationType: string;
+  readonly participantCount: number;
+  readonly lastActivityAt: string;
+}
+
 export interface SharedFile {
   readonly attachmentId: string;
   readonly filename: string;
@@ -1072,5 +1081,17 @@ export const api = {
   search: (term: string, conversationId?: string) =>
     request<{ matched: boolean; results: readonly SearchHit[] }>(
       `${employeeRoutes.search.messages}${query({ q: term, conversationId })}`,
+    ),
+
+  /**
+   * Conversations whose title matches.
+   *
+   * Its own call rather than a facet of `search`, for the same reason `searchFiles` is:
+   * that route is rate-limited and audited as a CONTENT search, and a title match reads no
+   * message body.
+   */
+  searchConversations: (term: string) =>
+    request<{ conversations: readonly ConversationTitleHit[] }>(
+      `${employeeRoutes.search.conversations}${query({ q: term })}`,
     ),
 };

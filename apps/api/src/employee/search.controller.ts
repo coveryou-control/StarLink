@@ -102,6 +102,69 @@ export class EmployeeSearchController {
     };
   }
 
+  /**
+   * Conversations whose TITLE matches, within what the caller may already see.
+   *
+   * ## Why this exists
+   *
+   * The search box says "Search people, groups, files" and groups did not match. Verified
+   * during the audit: `?q=welcome` returned nothing while the caller was a member of a
+   * group called "welcome back guys", and every other existing group title behaved the
+   * same. The placeholder made a promise the product did not keep.
+   *
+   * ## Why it is its own route, like `files`
+   *
+   * `searchMessages` carries a rate limiter and an audit entry shaped around message
+   * CONTENT (§30.4). A title search reads no message body and discloses no message text;
+   * auditing it as a content search would make the ledger say something untrue about what
+   * was read. The same argument the filename search makes, for the same reason.
+   *
+   * ## Scope
+   *
+   * The join on live participation IS the authorization — the same shape the file search
+   * uses, and the reason a caller cannot reach a title in a conversation they are not in.
+   * A one-to-one has no title, so this can only ever return groups and announcements,
+   * which is exactly what the placeholder offers.
+   */
+  @Get('conversations')
+  async conversations(
+    @Query() query: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const parsed = fileQuerySchema.safeParse(query);
+    if (!parsed.success) return refuse();
+
+    const session = request.session!;
+    const term = parsed.data.q.trim();
+    if (term.length < SEARCH_MINIMUM_TERM_LENGTH) return { conversations: [] };
+
+    const result = await this.pool.query(
+      `SELECT c.conversation_id, c.title, c.conversation_type, c.last_activity_at,
+              c.participant_count
+         FROM conversation.conversations c
+         JOIN conversation.participants me
+           ON me.conversation_id = c.conversation_id
+          AND me.principal_id = $1
+          AND me.effective_to IS NULL
+        WHERE c.title IS NOT NULL
+          AND c.title ILIKE $2
+        ORDER BY c.last_activity_at DESC
+        LIMIT 25`,
+      // Escaped: `%` is a percent sign, not "every conversation I am in".
+      [session.principalId, likePattern(term)],
+    );
+
+    return {
+      conversations: result.rows.map((row) => ({
+        conversationId: row.conversation_id as string,
+        title: row.title as string,
+        conversationType: row.conversation_type as string,
+        participantCount: Number(row.participant_count),
+        lastActivityAt: (row.last_activity_at as Date).toISOString(),
+      })),
+    };
+  }
+
   @Get()
   async search(@Query() query: unknown, @Req() request: AuthenticatedRequest): Promise<unknown> {
     const parsed = querySchema.safeParse(query);
