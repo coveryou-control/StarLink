@@ -5,6 +5,9 @@ import type { ReactNode } from 'react';
 
 import { ApiError, api, type MessageView } from '../lib/api-client';
 import { useEnterToSend } from '../lib/preferences';
+import { VoiceComposer } from './voice-composer';
+import type { Recording } from '../lib/use-voice-recorder';
+import { declaredMimeFor, nameForRecording } from '../lib/voice-recording';
 import { AttachmentPicker } from './attachment-picker';
 import {
   nameForPastedImage,
@@ -86,6 +89,9 @@ export function Composer({
   );
   const [body, setBody] = useState('');
   const [pending, setPending] = useState<readonly PendingSend[]>([]);
+  /* The recording bar takes the whole row when it is up — see `voice-composer.tsx` for why
+     the field is removed rather than hidden. */
+  const [recordingVoice, setRecordingVoice] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   /** Files uploaded and waiting for a message to bind them to (§28.1). */
   const [staged, setStaged] = useState<readonly StagedAttachment[]>([]);
@@ -118,6 +124,25 @@ export function Composer({
     },
     [conversationId],
   );
+  /**
+   * A finished recording, staged exactly like a dropped file.
+   *
+   * The same `uploadAttachment` a PDF goes through, with a duration passed alongside. A
+   * voice note that took its own route to the server would be a second attachment pipeline
+   * with its own version of the scanning and binding rules — which is what §28 exists to
+   * prevent there being.
+   */
+  const attachRecording = useCallback(
+    (recording: Recording): void => {
+      const declared = declaredMimeFor(recording.recordedAs);
+      const file = new File([recording.blob], nameForRecording(recording.recordedAs), {
+        type: declared,
+      });
+      void uploadAttachment(conversationId, file, setStaged, recording.durationMs);
+    },
+    [conversationId],
+  );
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   /**
@@ -751,12 +776,27 @@ export function Composer({
           The picker also renders the staged-file list, which `display: contents` lifts onto
           its own grid row above.
         */}
-        <AttachmentPicker
-          conversationId={conversationId}
-          staged={staged}
-          onStagedChange={setStaged}
+        {recordingVoice ? null : (
+          <AttachmentPicker
+            conversationId={conversationId}
+            staged={staged}
+            onStagedChange={setStaged}
+          />
+        )}
+
+        {/*
+          The microphone, and — once it is pressed — the recording bar that stands in for
+          the whole row. It is rendered here rather than after the field so that the bar it
+          becomes starts at the row's left edge, where the paperclip was.
+        */}
+        <VoiceComposer
+          disabled={sending}
+          sending={sending}
+          onActiveChange={setRecordingVoice}
+          onRecorded={attachRecording}
         />
 
+        {recordingVoice ? null : (
         <div className="composer-field">
         <textarea
           ref={textareaRef}
@@ -855,6 +895,7 @@ export function Composer({
 
 
         </div>
+        )}
 
         {/*
           A round icon button on a colleague thread; a named button in a customer
@@ -865,6 +906,7 @@ export function Composer({
           there is one audience and nothing to distinguish. On an internal thread the
           accessible name is still "Send"; it is the visible label that becomes a glyph.
         */}
+        {recordingVoice ? null : (
         <button
           type="button"
           className={`composer-send${canReplyToCustomer ? '' : ' icon'}`}
@@ -894,6 +936,7 @@ export function Composer({
             </svg>
           )}
         </button>
+        )}
       </div>
 
       {/*

@@ -3658,7 +3658,8 @@ input[type='search']::-webkit-search-cancel-button {
   display: grid;
   /* Text, then the controls, then send — screen 02 groups every icon at the END of the row.
      The phone reverses the first two: there, attach is a circle before the pill. */
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  /* Four: the field, the paperclip, the microphone, and send. */
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 8px;
   /*
@@ -3686,8 +3687,20 @@ input[type='search']::-webkit-search-cancel-button {
   grid-row: 2;
 }
 
-.composer-actions .composer-send {
+.composer-actions /*
+   The microphone sits between the paperclip and send.
+
+   Every child of this grid is placed EXPLICITLY — the comment below says why, and this
+   button proved the point again: with no placement it took the first free cell, which is
+   row 1, and rendered above the field instead of beside it.
+*/
+.composer-mic {
   grid-column: 3;
+  grid-row: 2;
+}
+
+.composer-send {
+  grid-column: 4;
   grid-row: 2;
 }
 
@@ -3728,8 +3741,12 @@ input[type='search']::-webkit-search-cancel-button {
   order: 2;
 }
 
-.composer-field .composer-send {
+.composer-mic {
   order: 3;
+}
+
+.composer-field .composer-send {
+  order: 4;
 }
 
 /*
@@ -7690,7 +7707,8 @@ input.signin-control {
   .composer-actions {
     /* Attach, field, send — the phone's own order, and the one place the three columns are
        arranged differently from the rail widths. */
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    /* …and the microphone after the field on a phone too. */
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
     gap: 8px;
     min-height: 0;
     padding: 0;
@@ -10494,4 +10512,386 @@ input.signin-control {
 .skeleton-line.short {
   width: 38%;
   height: 8px;
+}
+
+
+/* =====================================================================================
+   VOICE NOTES
+
+   Two surfaces: the composer while a recording is happening, and the bubble it becomes.
+
+   Every button below sets its own `height` and `padding`. The base `button` rule applies
+   `height: var(--row)` and `padding: 0 var(--space-3)` to anything that does not, which is
+   right for a row of named actions and wrong for every round control here — see
+   `.sidenav-collapse`, which rendered as a 2px sliver for exactly this reason.
+   ===================================================================================== */
+
+/* ---- the microphone, at rest in the composer --------------------------------------- */
+.composer-mic {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  transition:
+    color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+
+.composer-mic:hover:not(:disabled) {
+  /* A colour shift, not a shaded box — `hover-highlighting.test.ts` holds that line, and
+     the reason is in its docblock: fifty-nine of them had accumulated before anybody
+     described what they had done to the product. */
+  color: var(--accent);
+}
+
+.composer-mic:disabled {
+  opacity: 0.45;
+}
+
+/* ---- the recording bar, which stands in for the whole composer row ----------------- */
+.voice-bar {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-2);
+  box-shadow: var(--hairline);
+}
+
+.voice-bar button {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+}
+
+.voice-bar button:hover:not(:disabled) {
+  color: var(--text);
+}
+
+/* The recording dot. Red is not the accent and not a theme colour: it is the one signal
+   in the product that means "this is capturing", and it is the convention everywhere else
+   a device records. It carries no state on its own — the timer beside it does. */
+.voice-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #e5484d;
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+
+.voice-dot.paused {
+  background: var(--text-muted);
+  animation: none;
+}
+
+@keyframes voice-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-dot {
+    /* Still, but not invisible. Somebody who asked for less motion still has to be able to
+       tell that the microphone is live, so the dot stays and only the blinking goes. */
+    animation: none;
+  }
+}
+
+/* `tabular-nums` so the timer does not shuffle its own digits as it counts. */
+.voice-time {
+  flex: none;
+  min-width: 42px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- the bar strip ------------------------------------------------------------------ */
+.voice-wave {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  overflow: hidden;
+}
+
+.voice-wave > span {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: 1px;
+  background: var(--border-strong);
+  transition: height 90ms linear;
+}
+
+.voice-wave > span.voice-bar-on {
+  background: var(--accent);
+}
+
+/* Stop is the emphatic one: it is what ends the recording, and it is the button somebody
+   is looking for while the timer runs. */
+.voice-stop {
+  background: var(--accent) !important;
+  color: var(--accent-contrast) !important;
+}
+
+.voice-stop:disabled {
+  opacity: 0.5;
+}
+
+/* Discard is destructive and reads as destructive on approach, not after. */
+.voice-cancel:hover:not(:disabled) {
+  color: #e5484d !important;
+}
+
+/* ---- the delete confirmation -------------------------------------------------------- */
+.voice-confirm {
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.voice-confirm-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+/* The two answers are sized as words, not as icons — so they override the round-button
+   rule above rather than inheriting a 32px circle around the word "Delete". */
+.voice-confirm button {
+  width: auto;
+  height: 30px;
+  padding: 0 14px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.voice-confirm .voice-delete {
+  background: #e5484d;
+  color: #fff;
+}
+
+.voice-confirm .voice-secondary {
+  box-shadow: var(--hairline);
+  background: var(--surface);
+  color: var(--text);
+}
+
+/* ---- a microphone that would not start ---------------------------------------------- */
+.voice-problem {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--warn-soft, var(--surface-2));
+  box-shadow: var(--hairline);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.voice-problem button {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
+/* =====================================================================================
+   The bubble
+   ===================================================================================== */
+.attachment-voice {
+  min-width: 0;
+}
+
+.voice-note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  /* Wide enough that the strip is a waveform rather than a smear, capped so a voice note
+     does not become the widest thing in the thread. */
+  width: min(300px, 62vw);
+  padding: 2px 0;
+}
+
+.voice-note-play {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  /* `currentColor` at low alpha, so the control belongs to whichever bubble it is in — the
+     pale lavender of your own and the white of theirs — instead of being one fixed grey
+     that is wrong in one of them. */
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: inherit;
+}
+
+/* Feedback on PRESS, not on approach.
+
+   The hover version of this was a shaded box, which `hover-highlighting.test.ts` refuses
+   and is right to: the button already carries a resting surface, so hover was adding a
+   second one to something that was never ambiguous. `:active` is not a hover state and is
+   the moment feedback is actually wanted. */
+.voice-note-play:active:not(:disabled) {
+  opacity: 0.7;
+}
+
+.voice-note-track {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+}
+
+/* The focus ring goes on the track, because the track is the slider. */
+.voice-note-track:focus-visible {
+  outline: 2px solid var(--focus, var(--accent));
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+/* Nothing known about the audio yet: a plain fill, claiming nothing about its shape. */
+.voice-note-plain {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    currentColor 0,
+    currentColor var(--played, 0%),
+    color-mix(in srgb, currentColor 22%, transparent) var(--played, 0%)
+  );
+}
+
+.voice-note-wave {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  height: 26px;
+}
+
+.voice-note-wave > span {
+  flex: 1 1 0;
+  min-width: 2px;
+  border-radius: 1px;
+  background: color-mix(in srgb, currentColor 26%, transparent);
+}
+
+.voice-note-wave > span.voice-bar-on {
+  background: currentColor;
+}
+
+.voice-note-time {
+  flex: none;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.voice-note-rate {
+  flex: none;
+  width: auto;
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  color: inherit;
+  font-size: 11px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.voice-note-problem {
+  flex-basis: 100%;
+  margin: 4px 0 0;
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+/* =====================================================================================
+   Touch
+   ===================================================================================== */
+@media (pointer: coarse) {
+  /* Rule 6: 44px minimum on a touch screen, and it is 44 — not the 42 this had, which is
+     the sort of near-miss that passes a glance and fails the rule. A 32px stop button
+     beside a 32px discard is two targets a thumb cannot tell apart, and one of them
+     throws the recording away. */
+  .voice-bar button {
+    width: 44px;
+    height: 44px;
+  }
+
+  .voice-bar {
+    gap: var(--space-1);
+  }
+
+  .voice-note-play {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* The strip is a scrub target as well as a picture, and a 26px band is not one. */
+  .voice-note-track {
+    height: 34px;
+  }
+}
+
+@media (max-width: 480px) {
+  /* The waveform is the first thing to give up width — the timer and the buttons are
+     both facts, and the strip is the only element here that degrades gracefully. */
+  .voice-note {
+    width: 100%;
+  }
+
+  .voice-time {
+    min-width: 38px;
+    font-size: 12px;
+  }
 }

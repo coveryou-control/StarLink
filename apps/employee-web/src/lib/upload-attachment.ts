@@ -22,6 +22,8 @@ export interface StagedAttachment {
    */
   readonly state: 'UPLOADING' | 'SCANNING' | 'READY' | 'FAILED';
   readonly problem?: string;
+  /** Present on a voice note only, so the chip can say how long it is while it uploads. */
+  readonly durationMs?: number;
 }
 
 /**
@@ -44,6 +46,12 @@ export async function uploadAttachment(
   conversationId: string,
   file: File,
   onStagedChange: Dispatch<SetStateAction<readonly StagedAttachment[]>>,
+  /**
+   * How long a voice note runs. Only a recorder can know this, and only a recorder passes
+   * it — a document has no duration and must not acquire one, or the bubble renders a
+   * play button beside a PDF.
+   */
+  durationMs?: number,
 ): Promise<void> {
   let attachmentId: string | undefined;
   try {
@@ -53,6 +61,7 @@ export async function uploadAttachment(
       filename: file.name,
       declaredMime: file.type || 'application/octet-stream',
       declaredBytes: file.size,
+      ...(durationMs !== undefined ? { durationMs } : {}),
     });
     attachmentId = grant.attachmentId;
 
@@ -63,6 +72,7 @@ export async function uploadAttachment(
         filename: file.name,
         declaredBytes: file.size,
         state: 'UPLOADING',
+        ...(durationMs !== undefined ? { durationMs } : {}),
       },
     ]);
 
@@ -84,12 +94,24 @@ export async function uploadAttachment(
      * retry". A 503 is storage being down and is worth saying plainly; a refusal is the
      * uniform 404 and must not be guessed at (§27.3).
      */
+    /* 413 is the voice-note ceiling, and it is the one refusal that can say what to do
+       about it — the server sends the actual limit back, so the message names it rather
+       than leaving somebody to guess how much shorter is short enough. */
+    const tooBig =
+      cause instanceof ApiError && cause.status === 413
+        ? (cause.body as { error?: string; maxSeconds?: number; maxBytes?: number } | undefined)
+        : undefined;
+
     const problem =
-      cause instanceof ApiError && cause.status === 503
-        ? 'Storage is temporarily unavailable. Your message is safe — try the file again.'
-        : cause instanceof ApiError && cause.isRefusal
-          ? 'That file cannot be attached here.'
-          : 'The upload did not finish. Your message is safe.';
+      tooBig?.error === 'voice_note_too_long'
+        ? `That recording is longer than the ${Math.round((tooBig.maxSeconds ?? 0) / 60)}-minute limit.`
+        : tooBig?.error === 'voice_note_too_large'
+          ? `That recording is larger than the ${Math.round((tooBig.maxBytes ?? 0) / (1024 * 1024))} MB limit.`
+          : cause instanceof ApiError && cause.status === 503
+            ? 'Storage is temporarily unavailable. Your message is safe — try the file again.'
+            : cause instanceof ApiError && cause.isRefusal
+              ? 'That file cannot be attached here.'
+              : 'The upload did not finish. Your message is safe.';
 
     if (attachmentId !== undefined) {
       const id = attachmentId;

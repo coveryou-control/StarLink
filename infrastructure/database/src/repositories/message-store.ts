@@ -296,6 +296,15 @@ class PgWriteTransaction implements MessageWriteTransaction {
    * So the newest message is chosen first and its preview derived second: its text if it
    * has any, otherwise the name of the file it carries. `NULLIF(trim(...))` is what makes
    * "a body of spaces" behave like no body rather than like a preview of nothing.
+   *
+   * A VOICE NOTE is the exception, because its filename is one we generated. "holiday.png"
+   * in a sidebar row tells you what arrived; "Voice note 2026-09-09 122813.webm" tells you
+   * the same thing four times over in the least readable form available. It gets "Voice
+   * note (0:13)" instead — the kind, and the one fact worth knowing before opening it.
+   *
+   * Decided on `sniffed_mime` where there is one, because that is what the scanner read
+   * out of the bytes; `declared_mime` is the uploader's word and is only the fallback for
+   * a row that has not been scanned yet. This is the same rule the thread renders by.
    */
   async refreshPreview(conversationId: UUID): Promise<void> {
     await this.client.query(
@@ -303,7 +312,16 @@ class PgWriteTransaction implements MessageWriteTransaction {
           SET last_message_preview = COALESCE((
                 SELECT COALESCE(
                          NULLIF(left(trim(m.body), 200), ''),
-                         (SELECT a.original_filename
+                         (SELECT CASE
+                                   WHEN COALESCE(a.sniffed_mime, a.declared_mime) LIKE 'audio/%'
+                                     THEN 'Voice note'
+                                          || COALESCE(
+                                               ' (' || (a.duration_ms / 60000)::int || ':'
+                                               || lpad((((a.duration_ms / 1000)::int) % 60)::text, 2, '0')
+                                               || ')',
+                                               '')
+                                   ELSE a.original_filename
+                                 END
                             FROM conversation.attachments a
                            WHERE a.message_id = m.message_id
                            ORDER BY a.created_at

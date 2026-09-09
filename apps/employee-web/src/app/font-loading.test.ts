@@ -59,11 +59,13 @@ describe('brand fonts are actually loaded', () => {
 
     /* The first family in each stack is the one being asked for; the rest are the
        fallbacks that were silently doing all the work. */
-    const named = [...fontsCss.matchAll(/--font-family-[\w-]+:\s*'([^']+)'/g)].map((m) => m[1]);
+    const named = [...fontsCss.matchAll(/--font-family-[\w-]+:\s*'([^']+)'/g)]
+      .map((m) => m[1])
+      .filter((family): family is string => family !== undefined);
     expect(named.length).toBeGreaterThan(0);
 
     const links = [...layout.matchAll(/href="(https:\/\/fonts\.googleapis\.com\/[^"]+)"/g)]
-      .map((m) => decodeURIComponent(m[1]))
+      .map((m) => decodeURIComponent(m[1] ?? ''))
       .join(' ');
 
     for (const family of named) {

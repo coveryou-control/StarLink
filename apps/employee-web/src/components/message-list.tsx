@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { api, ApiError, type AttachmentView } from '../lib/api-client';
 import { extensionOf, formatBytes } from './attachment-picker';
 import { AttachmentMedia, mediaKindOf } from './attachment-media';
+import { VoiceNote, isVoiceNote } from './voice-note';
 import { deliveryTick, type DeliveryTick } from '@starlink/shared-contracts';
 import { initialsFor, senderColour } from './conversation-naming';
 import { crossesDay, daySeparatorLabel, unreadDividerIndex } from './timeline';
@@ -603,9 +604,20 @@ function MessageRow({
                is not downloadable either.
             */
             const kind = mediaKindOf(file);
+            /* A voice note is neither. It is not a picture to show and not a file to list:
+               it is a control, and `duration_ms` means the row is complete before any
+               grant is spent — see `voice-note.tsx`. */
+            const voice = isVoiceNote(file);
             return (
-              <li key={file.attachmentId} className={kind === undefined ? undefined : 'attachment-visual'}>
-                {kind === undefined ? (
+              <li
+                key={file.attachmentId}
+                className={
+                  voice ? 'attachment-voice' : kind === undefined ? undefined : 'attachment-visual'
+                }
+              >
+                {voice ? (
+                  <VoiceNote file={file} />
+                ) : kind === undefined ? (
                   <AttachmentLink file={file} />
                 ) : (
                   <AttachmentMedia file={file} kind={kind} />

@@ -14,6 +14,16 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /**
+     * The parsed error body, for the few refusals that carry structure worth acting on.
+     *
+     * Almost every refusal here is the indistinguishable 404 and has nothing to read (see
+     * `isRefusal`). The exception is a limit: the server answers a too-long voice note
+     * with the ceiling it broke, and the composer turns that into "longer than the
+     * 30-minute limit" instead of leaving somebody to guess how much shorter is short
+     * enough. Typed `unknown` because it is a wire value — a caller narrows it.
+     */
+    readonly body?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -64,6 +74,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       response.status,
       detail.code ?? 'UNKNOWN',
       detail.message ?? `Request failed with ${response.status}.`,
+      body,
     );
   }
 
@@ -625,7 +636,13 @@ export const api = {
    */
   requestUpload: (
     conversationId: string,
-    file: { filename: string; declaredMime: string; declaredBytes: number },
+    file: {
+      filename: string;
+      declaredMime: string;
+      declaredBytes: number;
+      /** Voice notes only. See `voice-note-limits.ts` for what the server does with it. */
+      durationMs?: number;
+    },
   ) =>
     request<{ attachmentId: string; uploadUrl: string; expiresAt: string }>(
       employeeRoutes.conversations.attachments(conversationId),
