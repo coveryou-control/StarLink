@@ -6206,9 +6206,19 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--text);
 }
 
+/*
+   The splash's primary is ACCENT, not the kit's neutral primary.
+
+   This button and the rail's "New chat" are the same action, and on the empty screen they
+   are visible at the same moment — one coral, one near-black. Two treatments of one verb,
+   a hand's width apart, reads as two different things you could do. The kit's neutral
+   primary is right where it is the only primary in view (a details-panel action, an active
+   filter pill); it is wrong here, and matching the rail is what makes the pair one action.
+*/
 .empty-splash-actions button:first-child {
-  background: var(--btn-primary-bg);
-  color: var(--btn-primary-label);
+  background: var(--accent);
+  color: var(--accent-contrast);
+  font-weight: 600;
 }
 
 .empty-splash-actions button:last-child {
@@ -9289,12 +9299,24 @@ input.signin-control {
   justify-content: center;
   width: 26px;
   height: 26px;
+  /* `padding: 0` is load-bearing, not tidiness. The base `button` rule sets
+     `padding: 0 var(--space-3)`, and with `box-sizing: border-box` that leaves a 26px
+     button exactly 2px of content box — which the icon, being a flex child that may
+     shrink, obediently squashed itself into. The control rendered as a 2px vertical
+     sliver for as long as this line was missing. Any button sized in px needs it. */
+  padding: 0;
   border: 0;
   border-radius: 6px;
   background: transparent;
   color: color-mix(in srgb, var(--rail-fg) 80%, transparent);
   cursor: pointer;
   transition: color var(--dur) var(--ease);
+}
+
+/* And the icon does not shrink to fit, whatever the box around it does. Belt and
+   braces against the same failure returning by another route. */
+.sidenav-collapse svg {
+  flex: none;
 }
 
 .sidenav-collapse:hover {
