@@ -29,8 +29,15 @@ const BARS = 44;
 
 interface Props {
   readonly disabled: boolean;
-  /** Called with the finished recording. The composer stages and uploads it. */
-  readonly onRecorded: (recording: Recording) => void;
+  /**
+   * Called with the finished recording. The composer stages and uploads it.
+   *
+   * Resolves FALSE when the upload did not get there. The review stays open on a false,
+   * because the blob in it is the only copy of the audio that exists — closing it would
+   * lose a recording to a dropped connection, which is the one thing this component is
+   * built not to do.
+   */
+  readonly onRecorded: (recording: Recording) => Promise<boolean>;
   /** True while the composer is busy, so the review's Send cannot be pressed twice. */
   readonly sending: boolean;
   /**
@@ -53,6 +60,9 @@ export function VoiceComposer({
   const recorder = useVoiceRecorder();
   const [review, setReview] = useState<Recording | undefined>(undefined);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  /** Set when an upload failed. The recording is still in `review`; this says why. */
+  const [sendFailed, setSendFailed] = useState<string | undefined>(undefined);
+  const [uploading, setUploading] = useState(false);
 
   const active =
     review !== undefined ||
@@ -83,17 +93,28 @@ export function VoiceComposer({
     return (
       <ReviewBar
         recording={review}
-        sending={sending}
+        sending={sending || uploading}
         confirming={confirmingDelete}
+        failed={sendFailed}
         onConfirmDelete={() => setConfirmingDelete(true)}
         onKeep={() => setConfirmingDelete(false)}
         onDelete={() => {
           setConfirmingDelete(false);
+          setSendFailed(undefined);
           setReview(undefined);
         }}
         onSend={() => {
-          onRecorded(review);
-          setReview(undefined);
+          setSendFailed(undefined);
+          setUploading(true);
+          void onRecorded(review)
+            .then((ok) => {
+              /* Only on success. A failed upload leaves the recording exactly where it
+                 was, with a reason and a Send that can be pressed again — the audio is
+                 in this component and nowhere else. */
+              if (ok) setReview(undefined);
+              else setSendFailed('That did not send. Your recording is still here — try again.');
+            })
+            .finally(() => setUploading(false));
         }}
       />
     );
@@ -225,6 +246,7 @@ function ReviewBar({
   recording,
   sending,
   confirming,
+  failed,
   onConfirmDelete,
   onKeep,
   onDelete,
@@ -233,6 +255,7 @@ function ReviewBar({
   recording: Recording;
   sending: boolean;
   confirming: boolean;
+  failed?: string | undefined;
   onConfirmDelete: () => void;
   onKeep: () => void;
   onDelete: () => void;
@@ -324,11 +347,17 @@ function ReviewBar({
         className="voice-stop voice-send"
         onClick={onSend}
         disabled={sending}
-        aria-label="Send this voice note"
-        title="Send"
+        aria-label={failed === undefined ? 'Send this voice note' : 'Try sending again'}
+        title={failed === undefined ? 'Send' : 'Try again'}
       >
         <SendGlyph />
       </button>
+
+      {failed !== undefined ? (
+        <p className="voice-problem voice-send-failed" role="alert">
+          {failed}
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -133,12 +133,15 @@ export function Composer({
    * prevent there being.
    */
   const attachRecording = useCallback(
-    (recording: Recording): void => {
+    async (recording: Recording): Promise<boolean> => {
       const declared = declaredMimeFor(recording.recordedAs);
       const file = new File([recording.blob], nameForRecording(recording.recordedAs), {
         type: declared,
       });
-      void uploadAttachment(conversationId, file, setStaged, recording.durationMs);
+      /* Awaited, and the outcome returned: the recorder keeps its review open until this
+         says the audio is safely with the scanner. Fire-and-forget here would have the
+         review closing on a failed upload, taking the only copy of the recording with it. */
+      return uploadAttachment(conversationId, file, setStaged, recording.durationMs);
     },
     [conversationId],
   );

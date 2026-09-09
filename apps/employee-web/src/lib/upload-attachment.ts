@@ -39,6 +39,10 @@ export interface StagedAttachment {
  *
  * The picker still owns the CHIPS and the scan poll. Only the transfer moved.
  *
+ * Resolves `false` when the file never reached the scanner. Every caller may ignore that —
+ * the chip already says so — except the voice recorder, which must not throw away the only
+ * copy of a recording it has just failed to send.
+ *
  * The steps, and why they are four, are documented on `attachment-picker.tsx`; this is the
  * same code, not a second implementation.
  */
@@ -52,7 +56,7 @@ export async function uploadAttachment(
    * play button beside a PDF.
    */
   durationMs?: number,
-): Promise<void> {
+): Promise<boolean> {
   let attachmentId: string | undefined;
   try {
     /* 1. The grant. Declared values only — the server verifies the real MIME by content
@@ -88,6 +92,7 @@ export async function uploadAttachment(
         item.attachmentId === grant.attachmentId ? { ...item, state: 'SCANNING' } : item,
       ),
     );
+    return true;
   } catch (cause) {
     /**
      * §34.4 requires an upload to fail EXPLICITLY so "the user keeps their message and can
@@ -134,6 +139,16 @@ export async function uploadAttachment(
         },
       ]);
     }
+    /**
+     * The caller is TOLD, as well as the chip being marked.
+     *
+     * A dropped file that fails leaves a chip explaining itself and the file still on
+     * disk, so a return value would add nothing. A voice note has neither: the audio
+     * exists only in the page, and the recorder's review is the only place it can be
+     * played or re-sent from. Clearing that review on a failed upload destroys the
+     * recording — so the recorder waits for this before it does.
+     */
+    return false;
   }
 }
 

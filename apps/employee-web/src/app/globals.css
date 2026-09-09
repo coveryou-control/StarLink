@@ -10559,6 +10559,9 @@ input.signin-control {
   grid-column: 1 / -1;
   grid-row: 2;
   display: flex;
+  /* Wraps, so a failure message takes a second line instead of squeezing the controls
+     into nothing. Nothing wraps while the row holds only the controls. */
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
   min-width: 0;
@@ -10719,6 +10722,16 @@ input.signin-control {
   color: var(--text);
   font-size: 12.5px;
   line-height: 1.45;
+}
+
+/* Inside the bar, not beneath it: the row is already a flex line, and the message wraps
+   onto its own line under the controls it belongs to rather than displacing them. */
+.voice-send-failed {
+  flex-basis: 100%;
+  margin-top: 6px;
+  background: none;
+  box-shadow: none;
+  padding: 0 4px;
 }
 
 .voice-problem button {
