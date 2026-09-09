@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import type { ReactNode } from 'react';
 
 import { useSession } from '../components/session-provider';
+import { AppBoot } from '../components/app-boot';
 
 export default function IndexPage(): ReactNode {
   const { state } = useSession();
@@ -15,5 +16,5 @@ export default function IndexPage(): ReactNode {
     if (state.status === 'SIGNED_OUT') router.replace('/sign-in');
   }, [state.status, router]);
 
-  return <p style={{ padding: 24, color: 'var(--text-muted)' }}>Loading…</p>;
+  return <AppBoot />;
 }

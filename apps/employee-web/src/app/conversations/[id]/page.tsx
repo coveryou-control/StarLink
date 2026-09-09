@@ -36,7 +36,7 @@ import { ConversationSearch } from '../../../components/conversation-search';
 import { GroupGlyph } from '../../../components/group-glyph';
 import { PinnedBar } from '../../../components/pinned-bar';
 import { ForwardDialog } from '../../../components/forward-dialog';
-import { MessageInfoDialog } from '../../../components/message-info-dialog';
+import { MessageInfoPanel } from '../../../components/message-info-panel';
 import { useMediaQuery } from '../../../lib/use-media-query';
 import {
   useActiveConversation,
@@ -884,15 +884,25 @@ export default function ThreadPage(): ReactNode {
   }, [isAnnouncement]);
 
   /*
-     Search and details share the right column, and search wins while it is open.
+     Search, message info and details share the right column, in that order of precedence.
 
      They are the same slot deliberately. Search-in-conversation is a temporary task with
      an obvious end, details is a reference panel — stacking them would give the thread a
      third column at 1400px and none at 1200px, and putting search OVER the messages is
      the thing specifically ruled out: they have to stay visible. Dismissing search
      returns the details panel to whatever it was doing before.
+
+     Message info joined them on 2026-09-09, from a modal. "Who has read this" is a question
+     ABOUT a message and the answer is only useful while the message is still on screen, so
+     a centred box over a dimmed thread hid the one thing being asked about. It sits ahead of
+     details for the same reason search does: it was asked for just now, about one message,
+     and it has an obvious end.
   */
-  const rightColumn = searchOpen ? 'search' : showDetails ? 'details' : undefined;
+  const rightColumn =
+    searchOpen ? 'search'
+    : inspecting !== undefined ? 'message-info'
+    : showDetails ? 'details'
+    : undefined;
 
   return (
     <div
@@ -1123,13 +1133,6 @@ export default function ThreadPage(): ReactNode {
         />
       ) : null}
 
-      {inspecting !== undefined ? (
-        <MessageInfoDialog
-          message={inspecting}
-          conversationId={conversationId}
-          onClose={() => setInspecting(undefined)}
-        />
-      ) : null}
 
 
       {/*
@@ -1376,6 +1379,13 @@ export default function ThreadPage(): ReactNode {
           />
         </div>
       </aside>
+    ) : inspecting !== undefined ? (
+      <MessageInfoPanel
+        message={inspecting}
+        conversationId={conversationId}
+        overlaid={panelOverlays}
+        onClose={() => setInspecting(undefined)}
+      />
     ) : showDetails ? (
       <aside className="details-drawer" aria-label={detailsTitle}>
         {/*

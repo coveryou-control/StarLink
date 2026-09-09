@@ -8601,10 +8601,11 @@ input.signin-control {
 }
 
 /* =====================================================================================
-   Forward, and message info. Two dialogs with the same bones as the confirmation.
+   Forward. Message info was here too, until it became a column - see
+   `message-info-panel.tsx` for why a modal was the wrong shape for a question ABOUT a
+   message you can no longer see while the answer is up.
    ===================================================================================== */
-.forward-dialog,
-.message-info-dialog {
+.forward-dialog {
   width: min(440px, 100%);
   max-height: min(560px, 82vh);
   padding: var(--space-4);
@@ -8616,8 +8617,7 @@ input.signin-control {
   gap: var(--space-2);
 }
 
-.forward-dialog h2,
-.message-info-dialog h2 {
+.forward-dialog h2 {
   margin: 0;
   font-size: var(--text-lg);
   font-weight: 600;
@@ -8673,24 +8673,10 @@ input.signin-control {
   font-size: 12px;
 }
 
-.message-info-delivered,
-.message-info-count {
-  margin: 0;
-  font-size: var(--text-sm);
-}
-
-.message-info-count {
-  color: var(--text-muted);
-}
-
-.message-info-readers li {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  min-height: 40px;
-  font-size: var(--text-sm);
-}
+/* `.message-info-delivered`, `.message-info-count` and a second `.message-info-readers li`
+   lived here, from the modal. They are gone rather than left: two rules for one selector in
+   one stylesheet is how a change lands in the copy nobody is looking at. The panel's own
+   rules are with the rest of it, further down. */
 
 /*
    The group's name, with a pencil rather than a permanent field.
@@ -12192,5 +12178,300 @@ input.signin-control {
 
   .media-viewer-bar .media-viewer-action:first-of-type {
     margin-left: auto;
+  }
+}
+
+/* ------------------------------------------------ message info, in the right-hand column */
+
+/*
+   The message the panel is about, at the top of it.
+
+   Drawn as a bubble rather than as a quotation rule: it IS a message, and looking like one
+   is what stops the reader having to work out which of the forty on the left this panel
+   belongs to. Bounded and scrollable, because a message can be ten thousand characters and
+   the panel below it is the part somebody opened this for.
+*/
+.message-info-subject {
+  max-height: 30vh;
+  overflow-y: auto;
+  padding: 10px var(--space-3);
+  border-radius: var(--radius-bubble);
+  background: var(--bubble-them);
+  color: var(--text);
+  font-size: var(--text-md);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.message-info-when {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--text);
+}
+
+.message-info-loading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.message-info-readers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.message-info-readers li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-md);
+}
+
+.message-info-readers li > span:last-child {
+  flex: none;
+  font-size: var(--text-base);
+  /* Lined up, because these are times and a ragged column of them is harder to compare
+     than it looks. */
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------------------------------- the thread, while the route arrives */
+
+/*
+   Drawn at the real heights of the header and the composer, so the messages land in space
+   already reserved and nothing jumps when they do. See `[id]/loading.tsx` for what used to
+   be on screen instead - the empty pane, telling the reader they had not clicked the
+   conversation they had just clicked.
+*/
+.thread-loading-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: 72px;
+  min-height: 72px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.thread-loading-avatar {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  animation: skeleton-pulse 1.4s var(--ease) infinite;
+}
+
+.thread-loading-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.thread-loading-composer {
+  flex: none;
+  height: 76px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-loading-avatar {
+    animation: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .thread-loading-header {
+    height: 60px;
+    min-height: 60px;
+    padding: 0 var(--space-3);
+  }
+}
+
+/* =====================================================================================
+   The boot silhouette
+
+   The application before it knows who you are. `app-boot.tsx` explains why it is a
+   silhouette rather than a spinner; what the stylesheet contributes is that every block
+   here is the size of the thing it stands in for, so nothing MOVES when the real interface
+   arrives.
+
+   Shares `.app-shell` and `.app-body`, deliberately: this is not a picture of the
+   application, it is the application with nothing in it yet.
+   ===================================================================================== */
+
+.app-boot {
+  /* No animation on the frame itself. The blocks pulse; the furniture is already correct
+     and pulsing it would say the layout is still being decided. */
+  background: var(--surface);
+}
+
+.boot-rail {
+  grid-area: rail;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 26px;
+  width: var(--rail-w);
+  padding: 20px 0;
+  background: var(--rail-bg);
+}
+
+.boot-mark,
+.boot-tile,
+.boot-rail-foot {
+  flex: none;
+  border-radius: var(--radius);
+  /* On the rail's own dark ground, so a light skeleton token would be a bright hole. */
+  background: rgb(255 255 255 / 9%);
+}
+
+.boot-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+}
+
+.boot-tile {
+  width: 44px;
+  height: 44px;
+}
+
+.boot-rail-foot {
+  width: 36px;
+  height: 36px;
+  margin-top: auto;
+  border-radius: 50%;
+}
+
+.boot-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  padding: 22px var(--space-4);
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+}
+
+.boot-thread {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: 0;
+  background: var(--bg);
+}
+
+.boot-title,
+.boot-field,
+.boot-avatar,
+.boot-line,
+.boot-header,
+.boot-body,
+.boot-composer {
+  display: block;
+  background: var(--surface-3);
+  border-radius: var(--radius-sm);
+  animation: skeleton-pulse 1.4s var(--ease) infinite;
+}
+
+.boot-title {
+  width: 96px;
+  height: 20px;
+}
+
+.boot-field {
+  width: 100%;
+  height: 38px;
+  border-radius: var(--radius-pill);
+}
+
+.boot-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.boot-avatar {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+}
+
+.boot-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.boot-line {
+  height: 10px;
+}
+
+.boot-line.short {
+  height: 8px;
+  opacity: 0.7;
+}
+
+/* The three bands of a conversation: the header, the messages, the composer. Sized rather
+   than drawn as bubbles - at this moment nothing is known about the thread, and inventing
+   a shape for messages that may not exist would be a picture of a conversation. */
+.boot-header {
+  flex: none;
+  height: 72px;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  animation: none;
+}
+
+.boot-body {
+  flex: 1;
+  min-height: 0;
+  border-radius: 0;
+  background: transparent;
+  animation: none;
+}
+
+.boot-composer {
+  flex: none;
+  height: 76px;
+  border-radius: 0;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .boot-title,
+  .boot-field,
+  .boot-avatar,
+  .boot-line {
+    animation: none;
+  }
+}
+
+/* One pane on a phone, matching the shell's own rule: the list is the screen when nothing
+   is open, so the thread silhouette would be a second screen nobody is looking at. */
+@media (max-width: 860px) {
+  .app-boot .boot-thread {
+    display: none;
+  }
+
+  .app-boot .app-body {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

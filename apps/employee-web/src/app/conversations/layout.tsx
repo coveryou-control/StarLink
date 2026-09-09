@@ -33,6 +33,7 @@ import { useDrafts } from '../../lib/use-drafts';
 import { AvatarStampProvider } from '../../components/avatar-image';
 import { PresenceProvider } from '../../components/presence';
 import { ActiveConversationProvider } from '../../components/active-conversation';
+import { AppBoot } from '../../components/app-boot';
 
 export default function WorkspaceLayout({ children }: { children: ReactNode }): ReactNode {
   const { state, signOut } = useSession();
@@ -366,7 +367,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   }, [state.status, refresh]);
 
   if (state.status !== 'SIGNED_IN') {
-    return <p style={{ padding: 24, color: 'var(--text-muted)' }}>Loading…</p>;
+    return <AppBoot />;
   }
 
   return (
