@@ -27,6 +27,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { api, ApiError, type AttachmentView } from '../lib/api-client';
+import { MediaViewer } from './media-viewer';
 
 /** What may be drawn rather than listed. Narrow on purpose — anything else is a file. */
 export function mediaKindOf(file: AttachmentView): 'image' | 'video' | undefined {
@@ -50,6 +51,8 @@ export function AttachmentMedia({
   readonly kind: 'image' | 'video';
 }): ReactNode {
   const [url, setUrl] = useState<string | undefined>();
+  /** Whether the full-size viewer is up. See `MediaViewer` for why it is not a new tab. */
+  const [viewing, setViewing] = useState(false);
   const [problem, setProblem] = useState<string | undefined>();
   const holder = useRef<HTMLDivElement>(null);
 
@@ -117,17 +120,55 @@ export function AttachmentMedia({
         <div className="attachment-media-pending" aria-label={`Loading ${file.filename}`} />
       ) : kind === 'image' ? (
         /*
-           A click opens the full size in a new tab — the same act the file card performs,
-           and the grant is already in hand so it costs no second audit entry.
+           A click opens the picture IN THE APPLICATION, not in a new tab.
+
+           The tab was the bug. Navigating to the grant URL hands the browser bytes served
+           as `application/octet-stream` with `Content-Disposition: attachment` — see
+           `dev-upload.controller.ts` for why that header is deliberate and must stay — so
+           the browser saved the photograph instead of showing it. A disposition only
+           governs navigation; the `<img>` right here renders the same bytes without
+           complaint, which is what `MediaViewer` uses.
+
+           A button rather than an anchor, because it no longer goes anywhere.
         */
-        <a href={url} target="_blank" rel="noopener noreferrer" title={file.filename}>
+        <button
+          type="button"
+          className="attachment-media-open"
+          onClick={() => setViewing(true)}
+          title={file.filename}
+          aria-label={`Open ${file.filename}`}
+        >
           <img src={url} alt={file.filename} loading="lazy" />
-        </a>
+        </button>
       ) : (
         /* `preload="metadata"` so the poster frame and duration are there without pulling
-           the whole file down for a video nobody plays. */
-        <video src={url} controls preload="metadata" playsInline title={file.filename} />
+           the whole file down for a video nobody plays.
+
+           The inline player keeps its controls — a video in a thread is often watched where
+           it sits. `Expand` is for the other case, and opens the same viewer a picture uses
+           rather than navigating, for the same reason. */
+        <>
+          <video src={url} controls preload="metadata" playsInline title={file.filename} />
+          <button
+            type="button"
+            className="attachment-media-expand"
+            onClick={() => setViewing(true)}
+          >
+            Expand
+          </button>
+        </>
       )}
+      {viewing && url !== undefined ? (
+        <MediaViewer
+          media={{
+            kind,
+            url,
+            filename: file.filename,
+            declaredBytes: file.declaredBytes,
+          }}
+          onClose={() => setViewing(false)}
+        />
+      ) : null}
     </div>
   );
 }

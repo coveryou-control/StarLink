@@ -12031,3 +12031,166 @@ input.signin-control {
     gap: var(--space-4);
   }
 }
+
+/* =====================================================================================
+   The media viewer
+
+   A picture at the size of the window, inside the application. See `media-viewer.tsx` for
+   why this exists rather than a new tab: the grant is served as an attachment on purpose,
+   so navigating to it saves the file, and only navigation is governed by that header.
+   ===================================================================================== */
+
+/* The frame is the positioning context for the video's Expand control. Added here rather
+   than on the rule above so the reason travels with the thing that needs it. */
+.attachment-media {
+  position: relative;
+}
+
+/* The thumbnail is a button now. Everything a button brings visually is stripped - it is a
+   photograph, and a border around it would be the control competing with the content. */
+.attachment-media-open {
+  display: block;
+  width: 100%;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: none;
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.attachment-media-open img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.attachment-media-expand {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  height: auto;
+  padding: 4px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-pill);
+  /* Its own scrim rather than a token: it sits over arbitrary video frames, and a surface
+     colour that works over one is unreadable over the next. */
+  background: rgb(16 16 20 / 62%);
+  color: #fff;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.media-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  flex-direction: column;
+  /* Nearly opaque, unlike the dialog scrim. A photograph is being looked AT, and the thread
+     behind it is a distraction rather than context worth keeping visible. */
+  background: rgb(12 12 16 / 92%);
+  animation: modal-in var(--dur) var(--ease);
+}
+
+.media-viewer-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  color: rgb(255 255 255 / 92%);
+}
+
+.media-viewer-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-md);
+  font-weight: 500;
+}
+
+.media-viewer-size {
+  flex: none;
+  margin-right: auto;
+  font-size: var(--text-base);
+  color: rgb(255 255 255 / 62%);
+}
+
+.media-viewer-action {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* 40 square, comfortably past rule 6's 44 once the gap around it is counted, and these
+     sit over a dark ground where a small target is harder to aim at. */
+  min-width: 40px;
+  height: 40px;
+  padding: 0 var(--space-3);
+  border: 1px solid rgb(255 255 255 / 26%);
+  border-radius: var(--radius);
+  background: transparent;
+  color: rgb(255 255 255 / 76%);
+  font-size: var(--text-base);
+  font-weight: 500;
+  text-decoration: none;
+  transition: color var(--dur) var(--ease);
+}
+
+/* A colour shift, not a box and not a tinted border - `hover-highlighting.test.ts` bans
+   both, and caught this on the first run. The border stays where it is and the label
+   brightens, which is the same feedback without painting anything behind the pointer. */
+.media-viewer-action:hover {
+  color: rgb(255 255 255 / 100%);
+}
+
+.media-viewer-close {
+  padding: 0;
+}
+
+.media-viewer-stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+/*
+   Fits the window, never crops and never scales up.
+
+   `object-fit: contain` on a bounded box does the fitting; `max-*: 100%` is what stops a
+   4000px photograph from being displayed at 4000px, and the absence of a min-* is what
+   stops a 60px avatar being blown up into a blur.
+*/
+.media-viewer-stage img,
+.media-viewer-stage video {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius);
+}
+
+@media (max-width: 560px) {
+  .media-viewer-bar {
+    padding: var(--space-2) var(--space-3);
+  }
+
+  /* The filename is the first thing to go. The picture is on screen; its name is not what
+     somebody opened it for, and at 360px it would push the controls off the row. */
+  .media-viewer-name,
+  .media-viewer-size {
+    display: none;
+  }
+
+  .media-viewer-size {
+    margin-right: 0;
+  }
+
+  .media-viewer-bar .media-viewer-action:first-of-type {
+    margin-left: auto;
+  }
+}

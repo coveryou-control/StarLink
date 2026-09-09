@@ -971,18 +971,24 @@ describe('removing somebody from a group', () => {
 });
 
 /**
- * "Delete for me" hides a message from ONE person.
+ * "Delete for me" was WITHDRAWN on 2026-09-09, and this proves it stays withdrawn.
  *
- * The claim worth testing is not that it disappears — it is that it disappears for exactly
- * one reader. A per-principal hide that leaked into everybody's page would be a redaction
- * with a misleading label, and somebody would use it believing the opposite.
+ * The case used to assert that a hide removed a message from exactly one reader's page and
+ * left the record alone — which it did, correctly.
  *
- * The second claim is that the record does not move. Rule 8 makes the audit ledger
- * append-only and BR-09 makes what a person COULD have read answerable afterwards; a hide
- * writes a row about a reader and must leave conversation.messages exactly as it was.
+ * What changed is the product decision: no user deletes a message and no user deletes a
+ * chat. The gentler half goes with the destructive one, and for a reason of its own. A
+ * person who hides a message they were sent has a thread whose history differs from
+ * everybody else's, so "what did this conversation say" acquires more than one answer
+ * depending on who is asked — and an internal record that cannot be quoted back is not much
+ * of a record. ARCHIVE remains, and is a different act: it takes a whole conversation out of
+ * your list without changing what anybody sees inside it, and it is reversible.
+ *
+ * INVERTED rather than deleted. A removed test is a rule nobody is checking; this one fails
+ * the moment the capability returns without the decision being revisited.
  */
-describe('deleting a message for yourself', () => {
-  it('hides it from one reader and from nobody else, and leaves the record alone', async (ctx) => {
+describe('a message cannot be hidden, deleted or removed by anybody', () => {
+  it('refuses the hide and the delete, and changes nothing for anybody', async (ctx) => {
     if (skipUnlessReady(ctx, 'delete-for-me is unproven.')) return;
 
     const alice = await signIn('alice');
@@ -1012,52 +1018,53 @@ describe('deleting a message for yourself', () => {
 
     expect(await bodiesFor(bob)).toContain('Something Bob would rather not keep seeing.');
 
-    /* Bob hides somebody ELSE's message, which is the common case — the thing you want out
-       of your timeline is usually not one you wrote. */
+    /* Bob tries to hide somebody ELSE's message, which was the common case the route
+       existed for — the thing you want out of your timeline is usually not one you wrote. */
     const hidden = await post(
       employeeRoutes.conversations.hideMessage(conversationId, messageId),
       bob,
       {},
     );
-    expect(hidden.status, 'a reader could not hide a message from their own view').toBeLessThan(
-      400,
-    );
-
-    expect(
-      await bodiesFor(bob),
-      'the message was still in the page of the person who hid it',
-    ).not.toContain('Something Bob would rather not keep seeing.');
-
-    /* Alice wrote it and Cara is just another reader. Neither is affected. */
-    expect(
-      await bodiesFor(alice),
-      'one person hiding a message removed it from the author view',
-    ).toContain('Something Bob would rather not keep seeing.');
-
-    const cara = await signIn('cara');
-    expect(
-      await bodiesFor(cara),
-      'one person hiding a message removed it from a third party view',
-    ).toContain('Something Bob would rather not keep seeing.');
+    expect(hidden.status, 'a reader was still able to hide a message').toBe(404);
 
     /*
-       And the message itself is untouched — not redacted, not emptied. This is the
-       assertion that separates a hide from a delete, and it is checked against the table
-       rather than the API so a projection change cannot make it pass wrongly.
+       And every page is unchanged — the reader's own included.
+
+       Checking Bob's page is the assertion that matters. A refusal that hid the message
+       anyway would be the worst outcome available: the caller told no, the effect applied.
     */
+    expect(
+      await bodiesFor(bob),
+      'the message vanished from the page of the person whose request was refused',
+    ).toContain('Something Bob would rather not keep seeing.');
+    expect(await bodiesFor(alice)).toContain('Something Bob would rather not keep seeing.');
+
+    const cara = await signIn('cara');
+    expect(await bodiesFor(cara)).toContain('Something Bob would rather not keep seeing.');
+
+    /* Nothing was written about the reader either. Checked against the table rather than
+       the API, so a projection change cannot make it pass wrongly. */
+    const suppressed = await pool!.query(
+      `SELECT count(*)::int AS rows FROM conversation.hidden_messages
+        WHERE message_id = $1`,
+      [messageId],
+    );
+    expect(suppressed.rows[0].rows, 'a refused hide still wrote a suppression row').toBe(0);
+
+    /* And the message itself is untouched — not redacted, not emptied. */
     const stored = await pool!.query(
       `SELECT body, redacted_at FROM conversation.messages WHERE message_id = $1`,
       [messageId],
     );
     expect(stored.rows[0].body).toBe('Something Bob would rather not keep seeing.');
-    expect(stored.rows[0].redacted_at, 'hiding redacted the message').toBeNull();
+    expect(stored.rows[0].redacted_at, 'a refused hide redacted the message').toBeNull();
 
-    /* Hiding twice is not an error. A double-click must not produce a 500. */
-    const again = await post(
-      employeeRoutes.conversations.hideMessage(conversationId, messageId),
-      bob,
-      {},
+    /* The destructive half, from its author, who is the one person the old route allowed. */
+    const deleted = await fetch(
+      `${BASE}${employeeRoutes.conversations.message(conversationId, messageId)}`,
+      { method: 'DELETE', headers: { cookie: alice } },
     );
-    expect(again.status).toBeLessThan(400);
+    expect(deleted.status, 'the author was still able to delete their own message').toBe(404);
+    expect(await bodiesFor(alice)).toContain('Something Bob would rather not keep seeing.');
   }, 180_000);
 });
