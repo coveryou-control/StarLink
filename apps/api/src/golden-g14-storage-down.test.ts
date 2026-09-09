@@ -293,7 +293,10 @@ describe('G-14 — object storage down (§34.4)', () => {
       attachmentId,
       actor: { principalId: AGENT as UUID, kind: 'EMPLOYEE' },
       ports: {
-        async mayReadConversation() {
+        async mayActOnConversation() {
+          /* Renamed when step 3 began asking for `conversation.attachment.download`
+             rather than a bare read. G-14 is about STORAGE being down, so it grants the
+             action unconditionally and keeps the failure it exists to test. */
           return true;
         },
         async messageVisibility() {

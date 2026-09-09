@@ -57,7 +57,7 @@ class AttachmentPlumbing {
   /**
    * §28.4 step 3, and step 4's input.
    *
-   * `mayReadConversation` runs the SAME `decide()` every other read path runs. Writing a
+   * `mayActOnConversation` runs the SAME `decide()` every other path runs. Writing a
    * second, attachment-specific rule here is exactly how two authorization paths diverge
    * (§38), so this one delegates rather than deciding.
    */
@@ -215,7 +215,7 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
    *
    * The list is message content by another name: knowing that a file called
    * `Q3-headcount.xlsx` was shared in a thread is knowing something about that thread. So
-   * it goes through `mayReadConversation`, which for an employee is the same `decide()`
+   * it goes through `mayActOnConversation`, which for an employee is the same `decide()`
    * object check every other read path makes — not a separate rule that could drift from
    * it (§38).
    *
