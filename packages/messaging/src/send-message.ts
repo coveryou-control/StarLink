@@ -145,6 +145,19 @@ export async function sendMessage(
 
     const participant = await tx.loadParticipant(command.conversationId, command.actor.principalId);
 
+    /*
+       A channel's access policy, for channels only.
+
+       Fetched here rather than folded into the conversation load because half of it depends
+       on WHO is sending — the audience is resolved against this sender's department, teams
+       and principal id. `decide()` refuses a channel whose policy is absent, so a failure to
+       read it denies the send rather than defaulting it open.
+    */
+    const channelFacts =
+      conversation.conversationType === 'INTERNAL_CHANNEL'
+        ? await tx.loadChannelFacts(command.conversationId, command.actor.principalId)
+        : undefined;
+
     // The object check (§18.4 step 3): the conversation is loaded and authorized
     // together, never authorized against an id supplied by the caller.
     //
@@ -163,7 +176,17 @@ export async function sendMessage(
              own type, rather than by anything the caller sent.
           */
           'conversation.announcement.post'
-        : isInternal(conversation.conversationType)
+        : /*
+             A CHANNEL send is `conversation.message.send`, deliberately, and NOT a fifth
+             action beside the announcement's.
+
+             The announcement needs its own action because participation there must not
+             grant sending, and participation is all `decide()` has to go on. A channel has
+             a POLICY, so the same action can mean different things in two channels — which
+             is exactly what the product asks for, and what a second action name could not
+             express. `decideChannel` narrows it; see the rung in `decide.ts`.
+          */
+          isInternal(conversation.conversationType)
           ? 'conversation.message.send'
           : command.visibility === 'INTERNAL'
             ? 'conversation.note.internal'
@@ -184,6 +207,7 @@ export async function sendMessage(
         ...(conversation.customerRef !== undefined ? { customerRef: conversation.customerRef } : {}),
         sensitivity: conversation.sensitivity,
         ...(participant !== undefined ? { participant } : {}),
+        ...(channelFacts !== undefined ? { channel: channelFacts } : {}),
         /**
          * A customer may only ever write into their OWN conversation.
          *

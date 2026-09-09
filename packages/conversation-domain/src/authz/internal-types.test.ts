@@ -58,6 +58,11 @@ const EXPECTED: Readonly<Record<ConversationType, { internal: boolean; participa
   /* Internal — no customer, no case, no lifecycle — and NOT participant-managed: the
      participants are everybody, and everybody must not be able to remove everybody. */
   INTERNAL_ANNOUNCEMENT: { internal: true, participantManaged: false },
+  /* Internal, and NOT participant-managed either — for a different reason than the
+     announcement's. A group is four people who each let the next one in, which is BR-05.
+     A channel states who administers it, and an ordinary member of the Technology channel
+     removing somebody from it is not a thing the access policy ever said they could do. */
+  INTERNAL_CHANNEL: { internal: true, participantManaged: false },
   SYSTEM_INTERACTION: { internal: false, participantManaged: false },
   AI_HANDOFF: { internal: false, participantManaged: false },
 };

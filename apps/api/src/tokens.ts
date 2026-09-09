@@ -27,6 +27,14 @@ export const STATUS_STORE = Symbol('SL_STATUS_STORE');
 export const AVATAR_STORE = Symbol('SL_AVATAR_STORE');
 export const HIDDEN_MESSAGE_STORE = Symbol('SL_HIDDEN_MESSAGE_STORE');
 export const CONVERSATION_STORE = Symbol('SL_CONVERSATION_STORE');
+/**
+ * The channel POLICY store - the internal rooms, not the delivery transport.
+ *
+ * Named CHANNEL_STORE rather than CHANNEL_POLICY_STORE because the delivery side has no
+ * store of its own to be confused with; `packages/channels` is stateless and the sessions
+ * live under the conversation stores. If that ever changes, this is the name to qualify.
+ */
+export const CHANNEL_STORE = Symbol('SL_CHANNEL_STORE');
 export const CONVERSATION_READER = Symbol('SL_CONVERSATION_READER');
 export const READ_STATE_STORE = Symbol('SL_READ_STATE_STORE');
 export const EMPLOYEE_DIRECTORY = Symbol('SL_EMPLOYEE_DIRECTORY');

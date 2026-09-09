@@ -25,6 +25,7 @@ import {
   sendMessage,
   type MessageReader,
   type MessageStore,
+  conversationResource,
 } from '@starlink/messaging';
 import {
   decide,
@@ -382,27 +383,16 @@ export class EmployeeMessagesController {
       if (conversation === undefined) return false;
       lifecycleState = conversation.state ?? undefined;
       conversationType = conversation.conversationType;
-      const participant = await tx.loadParticipant(conversationId.data, session.principalId);
       const decision = recordDecision(
         'conversation.read',
         decide({
-        actor: toActorContext(claims.value),
-        action: 'conversation.read',
-        resource: {
-          conversationId: conversation.conversationId,
-          conversationType: conversation.conversationType,
-          ...(conversation.caseId !== undefined ? { caseId: conversation.caseId } : {}),
-          ...(conversation.owningTeamId !== undefined ? { owningTeamId: conversation.owningTeamId } : {}),
-          ...(conversation.owningDepartment !== undefined
-            ? { owningDepartment: conversation.owningDepartment }
-            : {}),
-          ...(conversation.currentOwnerId !== undefined
-            ? { currentOwnerId: conversation.currentOwnerId }
-            : {}),
-          sensitivity: conversation.sensitivity,
-          ...(participant !== undefined ? { participant } : {}),
-        },
-        now: new Date().toISOString(),
+          actor: toActorContext(claims.value),
+          action: 'conversation.read',
+          /* Assembled by `conversationResource`, not by hand. Three copies of this shape
+             lived in this file and a channel's access policy reached none of them - which
+             turned every channel read into a 404 while the writes worked. */
+          resource: await conversationResource(tx, conversation, session.principalId),
+          now: new Date().toISOString(),
         }),
       );
       if (decision.allow) {
@@ -1011,25 +1001,12 @@ export class EmployeeMessagesController {
     return this.store.transaction(async (tx) => {
       const conversation = await tx.loadConversationForUpdate(conversationId);
       if (conversation === undefined) return false;
-      const participant = await tx.loadParticipant(conversationId, session.principalId);
       return recordDecision(
         'conversation.read',
         decide({
           actor: toActorContext(claims.value),
           action: 'conversation.read',
-          resource: {
-            conversationId: conversation.conversationId,
-            conversationType: conversation.conversationType,
-            ...(conversation.caseId !== undefined ? { caseId: conversation.caseId } : {}),
-            ...(conversation.owningTeamId !== undefined
-              ? { owningTeamId: conversation.owningTeamId }
-              : {}),
-            ...(conversation.currentOwnerId !== undefined
-              ? { currentOwnerId: conversation.currentOwnerId }
-              : {}),
-            sensitivity: conversation.sensitivity,
-            ...(participant !== undefined ? { participant } : {}),
-          },
+          resource: await conversationResource(tx, conversation, session.principalId),
           now: new Date().toISOString(),
         }),
       ).allow;
@@ -1227,25 +1204,12 @@ export class EmployeeMessagesController {
     return this.store.transaction(async (tx) => {
       const conversation = await tx.loadConversationForUpdate(conversationId);
       if (conversation === undefined) return false;
-      const participant = await tx.loadParticipant(conversationId, session.principalId);
       return recordDecision(
         'conversation.message.react',
         decide({
           actor: toActorContext(claims.value),
           action: 'conversation.message.react',
-          resource: {
-            conversationId: conversation.conversationId,
-            conversationType: conversation.conversationType,
-            ...(conversation.caseId !== undefined ? { caseId: conversation.caseId } : {}),
-            ...(conversation.owningTeamId !== undefined
-              ? { owningTeamId: conversation.owningTeamId }
-              : {}),
-            ...(conversation.currentOwnerId !== undefined
-              ? { currentOwnerId: conversation.currentOwnerId }
-              : {}),
-            sensitivity: conversation.sensitivity,
-            ...(participant !== undefined ? { participant } : {}),
-          },
+          resource: await conversationResource(tx, conversation, session.principalId),
           now: new Date().toISOString(),
         }),
       ).allow;

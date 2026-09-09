@@ -18,7 +18,8 @@ import type {
   Timestamp,
   UUID,
 } from '@starlink/shared-contracts';
-import type { ConversationStore, NewParticipant } from './ports.js';
+import { isChannelAdminRole } from '@starlink/shared-contracts';
+import type { ConversationStore, NewChannelPolicy, NewParticipant } from './ports.js';
 
 /**
  * The types with no customer, no `service_cases` row and therefore no lifecycle (D-15).
@@ -31,6 +32,9 @@ const INTERNAL_TYPES: ReadonlySet<ConversationType> = new Set<ConversationType>(
   'INTERNAL_DIRECT',
   'INTERNAL_GROUP',
   'INTERNAL_ANNOUNCEMENT',
+  /* A channel: no customer, no case, no lifecycle. What it does have is an access POLICY,
+     which is a different axis entirely and lives in `conversation.channels`. */
+  'INTERNAL_CHANNEL',
 ]);
 
 export const isInternal = (type: ConversationType): boolean => INTERNAL_TYPES.has(type);
@@ -44,12 +48,19 @@ export interface CreateInternalCommand {
    * directory. This command's job is the same either way, so it takes the type and applies
    * the same rules to it: a title is required, and an empty audience is refused.
    */
-  readonly type: 'INTERNAL_DIRECT' | 'INTERNAL_GROUP' | 'INTERNAL_ANNOUNCEMENT';
+  readonly type: 'INTERNAL_DIRECT' | 'INTERNAL_GROUP' | 'INTERNAL_ANNOUNCEMENT' | 'INTERNAL_CHANNEL';
   readonly createdBy: UUID;
   /** Excludes the creator, who is always added. */
   readonly participantIds: readonly UUID[];
   readonly participantKinds: Readonly<Record<UUID, PrincipalKind>>;
   readonly title?: string;
+  /**
+   * Present exactly when `type` is 'INTERNAL_CHANNEL'.
+   *
+   * Carried on the create command rather than written afterwards so the policy lands in the
+   * same transaction as the room. See `NewChannelPolicy`.
+   */
+  readonly channel?: NewChannelPolicy;
   readonly correlationId: string;
 }
 
@@ -58,6 +69,7 @@ export type CreateFailure =
   | 'DIRECT_REQUIRES_EXACTLY_ONE_OTHER'
   | 'GROUP_REQUIRES_A_PARTICIPANT'
   | 'TITLE_REQUIRED_FOR_GROUP'
+  | 'CHANNEL_REQUIRES_A_POLICY'
   | 'SELF_CONVERSATION';
 
 export type CreateResult =
@@ -78,6 +90,22 @@ export async function createInternalConversation(
 
   if (command.type === 'INTERNAL_DIRECT') {
     if (others.length !== 1) return { ok: false, reason: 'DIRECT_REQUIRES_EXACTLY_ONE_OTHER' };
+  } else if (command.type === 'INTERNAL_CHANNEL') {
+    /*
+       A channel may open EMPTY, and that is the difference from a group.
+
+       A group with one person in it is a mistake - there is nobody to talk to and no way
+       for anybody to arrive, because a group is joined by being added. A channel is joined
+       by being FOUND: somebody opens "Technology", states who may see it, and the
+       department walks in. Requiring a founding membership list would make every channel
+       start as a group that happens to be discoverable.
+    */
+    if (command.title === undefined || command.title.trim() === '') {
+      return { ok: false, reason: 'TITLE_REQUIRED_FOR_GROUP' };
+    }
+    /* No policy, no channel. `decide()` refuses a channel it cannot find a policy for, so
+       creating one without would produce a room nobody can enter, including its author. */
+    if (command.channel === undefined) return { ok: false, reason: 'CHANNEL_REQUIRES_A_POLICY' };
   } else {
     // Groups and announcements alike: somebody to talk to, and a name to find it by.
     if (others.length === 0) return { ok: false, reason: 'GROUP_REQUIRES_A_PARTICIPANT' };
@@ -85,7 +113,11 @@ export async function createInternalConversation(
       return { ok: false, reason: 'TITLE_REQUIRED_FOR_GROUP' };
     }
   }
-  if (others.length === 0) return { ok: false, reason: 'SELF_CONVERSATION' };
+  /* Unchanged, including the fact that no branch above can reach it with an empty list
+     except a channel - which is allowed to be empty and is therefore excluded. */
+  if (command.type !== 'INTERNAL_CHANNEL' && others.length === 0) {
+    return { ok: false, reason: 'SELF_CONVERSATION' };
+  }
 
   // BR-08, checked before anything is written. A customer principal reaching an
   // internal thread would expose staff discussion about them to them.
@@ -124,6 +156,10 @@ export async function createInternalConversation(
       // Application clock, matching what `decide()` will evaluate against.
       createdAt: deps.now().toISOString(),
     });
+
+    if (command.channel !== undefined) {
+      await tx.insertChannelPolicy(conversationId, command.channel);
+    }
 
     await tx.appendOutbox({
       eventName: 'conversation.created.v1',
@@ -438,7 +474,20 @@ export async function leaveConversation(
 ): Promise<LeaveConversationResult> {
   return deps.store.transaction(async (tx) => {
     const conversationType = await tx.loadConversationType(command.conversationId);
-    if (conversationType !== 'INTERNAL_GROUP') {
+    /*
+       Groups and CHANNELS, and nothing else.
+
+       A channel is the clearest case there is for leaving: somebody joined the Marketing
+       room, stopped needing it, and wants it out of their list. Refusing would leave the
+       only way out being to ask an administrator to remove them, for a room they let
+       themselves into.
+
+       The other types are unchanged and each is refused for its own reason: leaving a 1:1
+       leaves the other person talking into a thread that can never be answered (archive is
+       the way out of one), a customer conversation's exit is a TRANSFER because somebody
+       must stay accountable, and an announcement's participants are the whole company.
+    */
+    if (conversationType !== 'INTERNAL_GROUP' && conversationType !== 'INTERNAL_CHANNEL') {
       return { ok: false, reason: 'NOT_AN_INTERNAL_GROUP' };
     }
 
@@ -446,12 +495,26 @@ export async function leaveConversation(
     const leaver = participants.find((p) => p.principalId === command.principalId);
     if (leaver === undefined) return { ok: false, reason: 'NOT_A_PARTICIPANT' };
 
-    /* Chosen BEFORE the participation is ended, from the ordered list the store returns,
-       so the successor is the earliest-joined of the people who are staying. */
-    const successor =
-      leaver.role === 'CREATOR'
-        ? participants.find((p) => p.principalId !== command.principalId)
-        : undefined;
+    /*
+       Chosen BEFORE the participation is ended, from the ordered list the store returns,
+       so the successor is the earliest-joined of the people who are staying.
+
+       A CHANNEL passes the role on only when the last administrator is walking out. A
+       group has exactly one CREATOR, so "the creator is leaving" and "the last
+       administrator is leaving" are the same sentence there; a channel can have several,
+       and moving the role every time one of them leaves would hand authority to somebody
+       who did not ask for it while three other administrators were still in the room.
+    */
+    const administratorsRemaining = participants.filter(
+      (p) => p.principalId !== command.principalId && isChannelAdminRole(p.role),
+    );
+    const shouldPassOn =
+      conversationType === 'INTERNAL_CHANNEL'
+        ? isChannelAdminRole(leaver.role) && administratorsRemaining.length === 0
+        : leaver.role === 'CREATOR';
+    const successor = shouldPassOn
+      ? participants.find((p) => p.principalId !== command.principalId)
+      : undefined;
 
     const ended = await tx.endParticipation(
       command.conversationId,
@@ -461,7 +524,16 @@ export async function leaveConversation(
     if (!ended) return { ok: false, reason: 'NOT_A_PARTICIPANT' };
 
     if (successor !== undefined) {
-      await tx.setParticipantRole(command.conversationId, successor.principalId, 'CREATOR');
+      /* 'CREATOR' on a group because that is the one word a group's administration is
+         spelled with (0023 is emphatic about not adding a second). 'ADMIN' on a channel
+         because the successor did not create it, and a room whose history says three
+         different people created it is a room whose history is wrong. `isChannelAdminRole`
+         accepts both, which is why the predicate exists. */
+      await tx.setParticipantRole(
+        command.conversationId,
+        successor.principalId,
+        conversationType === 'INTERNAL_CHANNEL' ? 'ADMIN' : 'CREATOR',
+      );
     }
 
     return successor === undefined ? { ok: true } : { ok: true, creatorPassedTo: successor.principalId };

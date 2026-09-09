@@ -13,6 +13,7 @@ import type {
   ConversationParticipantRef,
   ConversationSummary,
   ConversationWriteTransaction,
+  NewChannelPolicy,
   NewConversation,
   NewParticipant,
   OutboxRow,
@@ -75,6 +76,41 @@ class PgConversationTransaction implements ConversationWriteTransaction {
           conversation.createdBy,
           conversation.createdAt,
         ],
+      );
+    }
+  }
+
+  /**
+   * A new channel's access policy, inside the create transaction.
+   *
+   * On `this.client`, not the pool - that is the whole reason this lives here rather than
+   * on `PgChannelStore`, which owns every other write to these tables. A channel whose
+   * conversation committed and whose policy did not is a room `decide()` refuses to let
+   * anybody into, including the person who just made it.
+   */
+  async insertChannelPolicy(conversationId: UUID, policy: NewChannelPolicy): Promise<void> {
+    await this.client.query(
+      `INSERT INTO conversation.channels
+         (conversation_id, purpose, description, visibility, read_access, post_access)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [
+        conversationId,
+        policy.purpose,
+        policy.description ?? null,
+        policy.visibility,
+        policy.readAccess,
+        policy.postAccess,
+      ],
+    );
+    for (const entry of policy.audience) {
+      /* Trimmed as well as CHECKed non-blank at the column: a scope of '  technology  '
+         equals nobody's department, which is a channel that silently reaches no one. */
+      const scopeId = entry.scopeId.trim();
+      if (scopeId === '') continue;
+      await this.client.query(
+        `INSERT INTO conversation.channel_audience (conversation_id, scope_kind, scope_id)
+         VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+        [conversationId, entry.scopeKind, scopeId],
       );
     }
   }
@@ -375,7 +411,7 @@ export class PgConversationReader implements ConversationReader {
     principalId: UUID,
     limit: number,
     before?: { readonly lastActivityAt: string; readonly id: UUID },
-    scope: 'CHATS' | 'ANNOUNCEMENTS' = 'CHATS',
+    scope: 'CHATS' | 'ANNOUNCEMENTS' | 'CHANNELS' = 'CHATS',
   ): Promise<readonly ConversationSummary[]> {
     // Row-value keyset, matching the message pager. `(a, b) < ($3, $4)` stays an index
     // range scan; the equivalent OR-expansion does not, and OFFSET degrades linearly
@@ -510,9 +546,26 @@ export class PgConversationReader implements ConversationReader {
          ) newest ON true
         WHERE ($3::timestamptz IS NULL
                OR (c.last_activity_at, c.conversation_id) < ($3::timestamptz, $4::uuid))
+          /*
+             Three lists, one query, and CHATS is defined by SUBTRACTION.
+
+             An announcement addressed to the whole company, or a channel the whole
+             department is in, would otherwise sit at the top of everybody's chat list every
+             time anybody posted - and a person looking for the thread they were in the
+             middle of would be reading a notice board. So each of the other two has its own
+             destination, and the inbox is what is left.
+
+             Subtraction rather than an explicit list of the chat types on purpose: a new
+             conversation type appears in the inbox until somebody decides otherwise, which
+             is the failure that gets noticed. The reverse - a type nobody can find because
+             no list claims it - is the one that does not.
+          */
           AND (CASE WHEN $5::text = 'ANNOUNCEMENTS'
                     THEN c.conversation_type = 'INTERNAL_ANNOUNCEMENT'
-                    ELSE c.conversation_type <> 'INTERNAL_ANNOUNCEMENT' END)
+                    WHEN $5::text = 'CHANNELS'
+                    THEN c.conversation_type = 'INTERNAL_CHANNEL'
+                    ELSE c.conversation_type NOT IN ('INTERNAL_ANNOUNCEMENT', 'INTERNAL_CHANNEL')
+               END)
         /*
            Pinned first, then newest activity — and the keyset above has to agree with it or
            paging skips rows. It does: the cursor is only ever taken from the LAST row of a

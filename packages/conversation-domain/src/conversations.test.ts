@@ -13,7 +13,13 @@ import {
   renameConversation,
   MAX_TITLE_LENGTH,
 } from './conversations.js';
-import type { ConversationStore, ConversationWriteTransaction, NewParticipant, OutboxRow } from './ports.js';
+import type {
+  ConversationStore,
+  ConversationWriteTransaction,
+  NewChannelPolicy,
+  NewParticipant,
+  OutboxRow,
+} from './ports.js';
 
 const ALICE = '018f2c5a-8888-7000-8000-00000000000a';
 const BOB = '018f2c5a-8888-7000-8000-00000000000b';
@@ -36,6 +42,8 @@ function createStore(seed: Conv[] = []) {
   const stampedAt: string[] = [];
   /** What the thread was told about its own membership. */
   const systemMessages: { conversationId: UUID; body: string }[] = [];
+  /** Channel policies written inside the create transaction. */
+  const channelPolicies: { conversationId: UUID; policy: NewChannelPolicy }[] = [];
 
   const store: ConversationStore = {
     async transaction(work) {
@@ -85,6 +93,11 @@ function createStore(seed: Conv[] = []) {
           }
           return undefined;
         },
+        /* Recorded, so a channel test can assert the policy landed in the SAME transaction
+           as the room rather than in a second call the controller might skip. */
+        async insertChannelPolicy(conversationId, policy) {
+          channelPolicies.push({ conversationId, policy });
+        },
         async insertConversation(conversation) {
           stampedAt.push(conversation.createdAt);
           conversations.set(conversation.conversationId, {
@@ -126,7 +139,7 @@ function createStore(seed: Conv[] = []) {
     },
   };
 
-  return { store, conversations, outbox, stampedAt, systemMessages };
+  return { store, conversations, outbox, stampedAt, systemMessages, channelPolicies };
 }
 
 const deps = (store: ConversationStore) => {

@@ -29,6 +29,16 @@ export {
 } from './admin-store.js';
 export { PgSearchProvider } from './search-provider.js';
 export { PgConversationAuthzReader, type ConversationAuthzReader } from './authz-reader.js';
+export {
+  PgChannelStore,
+  channelFactsFrom,
+  channelVisibilitySql,
+  CHANNEL_POLICY_COLUMNS,
+  CHANNEL_POLICY_JOIN,
+  type ChannelAudienceEntry,
+  type ChannelDirectoryRow,
+  type NewChannel,
+} from './channel-store.js';
 export { PgCategoryReader, type CategoryView } from './category-reader.js';
 export {
   PgCustomerStore,

@@ -8,6 +8,10 @@
  * than as SQL.
  */
 import type {
+  ChannelPostAccess,
+  ChannelPurpose,
+  ChannelReadAccess,
+  ChannelVisibility,
   ConversationState,
   ConversationType,
   PrincipalKind,
@@ -125,6 +129,26 @@ export interface NewConversation {
   readonly createdAt: Timestamp;
 }
 
+/**
+ * The three access answers a new channel is opened with, plus its audience.
+ *
+ * Written in the SAME transaction as the conversation. A channel row without a policy row
+ * is refused by decide() outright - the safe direction, but a state no reader should ever
+ * be able to observe, and an unusable room somebody would have to notice and repair.
+ */
+export interface NewChannelPolicy {
+  readonly purpose: ChannelPurpose;
+  readonly description?: string;
+  readonly visibility: ChannelVisibility;
+  readonly readAccess: ChannelReadAccess;
+  readonly postAccess: ChannelPostAccess;
+  /** Departments, teams or named principals. Empty for a channel visible to everyone. */
+  readonly audience: readonly {
+    readonly scopeKind: 'DEPARTMENT' | 'TEAM' | 'PRINCIPAL';
+    readonly scopeId: string;
+  }[];
+}
+
 export interface OutboxRow {
   readonly eventName: string;
   readonly eventVersion: number;
@@ -143,6 +167,8 @@ export interface ConversationWriteTransaction {
    */
   findDirectConversation(a: UUID, b: UUID): Promise<UUID | undefined>;
   insertConversation(conversation: NewConversation): Promise<void>;
+  /** @see NewChannelPolicy - same transaction as the conversation, always. */
+  insertChannelPolicy(conversationId: UUID, policy: NewChannelPolicy): Promise<void>;
   listParticipants(conversationId: UUID): Promise<readonly NewParticipant[]>;
   /**
    * Starts participation AT A CALLER-SUPPLIED INSTANT.
@@ -244,7 +270,7 @@ export interface ConversationReader {
      * Which list. Announcements are conversations and are deliberately not in the chat list
      * — see the implementation for why the split is a WHERE clause and not a client filter.
      */
-    scope?: 'CHATS' | 'ANNOUNCEMENTS',
+    scope?: 'CHATS' | 'ANNOUNCEMENTS' | 'CHANNELS',
   ): Promise<readonly ConversationSummary[]>;
 }
 

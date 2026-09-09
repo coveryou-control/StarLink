@@ -12,6 +12,14 @@
  * insert shares the caller's transaction rather than opening its own.
  */
 import type pg from 'pg';
+import type { ChannelFacts } from '@starlink/conversation-domain';
+
+import {
+  CHANNEL_POLICY_COLUMNS,
+  CHANNEL_POLICY_JOIN,
+  channelFactsFrom,
+  channelVisibilitySql,
+} from './channel-store.js';
 import type {
   ConversationRecord,
   InsertMessage,
@@ -99,6 +107,32 @@ class PgWriteTransaction implements MessageWriteTransaction {
     );
     const row = result.rows[0];
     return row === undefined ? undefined : toConversation(row);
+  }
+
+  /**
+   * The channel policy for this send, resolved for this sender.
+   *
+   * Shares its audience predicate with the read path through `channelVisibilitySql`, which
+   * is the point of that constant: an authorization rule with two hand-written copies is
+   * the divergence §38 records, and the write path is the worse half to get wrong.
+   *
+   * No `FOR UPDATE`. The policy is not being changed here, and locking it would serialise
+   * every send in a channel behind every other one.
+   */
+  async loadChannelFacts(
+    conversationId: UUID,
+    principalId: UUID,
+  ): Promise<ChannelFacts | undefined> {
+    const result = await this.client.query(
+      `SELECT ${CHANNEL_POLICY_COLUMNS},
+              ${channelVisibilitySql('$2')} AS channel_visible
+         FROM conversation.conversations c
+         ${CHANNEL_POLICY_JOIN}
+        WHERE c.conversation_id = $1`,
+      [conversationId, principalId],
+    );
+    const row = result.rows[0];
+    return row === undefined ? undefined : channelFactsFrom(row);
   }
 
   async loadParticipant(conversationId: UUID, principalId: UUID): Promise<ParticipantRecord | undefined> {

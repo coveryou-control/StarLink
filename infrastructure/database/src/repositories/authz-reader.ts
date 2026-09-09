@@ -12,6 +12,13 @@
  */
 import type pg from 'pg';
 import type { ParticipantFacts, ResourceContext, TemporaryGrant } from '@starlink/conversation-domain';
+
+import {
+  CHANNEL_POLICY_COLUMNS,
+  CHANNEL_POLICY_JOIN,
+  channelFactsFrom,
+  channelVisibilitySql,
+} from './channel-store.js';
 import type { Timestamp, UUID } from '@starlink/shared-contracts';
 
 export interface ConversationAuthzReader {
@@ -99,10 +106,24 @@ export class PgConversationAuthzReader implements ConversationAuthzReader {
       `SELECT c.conversation_id, c.conversation_type, c.case_id, c.sensitivity, c.customer_ref,
               sc.owning_team_id, sc.current_owner_id, t.department AS owning_department,
               p.role AS participant_role, p.principal_kind AS participant_kind,
-              p.reply_authority, p.effective_from, p.effective_to
+              p.reply_authority, p.effective_from, p.effective_to,
+              /*
+                 The channel's access policy, read in the SAME query as the conversation.
+
+                 decide() refuses a channel whose policy did not arrive, so a second round
+                 trip that could be skipped on some path is not an option: the policy
+                 travels with the object it governs, which is 17.4's rule for authorization
+                 inputs generally.
+
+                 No backticks in here. This is a JS template literal and one would end the
+                 string - the same platform note conversation-store.ts carries.
+              */
+              ${CHANNEL_POLICY_COLUMNS},
+              ${channelVisibilitySql('$2')} AS channel_visible
          FROM conversation.conversations c
          LEFT JOIN conversation.service_cases sc ON sc.case_id = c.case_id
          LEFT JOIN identity.teams t ON t.team_id = sc.owning_team_id
+         ${CHANNEL_POLICY_JOIN}
          LEFT JOIN conversation.participants p
                 ON p.conversation_id = c.conversation_id AND p.principal_id = $2
         WHERE c.conversation_id = $1`,
@@ -161,6 +182,10 @@ export class PgConversationAuthzReader implements ConversationAuthzReader {
       ...(row.participant_kind === 'CUSTOMER'
         ? { belongsToActorCustomer: isLiveCustomerParticipant }
         : {}),
+      /* Absent for every conversation that is not a channel, which is what `decide()`
+         expects; absent for a CHANNEL means its policy row is missing, and `decide()`
+         refuses that rather than guessing. */
+      ...(channelFactsFrom(row) !== undefined ? { channel: channelFactsFrom(row)! } : {}),
     };
   }
 }

@@ -7,7 +7,7 @@
  * without a database, while the same contract is exercised against real PostgreSQL in
  * integration tests.
  */
-import type { Mention } from '@starlink/conversation-domain';
+import type { ChannelFacts, Mention } from '@starlink/conversation-domain';
 import type {
   ConversationType,
   MessageVisibility,
@@ -137,6 +137,27 @@ export interface InsertMessage {
 export interface MessageWriteTransaction {
   loadConversationForUpdate(conversationId: UUID): Promise<ConversationRecord | undefined>;
   loadParticipant(conversationId: UUID, principalId: UUID): Promise<ParticipantRecord | undefined>;
+  /**
+   * An `INTERNAL_CHANNEL`'s access policy, and whether this sender is inside its audience.
+   *
+   * ## Why this is its own call and not part of the conversation record
+   *
+   * Half the answer depends on WHO is asking. `visibleToActor` resolves the audience against
+   * the sender's department, teams and principal id, and `loadConversationForUpdate` takes
+   * no principal — it locks a row, and adding a viewer to a lock is the wrong shape.
+   *
+   * ## And why it is required rather than optional
+   *
+   * An optional method would let a store omit it, and `decide()` would then refuse every
+   * channel send — which is the SAFE failure but a silent one, discovered by a user rather
+   * than by a compiler. Required means a store that forgets does not build.
+   *
+   * Called only for channels; every other conversation type ignores it.
+   */
+  loadChannelFacts(
+    conversationId: UUID,
+    principalId: UUID,
+  ): Promise<ChannelFacts | undefined>;
   /** Returns an existing message when this idempotency key has already been used. */
   findByClientMessageId(
     conversationId: UUID,

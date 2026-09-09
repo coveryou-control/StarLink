@@ -66,6 +66,25 @@ const ROLE_ACTIONS: Readonly<Record<string, readonly Action[]>> = Object.freeze(
      * here, and it is a one-line change when HR answers it.
      */
     'conversation.announcement.post',
+    /**
+     * PLACEHOLDER, on the same footing and for the same reason as the line above it.
+     *
+     * Channels are not in the architecture doc or the brief either, so there is no sentence
+     * to transcribe for "who may open one". A lead is the narrowest plausible answer and the
+     * one that fails safe: too few people can create a company space, which is visible and
+     * fixable, rather than too many, which produces a directory full of near-duplicates
+     * nobody can clean up. Recorded in STARLINK_OPEN_QUESTIONS.md; a one-line change when
+     * HR answers it.
+     *
+     * Note what this does NOT grant: reading anything. `channel.manage` is administration,
+     * and administration confers no read (FR-AUTHZ-7) - `decide()` refuses a channel's
+     * content to a `channel.manage` holder who is not in it. The channel's own
+     * administrators hold the same authority over their own room through their participant
+     * role, which is the ordinary case; this is the company-wide version for whoever runs
+     * the directory.
+     */
+    'channel.create',
+    'channel.manage',
     'queue.read',
     'load.read',
     'directory.read',
@@ -95,6 +114,11 @@ const ROLE_ACTIONS: Readonly<Record<string, readonly Action[]>> = Object.freeze(
     // Same placeholder as TEAM_LEAD's, and for the same reason: somebody has to be able to
     // post the first announcement in a workspace that has no leads yet.
     'conversation.announcement.post',
+    /* Same placeholder again: somebody has to be able to open the first channel in a
+       workspace that has no leads yet, and somebody has to be able to repair a channel
+       whose last administrator has left the company. */
+    'channel.create',
+    'channel.manage',
     'admin.account.manage',
     'admin.role.assign',
     'admin.principal.deactivate',

@@ -37,6 +37,7 @@ import {
   PgReactionStore,
   PgStarStore,
   PgArchiveStore,
+  PgChannelStore,
   PgPinStore,
   PgMessageInfoStore,
   PgStatusStore,
@@ -100,6 +101,7 @@ import {
   STAR_STORE,
   ARCHIVE_STORE,
   PIN_STORE,
+  CHANNEL_STORE,
   MESSAGE_INFO_STORE,
   STATUS_STORE,
   AVATAR_STORE,
@@ -129,6 +131,7 @@ import { SessionGuard } from './edge/session.guard.js';
 import { EmployeeAuthController } from './employee/auth.controller.js';
 import { EmployeeAdminController } from './employee/admin.controller.js';
 import { EmployeeConversationsController } from './employee/conversations.controller.js';
+import { EmployeeChannelsController } from './employee/channels.controller.js';
 import { EmployeeMessagesController } from './employee/messages.controller.js';
 import { EmployeeDirectoryController } from './employee/directory.controller.js';
 import { StarredController } from './employee/starred.controller.js';
@@ -244,6 +247,7 @@ const providers: Provider[] = [
   { provide: STAR_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgStarStore(pool) },
   { provide: ARCHIVE_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgArchiveStore(pool) },
   { provide: PIN_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgPinStore(pool) },
+  { provide: CHANNEL_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgChannelStore(pool) },
   { provide: MESSAGE_INFO_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgMessageInfoStore(pool) },
   { provide: STATUS_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgStatusStore(pool) },
   { provide: AVATAR_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgAvatarStore(pool) },
@@ -730,6 +734,7 @@ const providers: Provider[] = [
     NotificationAdminController,
     EmployeeNotificationsController,
     EmployeeConversationsController,
+    EmployeeChannelsController,
     EmployeeMessagesController,
     EmployeeSearchController,
     EmployeeDirectoryController,
