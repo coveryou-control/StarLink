@@ -67,6 +67,8 @@ export function StartConversation({
   /** Set by the first completed search, so "no matches" cannot show before one ran. */
   const [searched, setSearched] = useState(false);
   const fieldRef = useRef<HTMLInputElement>(null);
+  /** The dialog itself, so focus can be moved into it when it opens. */
+  const panelRef = useRef<HTMLElement>(null);
   const lastSignal = useRef(openSignal);
   useEffect(() => {
     if (openSignal === undefined || openSignal === lastSignal.current) return;
@@ -133,6 +135,32 @@ export function StartConversation({
   useEffect(() => {
     if (mode !== undefined) fieldRef.current?.focus();
   }, [mode]);
+
+  /**
+   * On OPEN, before a mode is chosen, focus moves into the dialog anyway.
+   *
+   * The effect above only fires once somebody picks "New chat" or "New group", so the
+   * first screen — the chooser — left focus on the button that opened the dialog. A
+   * keyboard user then tabbed forwards from the sidebar and walked the page BEHIND the
+   * blur before ever reaching the dialog, and a screen reader was told a dialog existed
+   * while the caret was still outside it.
+   *
+   * The first focusable thing inside, EXCEPT the close button. It is first in the DOM, and
+   * landing on it means the first key a keyboard user presses dismisses the dialog they
+   * just opened. The chooser's buttons are what somebody is actually being asked to decide
+   * between, so the first of those is the landing place — and it stays right if the panel
+   * later gains a control above them.
+   */
+  useEffect(() => {
+    if (!open || mode !== undefined) return;
+    const focusable = panelRef.current?.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    );
+    const target = [...(focusable ?? [])].find(
+      (element) => !element.classList.contains('start-panel-close'),
+    );
+    (target ?? focusable?.[0])?.focus();
+  }, [open, mode]);
 
   /**
    * The search itself, debounced and cancelled on the way out.
@@ -291,7 +319,19 @@ export function StartConversation({
           }}
         >
           <section
+            ref={panelRef}
             className="start-panel"
+            /*
+               The one modal in the product that never said it was one.
+               
+               It moves focus to the search field and closes on Escape, so it BEHAVES like a
+               dialog — but with no `role`, a screen reader announced a section and never
+               told the person a dialog had opened. Every other modal here declares it;
+               `confirm-dialog` correctly uses `alertdialog`, which is the stronger form for
+               something demanding a decision.
+            */
+            role="dialog"
+            aria-modal="true"
             aria-label="Start a conversation"
             /* The panel is inside the backdrop, so a click that lands on the form would
                bubble up and close the dialog the person is filling in. */
