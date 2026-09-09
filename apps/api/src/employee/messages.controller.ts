@@ -363,13 +363,27 @@ export class EmployeeMessagesController {
     let lifecycleState: string | undefined;
     let conversationType: string | undefined;
 
+    /**
+     * The whole decision, not just its boolean.
+     *
+     * `decide()` returns `basis` — "why it was allowed" — and its own docblock says the
+     * field exists to drive the audit record for privileged access. No read call site
+     * consumed it, so a read reached by a SCOPE GRANT rather than by participation left
+     * nothing in the ledger at all: refusals were recorded, successes were not.
+     *
+     * That is what made the GLOBAL-scope hole exploitable invisibly. P-06 makes "who read
+     * a customer's history" the question an incident asks, and until now the honest answer
+     * for a non-participant read was that nobody knew.
+     */
+    let basis: string | undefined;
+    let privileged = false;
     const authorized = await this.store.transaction(async (tx) => {
       const conversation = await tx.loadConversationForUpdate(conversationId.data);
       if (conversation === undefined) return false;
       lifecycleState = conversation.state ?? undefined;
       conversationType = conversation.conversationType;
       const participant = await tx.loadParticipant(conversationId.data, session.principalId);
-      return recordDecision(
+      const decision = recordDecision(
         'conversation.read',
         decide({
         actor: toActorContext(claims.value),
@@ -390,7 +404,12 @@ export class EmployeeMessagesController {
         },
         now: new Date().toISOString(),
         }),
-      ).allow;
+      );
+      if (decision.allow) {
+        basis = decision.basis;
+        privileged = decision.privileged;
+      }
+      return decision.allow;
     });
 
     if (!authorized) {
@@ -417,6 +436,32 @@ export class EmployeeMessagesController {
         correlationId: request.correlationId,
       });
       return refuse();
+    }
+
+
+    /**
+     * An allowed read that was NOT reached by participation or ownership is recorded.
+     *
+     * Participation is the ordinary case, and auditing it would write a row for every page
+     * of every thread anybody opens — noise that buries the thing worth finding. Everything
+     * else means somebody reached a conversation they are not in: a scope grant, a
+     * delegation, or a time-boxed cover. Those are what §31.1 means by "the exercise of
+     * authority", and they are rare enough to be worth a row each.
+     *
+     * Written BEFORE the content is read, so a crash between the two cannot produce the
+     * read without the record.
+     */
+    if (basis !== undefined && basis !== 'PARTICIPANT' && basis !== 'OWNER') {
+      await this.audit.record({
+        actorId: session.principalId,
+        actorKind: 'EMPLOYEE',
+        action: privileged ? 'privileged.conversation.read' : 'conversation.read',
+        targetKind: 'conversation',
+        targetId: conversationId.data,
+        outcome: 'SUCCEEDED',
+        detail: { basis },
+        correlationId: request.correlationId,
+      });
     }
 
     let before: { createdAt: string; id: string } | undefined;
