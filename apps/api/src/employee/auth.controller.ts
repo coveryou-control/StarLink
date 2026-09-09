@@ -11,10 +11,11 @@ import type { IdentityAuthorizationClient } from '@starlink/shared-contracts';
 import { cookieOptionsFor, type SessionService } from '@starlink/security';
 import { METRICS, metrics, type Logger } from '@starlink/observability';
 import type pg from 'pg';
-import { CONFIG, DATABASE, IDENTITY_CLIENT, LOGGER, SESSION_SERVICE, AUDIT_WRITER } from '../tokens.js';
+import { CONFIG, DATABASE, IDENTITY_CLIENT, LOGGER, SESSION_SERVICE, AUDIT_WRITER, SIGN_IN_THROTTLE } from '../tokens.js';
 import type { ApiConfig } from '../config.js';
 import type { AuditWriter } from '../audit/audit-writer.js';
 import { Public, REFUSAL, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
+import type { SignInThrottle } from '../edge/sign-in-throttle.js';
 
 const signInSchema = z.object({
   username: z.string().min(1).max(200),
@@ -39,6 +40,7 @@ export class EmployeeAuthController {
     @Inject(CONFIG) private readonly config: ApiConfig,
     @Inject(LOGGER) private readonly logger: Logger,
     @Inject(DATABASE) private readonly pool: pg.Pool,
+    @Inject(SIGN_IN_THROTTLE) private readonly throttle: SignInThrottle,
   ) {}
 
   @Post('sign-in')
@@ -54,11 +56,38 @@ export class EmployeeAuthController {
     // request must not be a probing oracle either.
     if (!parsed.success) return this.refuse(request, response, 'malformed');
 
+    /**
+     * Refuse a username that has spent its failure budget, BEFORE verifying anything.
+     *
+     * Before the check, not after, for two reasons. It is the point of the control — a
+     * guess that still costs a scrypt is barely throttled — and scrypt here allocates about
+     * 64 MB per attempt, so unlimited guessing was also a way to make this process do
+     * expensive work on demand.
+     *
+     * Lower-cased, so `Archit.Bali` and `archit.bali` share one budget rather than handing
+     * an attacker a fresh allowance per spelling.
+     */
+    const throttleKey = parsed.data.username.trim().toLowerCase();
+    if (this.throttle.blocked(throttleKey)) {
+      return this.refuse(request, response, 'throttled');
+    }
+
     const verified = await this.identity.verifyCredential(parsed.data.username, parsed.data.password);
-    if (!verified.ok) return this.refuse(request, response, 'credential');
+    if (!verified.ok) {
+      this.throttle.recordFailure(throttleKey);
+      return this.refuse(request, response, 'credential');
+    }
 
     const claims = await this.identity.resolvePrincipal(verified.value.principalId);
-    if (!claims.ok) return this.refuse(request, response, 'principal');
+    if (!claims.ok) {
+      /* The credential was right and the account is unusable — a deactivated employee,
+         say. Not a guess, so it does not spend the budget. */
+      return this.refuse(request, response, 'principal');
+    }
+
+    /* The right password returns the budget in full: somebody who mistypes twice and then
+       gets it right should arrive tomorrow with a clean slate. */
+    this.throttle.clear(throttleKey);
 
     /**
      * Twelve hours, or fourteen days if they asked to stay signed in on this device.

@@ -65,6 +65,7 @@ import {
 } from '@starlink/security';
 import { createLogger } from '@starlink/observability';
 import { createRateLimiter } from '@starlink/search';
+import { createSignInThrottle } from './edge/sign-in-throttle.js';
 import type {
   EmployeeDirectoryProvider,
   IdentityAuthorizationClient,
@@ -116,6 +117,7 @@ import {
   CASE_STORE,
   AI_PROVIDER,
   SEARCH_RATE_LIMITER,
+  SIGN_IN_THROTTLE,
   SESSION_SERVICE,
   SLA_READER,
   WORK_ORCHESTRATOR,
@@ -356,6 +358,19 @@ const providers: Provider[] = [
     // fit in process"). The trigger to move it to a shared store is the same one that
     // brings Redis in: the moment a second instance exists (§33.2).
     useFactory: () => createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
+  },
+  {
+    provide: SIGN_IN_THROTTLE,
+    /*
+       Eight failed attempts on one account in ten minutes, then that username is refused
+       until the window rolls. Generous for somebody who has forgotten which of two
+       passwords it is, and far too small to work through a list.
+
+       In-process for the same reason and with the same trigger as the search limiter:
+       §14.2 sanctions it for V1, and the moment a second instance exists it has to move to
+       a shared store or an attacker simply spreads their guesses across replicas.
+    */
+    useFactory: () => createSignInThrottle({ maxFailures: 8, windowMs: 600_000 }),
   },
   {
     provide: AUDIT_WRITER,

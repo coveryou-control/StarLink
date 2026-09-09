@@ -35,6 +35,7 @@ export const CUSTOMER_STORE = Symbol('SL_CUSTOMER_STORE');
 export const CATEGORY_READER = Symbol('SL_CATEGORY_READER');
 export const SEARCH_PROVIDER = Symbol('SL_SEARCH_PROVIDER');
 export const SEARCH_RATE_LIMITER = Symbol('SL_SEARCH_RATE_LIMITER');
+export const SIGN_IN_THROTTLE = Symbol('SL_SIGN_IN_THROTTLE');
 export const ROUTING_STORE = Symbol('SL_ROUTING_STORE');
 /** SL-083: one grouped read of a team's waiting work, ownership, SLA and capacity. */
 export const TEAM_LOAD_READER = Symbol('SL_TEAM_LOAD_READER');
