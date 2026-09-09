@@ -47,7 +47,12 @@ interface ConversationListProps {
    */
   readonly view?: 'all' | 'unread' | 'favourites' | 'groups' | 'direct' | 'archive';
   readonly typing?: ReadonlyMap<string, string> | undefined;
+  /** conversationId → unsent text, so a row can say "Draft: …" where the preview goes. */
+  readonly drafts?: ReadonlyMap<string, string> | undefined;
 }
+
+/* A stable identity, so defaulting the prop does not make the row re-render every time. */
+const EMPTY_DRAFTS: ReadonlyMap<string, string> = new Map();
 
 /**
  * One tick or two, on a conversation row.
@@ -125,6 +130,7 @@ export function ConversationList({
   currentPrincipalId,
   onPinChanged,
   typing,
+  drafts = EMPTY_DRAFTS,
   view = 'all',
 }: ConversationListProps): ReactNode {
   /*
@@ -506,6 +512,20 @@ export function ConversationList({
                         {avatarFor(conversation).isGroup
                           ? `${typistName} is typing`
                           : 'typing'}
+                      </span>
+                    ) : drafts.get(conversation.conversationId) !== undefined ? (
+                      /*
+                         An unsent message outranks the last one received.
+                         
+                         It is the only thing on this row the person still has to act on,
+                         and WhatsApp's convention — a coloured "Draft:" where the preview
+                         goes — is what everybody already reads it as. Shown for the OPEN
+                         conversation too: the row and the composer should not disagree
+                         about whether something is waiting.
+                      */
+                      <span className="row-preview">
+                        <span className="row-draft">Draft:</span>{' '}
+                        {drafts.get(conversation.conversationId)}
                       </span>
                     ) : (
                       <span className="row-preview">{secondary}</span>

@@ -26,6 +26,7 @@ import { usePresence } from '../../lib/use-presence';
 import { useDeclaredStatuses } from '../../lib/use-declared-status';
 import { useAvatarStamps } from '../../lib/use-avatar-stamps';
 import { useConversationTyping } from '../../lib/use-conversation-typing';
+import { useDrafts } from '../../lib/use-drafts';
 import { AvatarStampProvider } from '../../components/avatar-image';
 import { PresenceProvider } from '../../components/presence';
 import { ActiveConversationProvider } from '../../components/active-conversation';
@@ -200,6 +201,9 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
     },
     [],
   );
+
+  /* Unsent text, for the sidebar's "Draft: …" row. */
+  const drafts = useDrafts(signedInId === '' ? undefined : signedInId);
 
   const typingByConversation = useConversationTyping(
     useMemo(() => conversations.map((c) => c.conversationId), [conversations]),
@@ -572,6 +576,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                        pin is a re-read rather than a local reorder. */
                     onPinChanged={() => void refresh()}
                     typing={typingByConversation}
+                    drafts={drafts}
                     view={chatView}
                   />
                 )}
