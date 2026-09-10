@@ -562,7 +562,6 @@ button {
   height: var(--row);
   font-size: var(--text-sm);
   font-weight: 550;
-  letter-spacing: 0.005em;
   transition:
     background var(--dur) var(--ease),
     border-color var(--dur) var(--ease),
@@ -921,7 +920,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: var(--radius-pill);
   background: var(--accent);
   color: #fff;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   line-height: 18px;
   text-align: center;
@@ -1143,7 +1142,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: var(--radius-pill);
   background: var(--accent);
   color: var(--accent-contrast);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 600;
   line-height: 17px;
   text-align: center;
@@ -1270,7 +1269,7 @@ input[type='search']::-webkit-search-cancel-button {
   border: 1px solid transparent;
   border-radius: var(--radius);
   background: var(--surface-3);
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 /*
@@ -1419,7 +1418,7 @@ input[type='search']::-webkit-search-cancel-button {
 /* The bold line of a file or person result — the equivalent of the message's context line
    carrying a name. */
 .search-name {
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 500;
   color: var(--text);
   overflow: hidden;
@@ -1443,7 +1442,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: var(--radius-pill);
   background: var(--neutral-200, var(--surface-sunken));
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-base);
   font-weight: 600;
 }
 
@@ -1451,7 +1450,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: 10px;
   background: var(--brand-primary-100);
   color: var(--brand-strong);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -1460,9 +1459,9 @@ input[type='search']::-webkit-search-cancel-button {
 .search-group {
   margin: 12px 0 4px;
   padding: 0 12px;
-  font-size: 12px;
+  font-size: var(--text-base);
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--text-secondary);
 }
@@ -1516,7 +1515,7 @@ input[type='search']::-webkit-search-cancel-button {
   -webkit-box-orient: vertical;
   overflow: hidden;
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1.5;
 }
 
@@ -1581,7 +1580,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: var(--radius-pill);
   background: var(--success-soft);
   color: var(--success);
-  font-size: 10px;
+  font-size: var(--text-xs);
   letter-spacing: 0;
   font-variant-numeric: tabular-nums;
 }
@@ -1998,7 +1997,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: var(--radius-pill);
   background: var(--accent);
   color: #fff;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   line-height: 20px;
   text-align: center;
@@ -2055,7 +2054,7 @@ input[type='search']::-webkit-search-cancel-button {
   background: var(--accent-soft);
   color: var(--accent-ink);
   border: 0;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   letter-spacing: 0.01em;
 }
@@ -2278,7 +2277,7 @@ input[type='search']::-webkit-search-cancel-button {
 .chat-header .chat-avatar {
   width: 40px;
   height: 40px;
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 /* Takes the slack, so everything after it groups against the right edge instead of
@@ -2366,7 +2365,7 @@ input[type='search']::-webkit-search-cancel-button {
   margin-left: -8px;
   border: 0;
   box-shadow: 0 0 0 2px var(--surface);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
@@ -2421,7 +2420,7 @@ input[type='search']::-webkit-search-cancel-button {
   height: auto;
   padding: 8px 14px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-medium);
   background: var(--surface);
   box-shadow: var(--hairline);
   color: var(--text);
@@ -2588,7 +2587,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: var(--radius-pill);
   background: var(--surface-sunken);
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--text-base);
   text-align: center;
 }
 
@@ -2624,7 +2623,7 @@ input[type='search']::-webkit-search-cancel-button {
   background: var(--accent-soft);
   border: 0;
   color: var(--accent-ink);
-  font-size: 12px;
+  font-size: var(--text-base);
   font-weight: 600;
 }
 
@@ -2827,7 +2826,7 @@ input[type='search']::-webkit-search-cancel-button {
   align-items: center;
   gap: 4px;
   transform: translateY(2px);
-  font-size: 10px;
+  font-size: var(--text-xs);
   line-height: 1;
   white-space: nowrap;
   /*
@@ -2964,7 +2963,7 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .message-head .author {
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2973,7 +2972,7 @@ input[type='search']::-webkit-search-cancel-button {
 
 .message-head time {
   flex: none;
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
@@ -3081,7 +3080,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: 9px;
   background: var(--brand-primary-100);
   color: var(--brand-strong);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
 }
 
@@ -3101,7 +3100,7 @@ input[type='search']::-webkit-search-cancel-button {
 
 .attachment-meta {
   display: block;
-  font-size: 11px;
+  font-size: var(--text-sm);
   opacity: 0.7;
 }
 
@@ -3428,7 +3427,7 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 .reaction-choice .emoji-glyph {
-  font-size: 18px;
+  font-size: var(--text-xl);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -3460,7 +3459,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: 50%;
   background: transparent;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -3615,7 +3614,7 @@ input[type='search']::-webkit-search-cancel-button {
   display: inline-flex;
   align-items: center;
   font-family: var(--font-with-emoji);
-  font-size: 15px;
+  font-size: var(--text-lg);
   line-height: 1;
 }
 
@@ -4041,7 +4040,7 @@ input[type='search']::-webkit-search-cancel-button {
   gap: 8px;
   padding: 10px;
   border: 1px solid var(--border);
-  border-radius: 16px;
+  border-radius: var(--radius-large);
   background: var(--surface);
   box-shadow: var(--shadow-md);
 }
@@ -4107,7 +4106,7 @@ input[type='search']::-webkit-search-cancel-button {
 
 .emoji-heading {
   margin: 4px 0 4px 4px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -4151,7 +4150,7 @@ input[type='search']::-webkit-search-cancel-button {
 */
 .emoji-glyph {
   font-family: 'Noto Color Emoji', 'Apple Color Emoji', 'Segoe UI Emoji', sans-serif;
-  font-size: 22px;
+  font-size: var(--text-2xl);
   line-height: 1;
   font-variant-emoji: emoji;
 }
@@ -4326,7 +4325,7 @@ input[type='search']::-webkit-search-cancel-button {
    Shift + Enter for a new line". Floated over the field's top edge it collided with the
    last message once the composer stopped being a pill. */
 .composer-hint {
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--text-muted);
   pointer-events: none;
 }
@@ -4373,7 +4372,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: 50%;
   background: transparent;
   color: var(--text-subtle);
-  font-size: 18px;
+  font-size: var(--text-xl);
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -4684,13 +4683,13 @@ input[type='search']::-webkit-search-cancel-button {
 .details-identity .chat-avatar {
   width: 72px;
   height: 72px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 24px;
   font-weight: 600;
 }
 
 .details-identity-name {
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 600;
   letter-spacing: var(--track-tight);
   overflow-wrap: anywhere;
@@ -4717,7 +4716,7 @@ input[type='search']::-webkit-search-cancel-button {
   height: auto;
   padding: 8px 14px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-medium);
   background: var(--surface);
   box-shadow: var(--hairline);
   color: var(--text);
@@ -4759,9 +4758,9 @@ input[type='search']::-webkit-search-cancel-button {
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-base);
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: var(--track-caps);
   text-transform: uppercase;
   color: var(--text-secondary);
 }
@@ -4784,7 +4783,7 @@ input[type='search']::-webkit-search-cancel-button {
   border: 0;
   background: transparent;
   color: var(--info-label);
-  font-size: 12px;
+  font-size: var(--text-base);
   font-weight: 500;
   letter-spacing: 0;
   text-transform: none;
@@ -4912,7 +4911,7 @@ input[type='search']::-webkit-search-cancel-button {
   width: 100%;
   padding: 10px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-medium);
   background: var(--surface);
   box-shadow: var(--hairline);
   text-align: left;
@@ -4934,7 +4933,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: 9px;
   background: var(--neutral-200, var(--surface-sunken));
   color: var(--text-secondary);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 700;
   letter-spacing: 0.02em;
 }
@@ -4965,7 +4964,7 @@ input[type='search']::-webkit-search-cancel-button {
 
 .shared-file-meta {
   display: block;
-  font-size: 11px;
+  font-size: var(--text-sm);
   color: var(--text-secondary);
 }
 
@@ -5356,7 +5355,7 @@ input[type='search']::-webkit-search-cancel-button {
 /* "# Ops — Daily standup · 2 minutes ago" under the sentence — 12px, secondary, the
    design's second line. */
 .notification-when {
-  font-size: 12px;
+  font-size: var(--text-base);
   color: var(--text-secondary);
 }
 
@@ -5387,13 +5386,13 @@ input[type='search']::-webkit-search-cancel-button {
    greyscale (NFR-ACC-3) without spending the text's own legibility on it.
 */
 .notification-subject {
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1.5;
   color: var(--text);
 }
 
 .notification-count {
-  font-size: 12px;
+  font-size: var(--text-base);
   color: var(--text-muted);
 }
 
@@ -5429,7 +5428,7 @@ input[type='search']::-webkit-search-cancel-button {
 .settings-nav-title {
   margin: 0;
   padding: 0 12px var(--space-2);
-  font-size: 12px;
+  font-size: var(--text-base);
   font-weight: 600;
   letter-spacing: var(--track-caps);
   text-transform: uppercase;
@@ -5444,7 +5443,7 @@ input[type='search']::-webkit-search-cancel-button {
   background: transparent;
   color: var(--text-muted);
   text-align: left;
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 400;
 }
 
@@ -5493,7 +5492,7 @@ input[type='search']::-webkit-search-cancel-button {
 
 .settings-heading p {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--text-md);
   color: var(--text-muted);
 }
 
@@ -5574,7 +5573,7 @@ input[type='search']::-webkit-search-cancel-button {
   background: var(--surface);
   box-shadow: var(--hairline);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 500;
 }
 
@@ -5607,7 +5606,7 @@ input[type='search']::-webkit-search-cancel-button {
   background: var(--surface);
   box-shadow: inset 0 0 0 1px var(--input-border);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--text-md);
 }
 
 /*
@@ -5659,7 +5658,7 @@ input[type='search']::-webkit-search-cancel-button {
 .you-title {
   margin: 0;
   padding: 8px 16px 14px;
-  font-size: 22px;
+  font-size: var(--text-2xl);
   font-weight: 600;
   letter-spacing: var(--track-tight);
 }
@@ -5755,7 +5754,7 @@ input[type='search']::-webkit-search-cancel-button {
 .you-row-label {
   flex: 1;
   min-width: 0;
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-weight: 400;
 }
 
@@ -5810,12 +5809,12 @@ input[type='search']::-webkit-search-cancel-button {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  font-size: 12px;
+  font-size: var(--text-base);
   color: var(--text-secondary);
 }
 
 .you-install-text strong {
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 600;
   color: var(--text);
 }
@@ -5850,7 +5849,7 @@ input[type='search']::-webkit-search-cancel-button {
 
 .settings-back h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: var(--text-xl);
   font-weight: 600;
   letter-spacing: var(--track-tight);
 }
@@ -5885,7 +5884,7 @@ input[type='search']::-webkit-search-cancel-button {
 
 .announce-form .muted {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--text-base);
   color: var(--text-secondary);
 }
 
@@ -5987,7 +5986,7 @@ input[type='search']::-webkit-search-cancel-button {
 .settings-note {
   margin: 0;
   max-width: 60ch;
-  font-size: 14px;
+  font-size: var(--text-md);
   line-height: 1.6;
   color: var(--text-muted);
 }
@@ -6039,7 +6038,7 @@ input[type='search']::-webkit-search-cancel-button {
   gap: var(--space-3);
   margin: 0;
   padding: 9px 0;
-  font-size: 14px;
+  font-size: var(--text-md);
   color: var(--text-muted);
 }
 
@@ -6270,7 +6269,7 @@ input[type='search']::-webkit-search-cancel-button {
   border-radius: 50%;
   background: transparent;
   color: inherit;
-  font-size: 15px;
+  font-size: var(--text-lg);
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -6435,7 +6434,7 @@ input[type='search']::-webkit-search-cancel-button {
   padding: 0 20px;
   border: 0;
   border-radius: var(--radius);
-  font-size: 14px;
+  font-size: var(--text-md);
   font-weight: 500;
 }
 
@@ -6498,7 +6497,7 @@ input[type='search']::-webkit-search-cancel-button {
 .empty-splash p {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 15px;
+  font-size: var(--text-lg);
   line-height: 1.6;
 }
 
@@ -6823,7 +6822,7 @@ input[type='search']::-webkit-search-cancel-button {
   flex-direction: column;
   gap: 7px;
   margin: 0;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.17em;
   text-transform: uppercase;
@@ -6887,9 +6886,13 @@ input[type='search']::-webkit-search-cancel-button {
   margin-bottom: 15px;
 }
 
+/* -0.024em is display type, not noise: 0.53px per letter at 22px, which is 10.6px across
+   "Welcome back". The five +/-0.005em nudges elsewhere in this sheet were removed on
+   2026-09-10 for the opposite reason - 0.065px per letter is below anything a person can
+   see, and five rules carrying it were five decisions nobody made. */
 .signin-masthead h1 {
   margin: 0 0 7px;
-  font-size: 22px;
+  font-size: var(--text-2xl);
   font-weight: 660;
   letter-spacing: -0.024em;
   line-height: 1.18;
@@ -6921,7 +6924,6 @@ input[type='search']::-webkit-search-cancel-button {
 .signin-label {
   font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: -0.005em;
   color: var(--si-ink);
 }
 
@@ -7217,7 +7219,6 @@ input.signin-control {
   color: #ffffff;
   font-size: 14.5px;
   font-weight: 600;
-  letter-spacing: -0.005em;
   box-shadow:
     0 1px 2px rgb(28 26 46 / 8%),
     0 8px 18px -8px color-mix(in srgb, var(--si-action) 55%, transparent);
@@ -7356,7 +7357,7 @@ input.signin-control {
   }
 
   .signin-masthead h1 {
-    font-size: 22px;
+    font-size: var(--text-2xl);
   }
 
   /* Shallower still. On a 390x844 screen this puts the star's lower point near 190 and the
@@ -7798,7 +7799,7 @@ input.signin-control {
   }
 
   .details-identity-name {
-    font-size: 22px;
+    font-size: var(--text-2xl);
   }
 
   /*
@@ -7995,7 +7996,7 @@ input.signin-control {
     margin: 0;
     overflow: visible;
     clip: auto;
-    font-size: 11px;
+    font-size: var(--text-sm);
     line-height: 1;
   }
 
@@ -8139,7 +8140,7 @@ input.signin-control {
   .day-separator span {
     background: var(--surface-sunken);
     color: var(--text-secondary);
-    font-size: 12px;
+    font-size: var(--text-base);
     font-weight: 500;
     letter-spacing: 0;
     text-transform: none;
@@ -8189,7 +8190,7 @@ input.signin-control {
   .conversation-row .row-avatar {
     width: 46px;
     height: 46px;
-    font-size: 15px;
+    font-size: var(--text-lg);
   }
 
   /* -----------------------------------------------------------------------------------
@@ -8443,7 +8444,7 @@ input.signin-control {
 }
 
 .confirm-choices .muted {
-  font-size: 12px;
+  font-size: var(--text-base);
   font-weight: 400;
 }
 
@@ -8644,7 +8645,7 @@ input.signin-control {
 .menu-heading {
   margin: 0;
   padding: var(--space-1) var(--space-2) 2px;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -8726,7 +8727,7 @@ input.signin-control {
   padding: 0;
   border: 0;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--text-base);
   color: var(--text-subtle);
   height: auto;
 }
@@ -8829,7 +8830,7 @@ input.signin-control {
 
 .forward-list .muted {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--text-base);
 }
 
 /* `.message-info-delivered`, `.message-info-count` and a second `.message-info-readers li`
@@ -8892,7 +8893,7 @@ input.signin-control {
   border-radius: var(--radius-pill);
   background: var(--surface-2);
   color: var(--text-muted);
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 650;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -9011,7 +9012,7 @@ input.signin-control {
   */
   width: 34px;
   height: 22px;
-  border-radius: 4px;
+  border-radius: var(--radius-extra-small);
   border: 1px solid var(--border);
   background-color: #f7f8fa;
   background-image: none;
@@ -9095,7 +9096,7 @@ input.signin-control {
   border-radius: var(--radius-pill);
   background: var(--surface-2);
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
   white-space: nowrap;
 }
@@ -9261,7 +9262,6 @@ input.signin-control {
   color: var(--accent-contrast);
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: -0.005em;
   cursor: pointer;
 }
 
@@ -9276,7 +9276,7 @@ input.signin-control {
 .sidenav-label {
   margin: 12px 0 5px;
   padding: 0 8px;
-  font-size: 10px;
+  font-size: var(--text-xs);
   font-weight: 640;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -9317,7 +9317,6 @@ input.signin-control {
   color: var(--rail-fg);
   font-size: 13px;
   font-weight: 500;
-  letter-spacing: -0.005em;
   text-align: left;
   cursor: pointer;
   transition: color var(--dur) var(--ease);
@@ -9579,7 +9578,7 @@ input.signin-control {
   height: 30px;
   border-radius: 50%;
   background: var(--accent-soft);
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 620;
 }
 
@@ -9926,7 +9925,7 @@ input.signin-control {
 
 .attachment-media-problem {
   padding: 10px 12px;
-  border-radius: 8px;
+  border-radius: var(--radius-small);
   background: color-mix(in srgb, var(--danger) 8%, transparent);
   color: var(--critical-label, var(--danger));
   font-size: 12.5px;
@@ -10130,7 +10129,7 @@ input.signin-control {
   height: 24px;
   padding: 0 8px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--radius-medium);
   background: var(--surface-sunken);
   color: var(--text-muted);
   font-size: 11.5px;
@@ -10192,13 +10191,13 @@ input.signin-control {
   border: 0;
   background: transparent;
   color: var(--accent-ink, var(--accent));
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 600;
 }
 
 .reaction-details-emoji {
   flex: none;
-  font-size: 15px;
+  font-size: var(--text-lg);
   font-family: var(--font-with-emoji);
   line-height: 1;
 }
@@ -10505,7 +10504,7 @@ input.signin-control {
 
 .photo-drop .muted,
 .photo-drop-limits {
-  font-size: 12px;
+  font-size: var(--text-base);
   font-weight: 400;
   color: var(--text-muted);
 }
@@ -11171,7 +11170,7 @@ input.signin-control {
   border-radius: 50%;
   background: none;
   color: var(--text-muted);
-  font-size: 15px;
+  font-size: var(--text-lg);
   line-height: 1;
 }
 
@@ -11232,7 +11231,7 @@ input.signin-control {
 .voice-note-track:focus-visible {
   outline: 2px solid var(--focus, var(--accent));
   outline-offset: 3px;
-  border-radius: 4px;
+  border-radius: var(--radius-extra-small);
 }
 
 /* Nothing known about the audio yet: a plain fill, claiming nothing about its shape. */
@@ -11270,7 +11269,7 @@ input.signin-control {
 
 .voice-note-time {
   flex: none;
-  font-size: 12px;
+  font-size: var(--text-base);
   font-variant-numeric: tabular-nums;
   opacity: 0.75;
 }
@@ -11284,7 +11283,7 @@ input.signin-control {
   border-radius: var(--radius-pill);
   background: color-mix(in srgb, currentColor 12%, transparent);
   color: inherit;
-  font-size: 11px;
+  font-size: var(--text-sm);
   font-weight: 650;
   font-variant-numeric: tabular-nums;
 }
@@ -11292,7 +11291,7 @@ input.signin-control {
 .voice-note-problem {
   flex-basis: 100%;
   margin: 4px 0 0;
-  font-size: 12px;
+  font-size: var(--text-base);
   opacity: 0.85;
 }
 
@@ -11333,7 +11332,7 @@ input.signin-control {
 
   .voice-time {
     min-width: 38px;
-    font-size: 12px;
+    font-size: var(--text-base);
   }
 }
 
