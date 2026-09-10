@@ -2586,6 +2586,26 @@ input[type='search']::-webkit-search-cancel-button {
   gap: 12px;
   min-height: 100%;
   box-sizing: border-box;
+  /*
+     A reading measure, so the two speakers do not end up shouting across a room.
+
+     The thread had no maximum and simply took the pane. Measured at 1920: a 1372px column
+     with the widest bubble at 543px left 503px of empty ground between the last incoming
+     message and the first outgoing one — the eye has to travel the width of a sidebar to
+     follow a conversation. (At 1440 the column is 892px and the gap is 23px, which is why
+     this is invisible on a laptop and obvious on a monitor.)
+
+     1100px is the arithmetic rather than a taste: a bubble is capped at 640px, so two full
+     ones plus the 52px gutter overrun this and the widest exchanges nearly meet. It leaves
+     room for the reply quote and the reaction chips without letting a two-word message sit
+     half a screen from the answer to it.
+
+     Centred, and the GROUND is not constrained with it — the wallpaper is painted by the
+     scroller above this, so the column narrows and the pane stays whole.
+  */
+  width: 100%;
+  max-width: 1100px;
+  margin-inline: auto;
 }
 
 /*
@@ -3836,6 +3856,26 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
+   The composer takes the thread's measure, and only the measure.
+
+   `.thread` is capped at 1100px and centred, so on a wide monitor a full-width composer
+   put the field's right edge a couple of hundred pixels past the bubbles it produces -
+   you typed in one column and the message appeared in a narrower one. The BAR keeps the
+   full width: it is the chrome that separates the thread from the page, and a floating
+   centred strip with bare canvas either side of it is a different design, not an aligned
+   one. Only the row of controls inside it is constrained.
+
+   The same 1100 as the thread, stated twice rather than shared through a token, because
+   the two are not the same fact: one is a reading measure and the other follows it. If
+   they diverge on purpose later, nothing has to be untangled first.
+*/
+.composer > * {
+  width: 100%;
+  max-width: 1100px;
+  margin-inline: auto;
+}
+
+/*
    One column now, not three.
 
    The reference puts attach, emoji and send all INSIDE the field, so the grid that used to
@@ -4036,11 +4076,27 @@ input[type='search']::-webkit-search-cancel-button {
   box-shadow: none;
 }
 
+/*
+   The emoji control's wrapper. It is a positioning context for the picker and nothing else.
+
+   It carried `padding-bottom: 3px` with no comment, which made the wrapper 39px around a
+   36px button inside a field that centres its children — so the button landed 1.5px above
+   the paperclip and the microphone either side of it. Three icon buttons on one row, one
+   of them a pixel and a half high, is the kind of thing nobody can name and everybody can
+   see.
+
+   The padding almost certainly dates from when the field was `align-items: flex-end`,
+   where it lifted the button off the bottom edge. The field centres now, so it lifts the
+   button off nothing.
+
+   `.emoji-panel` hangs from this wrapper at `bottom: calc(100% + var(--space-2))`, so
+   removing the padding moves the picker 3px closer to the field — which is the gap that
+   rule already states, rather than that gap plus an undocumented three.
+*/
 .emoji {
   position: relative;
   display: inline-flex;
   flex: none;
-  padding-bottom: 3px;
 }
 
 .emoji-toggle {
@@ -5677,6 +5733,26 @@ input[type='search']::-webkit-search-cancel-button {
 .settings-row-block:last-child,
 .settings-toggle:last-child {
   border-bottom: 0;
+}
+
+/*
+   The control in a settings row never wraps, and never shrinks to make room for prose.
+
+   `.settings-row-block` is a flex row with the explanation on the left and the button on
+   the right, and the button had no `flex` of its own — so it shrank to whatever the
+   sentence left it. Measured at 1440: "Sign out everywhere" in a 99px button, its label on
+   two lines inside a 34px box. At 860px, where the panel is narrower and the sentence
+   wraps sooner, the same button was 140px and read correctly — so the defect got WORSE on
+   a bigger screen, which is why it survived so long.
+
+   The label is the flexible half. It already carries `min-width: 0`, which is what lets it
+   give way instead.
+*/
+.settings-row-block > button,
+.settings-toggle > button,
+.settings-confirm > button {
+  flex: none;
+  white-space: nowrap;
 }
 
 .settings-row-label {
@@ -11383,11 +11459,21 @@ input.signin-control {
   display: grid;
   place-items: center;
   flex: none;
-  /* 36, matching the paperclip and the emoji control beside it. It was 34, which is not a
-     size anybody chose — it is the size it happened to be, and three icon buttons on one
-     row at 36/36/34 read as a row that was assembled rather than drawn. */
-  width: 36px;
-  height: 36px;
+  /*
+     40, matching the SEND button it becomes — not the 36 of the paperclip beside it.
+
+     It was 34 first, which was not a size anybody chose. Then 36, to match its two
+     neighbours, and that is the version this replaces: the microphone and the send button
+     are one slot in two states, they share a grid column, and at 36 against send's 40 the
+     column grew by four pixels the instant somebody typed a character. Everything to the
+     left of it moved, on the first keystroke of every message.
+
+     So the row has two sizes and they mean something: 36 for the two utilities that are
+     always there, 40 for the action slot in both of its states. A hierarchy rather than
+     an accident, and nothing jumps.
+  */
+  width: 40px;
+  height: 40px;
   padding: 0;
   border: 0;
   border-radius: 50%;
