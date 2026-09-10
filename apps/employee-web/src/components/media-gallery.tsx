@@ -38,16 +38,18 @@ import type { ReactNode } from 'react';
 import { api, ApiError } from '../lib/api-client';
 import { MediaViewer } from './media-viewer';
 
-export interface GalleryItem {
-  readonly attachmentId: string;
-  readonly kind: 'image' | 'video';
-  readonly filename: string;
-  readonly declaredBytes: number;
-  readonly senderDisplayName: string;
-  readonly senderPrincipalId: string | undefined;
-  readonly sentAt: string;
-  readonly mine: boolean;
-}
+/*
+   Defined in `media-viewer.tsx` and re-exported here.
+
+   The shape belongs to the gallery and lives in the viewer, which reads oddly until you
+   try it the other way round: this module imports the viewer COMPONENT, so the viewer
+   importing the type back is a cycle, and `pnpm boundaries` fails the build on one. It
+   caught this on the first run. `upload-attachment.ts` and `attachment-picker.tsx` carry
+   the same arrangement for the same reason - a cycle that is harmless at runtime because
+   it is type-only is still a gate people learn to ignore.
+*/
+export type { GalleryItem } from './media-viewer';
+import type { GalleryItem } from './media-viewer';
 
 interface Gallery {
   /** Opens the full-size view at this attachment. */

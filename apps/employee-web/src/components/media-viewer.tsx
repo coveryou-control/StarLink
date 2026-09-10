@@ -52,7 +52,28 @@ import { formatBytes } from './attachment-picker';
 import { AvatarImage } from './avatar-image';
 import { initialsFor } from './conversation-naming';
 import { identityStyleFrom, distinctIdentityHues } from '../lib/identity-colour';
-import type { GalleryItem } from './media-gallery';
+
+
+/**
+ * One picture or video in a thread's gallery.
+ *
+ * Defined HERE rather than in `media-gallery.tsx`, where it conceptually belongs, because
+ * the gallery imports this component and this component needs the shape — and the two
+ * importing each other is a cycle `pnpm boundaries` fails the build on. It is the same
+ * arrangement `upload-attachment.ts` and `attachment-picker.tsx` arrived at for the same
+ * reason: the type lives in the leaf and the other module re-exports it, so every existing
+ * importer keeps working.
+ */
+export interface GalleryItem {
+  readonly attachmentId: string;
+  readonly kind: 'image' | 'video';
+  readonly filename: string;
+  readonly declaredBytes: number;
+  readonly senderDisplayName: string;
+  readonly senderPrincipalId: string | undefined;
+  readonly sentAt: string;
+  readonly mine: boolean;
+}
 
 /** When the picture was sent, in the form a person reads rather than an ISO string. */
 function sentLabel(iso: string): string {
