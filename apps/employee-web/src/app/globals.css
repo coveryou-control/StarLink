@@ -1681,17 +1681,37 @@ input[type='search']::-webkit-search-cancel-button {
    they are.
    ===================================================================================== */
 
+/*
+   The filter row scrolls sideways rather than letting its labels break.
+
+   Four pills across a 340px column left "My Channels" too narrow for its own words, so
+   the label wrapped INSIDE the pill and the row stood 62px tall — two lines of chrome
+   above a list, and a pill shaped like a paragraph. A filter row is a row; when it does
+   not fit, the answer is that it scrolls.
+
+   `scrollbar-width: none` because a 4px bar under four pills is more chrome than the
+   thing it describes, and the pills are self-evidently draggable at this size.
+*/
 .filter-pills {
   display: flex;
   gap: var(--space-2);
   padding: 0 20px 14px;
   flex: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.filter-pills::-webkit-scrollbar {
+  display: none;
 }
 
 .filter-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: none;
+  /* One line, always — see `.filter-pills` for why the row scrolls instead. */
+  white-space: nowrap;
   height: auto;
   padding: 6px 12px;
   border: 0;
@@ -2256,6 +2276,25 @@ input[type='search']::-webkit-search-cancel-button {
   background-image: var(--thread-wallpaper);
   background-repeat: repeat;
   background-attachment: local;
+}
+
+/*
+   A CHANNEL has no wallpaper, whichever one the reader has chosen.
+
+   The pattern is a personal preference for a personal conversation and it is the right
+   default there — it reads as paper. In a channel it reads as a canvas: a large tiled
+   grid behind a departmental noticeboard makes the product look like a design tool rather
+   than a place where work is discussed, which is exactly how it was described.
+
+   Not by forcing `data-chat-bg='plain'` on the document, which would silently change the
+   reader's choice for their chats too and change it back on the way out. The channel just
+   does not paint one, and the setting is untouched.
+
+   The GROUND stays: the surface a channel is read on is the same surface a chat is read
+   on, and dropping that as well would make walking between the two a flicker.
+*/
+.thread-pane.channel .thread-scroll {
+  background-image: none;
 }
 
 /* Everything that is not the scroller keeps its natural height and never shrinks — a
@@ -10487,6 +10526,83 @@ input.signin-control {
   order: 2;
   align-self: flex-end;
   padding: 2px var(--space-3) 7px;
+}
+
+/* ============================================================ the channel directory ===
+
+   A place, not a table. The list already grouped by purpose and carried a search, tabs, a
+   join control and an unread badge; what it did not do was answer "which of these are
+   mine" first, or say how many people are in a channel that had a description.
+   ======================================================================================= */
+
+.channels-head {
+  align-items: flex-start;
+}
+
+.channels-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.channels-head-text h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+}
+
+/* One line saying what a channel IS. A person meeting the section for the first time
+   cannot infer "persistent, organised by team, with its own access rules" from a list of
+   names, and it is the whole difference from a group. */
+.channels-head-text p {
+  margin: 2px 0 0;
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  line-height: 1.4;
+}
+
+/* "Create", with the plus. It said "New", which in a column of channels reads as a filter
+   for new ones rather than as the thing that makes one. */
+.channels-create {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+}
+
+/*
+   The facts line: how many people, and whether access is restricted.
+
+   Under the description rather than replacing it — they answer different questions, and
+   showing one OR the other meant the rows that said most about themselves were the only
+   ones that never said how big they were.
+*/
+.channel-facts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 2px;
+  color: var(--text-subtle);
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+   The access tag, and it appears only when access is NOT the ordinary case.
+
+   An "Everyone" chip on fifteen rows of seventeen is noise that trains people to stop
+   reading chips; "Team only" on the two that are restricted is information.
+*/
+.channel-scope {
+  padding: 1px 7px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken, var(--surface-raised));
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
 }
 
 /* ============================================================ starting a conversation ===

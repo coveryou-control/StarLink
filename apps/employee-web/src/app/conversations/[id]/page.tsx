@@ -917,7 +917,14 @@ export default function ThreadPage(): ReactNode {
       incoming line is 40px the words could have had. A group keeps them at every width —
       there the picture is the only thing saying who is talking.
     */}
-    <div className={`thread-pane${isOneToOne ? ' one-to-one' : ''}`}>
+    /*
+       `channel` on the pane, so the stylesheet can treat a channel's reading surface
+       differently from a chat's. See `.thread-pane.channel .thread-scroll` — the
+       wallpaper comes off in here.
+    */
+    <div
+      className={`thread-pane${isOneToOne ? ' one-to-one' : ''}${isChannel ? ' channel' : ''}`}
+    >
       {/*
         The header answers "who is this", which nothing on this screen used to. The
         connection state moved inside it: realtime health is a property of the conversation

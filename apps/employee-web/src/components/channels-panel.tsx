@@ -183,34 +183,67 @@ export function ChannelsPanel({
      three headings is structure for its own sake. The other tabs are a directory being
      browsed, where the heading is how you find the thing you did not know the name of.
   */
+  /**
+   * Yours first, then the organisation.
+   *
+   * Grouping was purely by purpose, so the four channels somebody is actually in were
+   * scattered through seventeen they are not — a directory sorted by how the company is
+   * arranged rather than by what this person does all day. "Your channels" is the section
+   * that answers the first question anybody opens this panel with.
+   *
+   * Not on the "My channels" tab, where every row is yours and a heading saying so is a
+   * label on the whole list. Not on a SEARCH either: a search has one answer set and
+   * cutting it into four makes a short list look like an empty one.
+   */
   const grouped = useMemo(() => {
     if (tab === 'mine') return [{ heading: undefined, rows: visible }];
+    if (query.trim() !== '') return [{ heading: undefined, rows: visible }];
+
+    const mine = visible.filter((channel) => channel.membership !== 'NONE');
+    const rest = visible.filter((channel) => channel.membership === 'NONE');
+
     const byHeading = new Map<string, ChannelSummary[]>();
-    for (const channel of visible) {
+    for (const channel of rest) {
       const heading = SECTION_LABEL[channel.purpose];
       const bucket = byHeading.get(heading);
       if (bucket === undefined) byHeading.set(heading, [channel]);
       else bucket.push(channel);
     }
-    return SECTION_ORDER.filter((heading) => byHeading.has(heading)).map((heading) => ({
+    const sections = SECTION_ORDER.filter((heading) => byHeading.has(heading)).map((heading) => ({
       heading,
       rows: byHeading.get(heading) ?? [],
     }));
-  }, [visible, tab]);
+    return mine.length > 0 ? [{ heading: 'Your channels', rows: mine }, ...sections] : sections;
+  }, [visible, tab, query]);
 
   return (
     <section className="panel" aria-label="Channels">
-      <header className="panel-head">
-        <h2>Channels</h2>
+      {/*
+        A masthead that says what this place IS.
+
+        "Channels" alone is a word somebody has to already know. A channel is not another
+        kind of group chat, and the difference — persistent, organised around a team or a
+        topic, with its own access rules — is exactly what a person meeting the section for
+        the first time has no way to infer from a list of names. One line, once, at the top
+        of the thing it describes.
+      */}
+      <header className="panel-head channels-head">
+        <span className="channels-head-text">
+          <h2>Channels</h2>
+          <p>Persistent spaces for departments, teams and projects.</p>
+        </span>
         {mayCreate ? (
           <button
             type="button"
-            className="panel-head-action"
+            className="panel-head-action channels-create"
             onClick={() => setCreating(true)}
-            aria-label="New channel"
-            title="New channel"
+            aria-label="Create a channel"
+            title="Create a channel"
           >
-            New
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+              <path d="M12 5.5v13M5.5 12h13" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+            </svg>
+            Create
           </button>
         ) : null}
       </header>
@@ -312,11 +345,32 @@ export function ChannelsPanel({
                         {channel.name}
                         {channel.archived ? <span className="channel-tag">Archived</span> : null}
                       </span>
-                      <span className="channel-sub">
-                        {channel.description ??
-                          `${channel.memberCount} ${
-                            channel.memberCount === 1 ? 'member' : 'members'
-                          }`}
+                      {/*
+                        The description AND the count, on two lines rather than one OR the
+                        other.
+
+                        It showed the description when there was one and the member count
+                        when there was not — so the rows that said most about themselves
+                        were the only ones that did not say how big they were, and a
+                        channel with no description looked like a channel with two members
+                        for a subtitle. They answer different questions: what is this for,
+                        and how many people are in it.
+                      */}
+                      {channel.description !== undefined ? (
+                        <span className="channel-sub">{channel.description}</span>
+                      ) : null}
+                      <span className="channel-facts">
+                        <span>
+                          {channel.memberCount} {channel.memberCount === 1 ? 'member' : 'members'}
+                        </span>
+                        {/* Only when it is NOT the ordinary case. A "Everyone" tag on
+                            fifteen of seventeen rows is noise; a "Restricted" one on the
+                            two that are is information. */}
+                        {channel.visibility !== 'EVERYONE' ? (
+                          <span className="channel-scope" title={accessSummary(channel)}>
+                            {channel.visibility === 'DEPARTMENTS' ? 'Team only' : 'Invite only'}
+                          </span>
+                        ) : null}
                       </span>
                     </span>
                     {channel.unreadCount > 0 ? (
