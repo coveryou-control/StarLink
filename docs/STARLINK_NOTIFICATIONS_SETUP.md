@@ -73,7 +73,83 @@ that pretends** — rows accumulate as `RETRYING`, the backlog gauge climbs, and
 notification is visibly undelivered instead of being silently reported as sent. That is
 deliberate; do not "fix" it by supplying a placeholder host.
 
-## A2. Locally, against MailHog
+## A2. Three things beyond the settings, or nothing arrives
+
+Found by running the path rather than reading it. Each of these on its own is enough to
+make a correct configuration deliver nothing, and none of them produces an error that
+points at itself.
+
+### The event has to be one that mails
+
+`packages/notifications/src/matrix.ts` decides the channels per event, and **most internal
+chat does not email**. A mention is `inApp: true, externalIfAway: false, externalAlways:
+false` — in-app only, by design.
+
+| Event | Emails |
+| --- | --- |
+| `WAITING_BEYOND_STANDARD`, `ESCALATED_TO_YOUR_FUNCTION`, `TRANSFERRED`, `ROLE_OR_ACCESS_CHANGED` | Always |
+| `CONVERSATION_ASSIGNED`, `CUSTOMER_REPLIED` | Only when the recipient is away |
+| `MENTIONED`, ordinary messages | **Never** |
+
+So on a Stage 1 internal-chat workload, turning on SMTP correctly will send **almost
+nothing**, and that is the matrix working. If you want mentions to email, that is a change
+to `matrix.ts` and a product decision — not configuration.
+
+### The recipient needs an address
+
+The transport resolves one from `identity.principal_contacts`. That table was **empty**,
+so an otherwise perfect setup logged "contact channels unavailable" and sent nothing.
+`pnpm seed:people` now writes an `EMAIL` contact for each dev account
+(`<username>@coveryou.co.in`), so re-run it once:
+
+```bash
+pnpm seed:people
+```
+
+A missing address is dead-lettered rather than retried — §29.6, "invalid address … not
+retried forever" — so it fails quietly and permanently.
+
+### `SL_NOTIFY_EMAIL_SECURE=false` used to mean `true`
+
+Fixed on 2026-09-10. It was `z.coerce.boolean()`, which is `Boolean(value)`, and
+`Boolean("false")` is `true`. The documented setting for an ordinary STARTTLS relay on 587
+turned implicit TLS **on**, every send threw, and the outbox filled with `RETRYING` rows
+carrying `EMAIL_SEND_FAILED` — an error that says nothing about the flag that caused it.
+
+If you are running an API built before that fix, **omit the variable** rather than setting
+it to `false`.
+
+## A2b. The commands, in order
+
+Run and verified on 2026-09-10 against a local sink; the mail arrived and the outbox row
+reached `SENT`.
+
+```bash
+# 1. Addresses for the dev accounts (once).
+pnpm seed:people
+
+# 2. Something to receive the mail. MailHog is in the compose file, but this machine has
+#    no Docker — this sink needs nothing and listens on 1025.
+node .local/smtp-sink.mjs        # leave it running
+
+# 3. The API, with the email transport on.
+export SL_NOTIFY_TRANSPORTS=inapp,email
+export SL_NOTIFY_EMAIL_HOST=127.0.0.1
+export SL_NOTIFY_EMAIL_PORT=1025
+export SL_NOTIFY_EMAIL_FROM=starlink@coveryou.co.in
+#      SL_NOTIFY_EMAIL_SECURE is left UNSET on purpose — see A2 above.
+node apps/api/dist/main.js
+
+# 4. Trigger an event that actually mails, and watch the sink.
+node .local/mail-proof.mjs
+```
+
+Step 4 enqueues a `ROLE_OR_ACCESS_CHANGED` row — the outbox row the application itself
+would write — and everything after it is the product's own sweep, renderer, addresser and
+SMTP sender. Within about fifteen seconds the sink prints the message and the row reads
+`SENT`.
+
+## A2c. Locally, against MailHog
 
 `pnpm dev:up` already starts MailHog — it is in `infrastructure/deployment/compose.yaml`
 on ports 1025 (SMTP) and 8025 (web).
@@ -82,7 +158,6 @@ on ports 1025 (SMTP) and 8025 (web).
 SL_NOTIFY_TRANSPORTS=inapp,email
 SL_NOTIFY_EMAIL_HOST=localhost
 SL_NOTIFY_EMAIL_PORT=1025
-SL_NOTIFY_EMAIL_SECURE=false
 SL_NOTIFY_EMAIL_FROM=starlink@coveryou.co.in
 ```
 
@@ -106,7 +181,8 @@ recorded in `smtp-sender.ts`; if it is being revisited, revisit it there.
 SL_NOTIFY_TRANSPORTS=inapp,email
 SL_NOTIFY_EMAIL_HOST=smtp.coveryou.co.in     # your relay
 SL_NOTIFY_EMAIL_PORT=587
-SL_NOTIFY_EMAIL_SECURE=false
+# SL_NOTIFY_EMAIL_SECURE: leave unset for STARTTLS on 587. Set it to `true` ONLY for
+# implicit TLS on 465. See A2 for why writing `false` used to be actively harmful.
 SL_NOTIFY_EMAIL_USER=<relay user>
 SL_NOTIFY_EMAIL_PASSWORD=<relay password>
 SL_NOTIFY_EMAIL_FROM=no-reply@coveryou.co.in

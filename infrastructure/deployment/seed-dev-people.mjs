@@ -270,6 +270,31 @@ try {
       ],
     );
 
+    /**
+     * An email address, so the EMAIL notification transport has somewhere to send.
+     *
+     * `identity.principal_contacts` was EMPTY, and that made the whole mail path
+     * untestable in development without anybody noticing: enabling the transport and
+     * triggering an event that mails produced a log line reading "contact channels
+     * unavailable" and no message. The configuration looked right, the outbox looked
+     * right, and nothing arrived.
+     *
+     * `@coveryou.co.in` on the username, which is the same address the sign-in screen
+     * already accepts for these accounts (`verifyCredential` matches an address on its
+     * local part). Nothing real is behind it — dev never sends outward (NFR-DAT-6), and
+     * a local catcher is what receives these.
+     *
+     * `source = 'LOCAL'`, because HRMS is the authority for a contact channel when it
+     * lands and these rows must be distinguishable from the ones it will supply.
+     */
+    await pool.query(
+      `INSERT INTO identity.principal_contacts (principal_id, channel, address, source)
+       VALUES ($1, 'EMAIL', $2, 'LOCAL')
+       ON CONFLICT (principal_id, channel) DO UPDATE
+         SET address = EXCLUDED.address, source = 'LOCAL', updated_at = now()`,
+      [person.principalId, `${person.username}@coveryou.co.in`],
+    );
+
     await pool.query(
       `INSERT INTO identity.team_memberships (team_id, principal_id, role)
        VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,

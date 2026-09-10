@@ -11,6 +11,38 @@ import { validateStartupConfiguration } from '@starlink/database';
 
 const adapterMode = z.enum(['mock', 'local', 'remote']);
 
+/**
+ * A boolean from a string, which `z.coerce.boolean()` is NOT.
+ *
+ * `z.coerce.boolean()` is `Boolean(value)`, and `Boolean("false")` is `true`. So is
+ * `Boolean("0")`. Every value a person would actually write to turn something OFF turns
+ * it ON, and the only inputs that yield `false` are an empty string and an absent
+ * variable — neither of which anybody types deliberately.
+ *
+ * Found on 2026-09-10 while proving the mail path end to end: `SL_NOTIFY_EMAIL_SECURE=false`
+ * — the documented setting for the ordinary STARTTLS-on-587 relay — was enabling implicit
+ * TLS, so every send failed with `EMAIL_SEND_FAILED` and the outbox filled with RETRYING
+ * rows. The configuration was not merely ignored; it was inverted.
+ *
+ * Unknown values are REFUSED rather than guessed. A typo in a security-relevant flag must
+ * stop the process at boot with the variable named, not silently pick a side.
+ */
+const booleanFlag = (fallback: boolean) =>
+  z
+    .union([z.boolean(), z.string()])
+    .default(fallback)
+    .transform((value, ctx) => {
+      if (typeof value === 'boolean') return value;
+      const text = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'on'].includes(text)) return true;
+      if (['false', '0', 'no', 'off', ''].includes(text)) return false;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `expected a boolean such as true/false, got "${value}"`,
+      });
+      return z.NEVER;
+    });
+
 const schema = z.object({
   SL_ENV: z.enum(['dev', 'test', 'staging', 'production']).default('dev'),
   SL_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
@@ -185,7 +217,7 @@ const schema = z.object({
   SL_NOTIFY_EMAIL_HOST: z.string().min(1).optional(),
   SL_NOTIFY_EMAIL_PORT: z.coerce.number().int().positive().max(65535).default(587),
   /** Implicit TLS (465). Left false for the usual STARTTLS-on-587 relay. */
-  SL_NOTIFY_EMAIL_SECURE: z.coerce.boolean().default(false),
+  SL_NOTIFY_EMAIL_SECURE: booleanFlag(false),
   SL_NOTIFY_EMAIL_USER: z.string().min(1).optional(),
   SL_NOTIFY_EMAIL_PASSWORD: z.string().min(1).optional(),
   /** Envelope sender. A relay will refuse a domain it does not own. */
