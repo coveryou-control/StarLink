@@ -22,7 +22,7 @@ they are listed in `docs/CURRENT_STATE_AUDIT.md` §2.1. Following §1–46 liter
 pnpm install                # link workspace
 pnpm dev:up                 # postgres, redis, minio, mailhog, prometheus, grafana
 pnpm --filter @starlink/database migrate
-pnpm seed:people            # three named dev employees to sign in as (HRMS placeholder)
+pnpm seed:people            # five named dev employees to sign in as (HRMS placeholder)
 pnpm build                  # required before tests: packages resolve via dist/
 pnpm exec vitest run        # unit + authz matrix + spikes
 pnpm boundaries             # architecture boundary law
@@ -133,14 +133,22 @@ from HRMS through the identity adapter, and `SL_ADAPTER_IAM=local` is the placeh
 that API exists. The placeholder reads `identity.principals`, so until something writes
 rows there nobody can open the product.
 
-`pnpm seed:people` writes three named accounts for that purpose — separate from the browser
+`pnpm seed:people` writes five named accounts for that purpose — separate from the browser
 suite's fixtures, so running the suite cannot delete them and using them cannot perturb it:
 
-| username        | password               | role      |
-| --------------- | ---------------------- | --------- |
-| `rishitt.gupta` | `starlink-dev-rishitt` | AGENT     |
-| `archit.bali`   | `starlink-dev-archit`  | TEAM_LEAD |
-| `rahul`         | `starlink-dev-rahul`   | AGENT     |
+| username        | password   | employee code | role      |
+| --------------- | ---------- | ------------- | --------- |
+| `rishitt.gupta` | `12345678` | `DEV-0001`    | AGENT     |
+| `archit.bali`   | `12345678` | `DEV-0002`    | TEAM_LEAD |
+| `rahul`         | `12345678` | `DEV-0003`    | AGENT     |
+| `s.nirvana`     | `12345678` | `DEV-0004`    | AGENT     |
+| `manish.k`      | `12345678` | `DEV-0005`    | AGENT     |
+
+One password for all five, because the point of these rows is to make it trivial to be
+several people at once while testing and five different strings meant looking up which.
+Any of three identifiers signs the same person in — the username, the employee code, or
+the address whose local part matches the username (`archit.bali@coveryou.co.in`) — since
+people know themselves by whichever their last system asked for.
 
 They are written with `authority = 'TEMPORARY_AUTHORITY'`, which is what makes the
 directory render "· interim" beside each name — INTEGRATION_CONTRACTS §1 rule 4 requires an
