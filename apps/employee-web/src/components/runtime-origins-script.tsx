@@ -24,6 +24,26 @@ export function RuntimeOriginsScript(): React.JSX.Element {
      * flag. Only the exact string `'true'` enables it.
      */
     customerWorkspace: process.env.SL_CUSTOMER_WORKSPACE_ENABLED === 'true',
+    /*
+       Firebase's WEB config, which is not a secret.
+
+       These four identify the project to Google and are designed to sit in client
+       source; the service account that can actually SEND stays on the server and is
+       never any of these. They still travel through the same server-injected channel as
+       the origins rather than being inlined at build time, because a build baked with
+       one project's ids cannot be deployed against another — which is exactly the
+       coupling `runtime-origins` exists to prevent.
+
+       Absent means push is simply not offered: `push-client.ts` reads the key and does
+       nothing without it.
+    */
+    push: {
+      apiKey: process.env.SL_NOTIFY_PUSH_WEB_API_KEY ?? '',
+      appId: process.env.SL_NOTIFY_PUSH_WEB_APP_ID ?? '',
+      projectId: process.env.SL_NOTIFY_PUSH_PROJECT_ID ?? '',
+      senderId: process.env.SL_NOTIFY_PUSH_SENDER_ID ?? '',
+      vapidKey: process.env.SL_NOTIFY_PUSH_VAPID_KEY ?? '',
+    },
   };
   return (
     <script

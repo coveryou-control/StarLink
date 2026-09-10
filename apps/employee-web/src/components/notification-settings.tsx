@@ -39,6 +39,8 @@ import {
   writeDeviceNotifications,
   type DeviceNotifications,
 } from '../lib/device-notifications';
+import { registerForPush, unregisterFromPush, type PushOutcome } from '../lib/push-client';
+import { pushConfig } from '../lib/runtime-origins';
 
 type Permission = 'unsupported' | 'default' | 'granted' | 'denied';
 
@@ -56,11 +58,41 @@ export function NotificationSettings(): ReactNode {
   const [settings, setSettings] = useState<DeviceNotifications>(DEVICE_NOTIFICATION_DEFAULTS);
   const [permission, setPermission] = useState<Permission>('unsupported');
   const [asking, setAsking] = useState(false);
+  /**
+   * Whether this browser is registered for push, and whether push exists to register for.
+   *
+   * Separate from permission, because they fail separately: permission can be granted
+   * with no Firebase project configured, and a project can be configured for somebody
+   * who has refused the browser prompt. Collapsing the two would produce a panel that
+   * blames the wrong one.
+   */
+  const [push, setPush] = useState<PushOutcome | 'IDLE'>('IDLE');
+  const [pushAvailable, setPushAvailable] = useState(false);
 
   useEffect(() => {
     setSettings(readDeviceNotifications());
     setPermission(currentPermission());
+    setPushAvailable(pushConfig() !== undefined);
   }, []);
+
+  /*
+     Refresh the registration on every visit to this panel, when it is already allowed.
+
+     FCM reissues a token when it feels like it — a reinstall, cleared site data, a long
+     absence — and a stale one silently stops receiving. Re-registering is an upsert on
+     the server, so the common case costs one row touch. It cannot raise a prompt: it
+     returns NO_PERMISSION rather than asking.
+  */
+  useEffect(() => {
+    if (permission !== 'granted' || !pushAvailable) return;
+    let live = true;
+    void registerForPush().then((outcome) => {
+      if (live) setPush(outcome);
+    });
+    return () => {
+      live = false;
+    };
+  }, [permission, pushAvailable]);
 
   const update = (patch: Partial<DeviceNotifications>): void => {
     const next = { ...settings, ...patch };
@@ -81,6 +113,9 @@ export function NotificationSettings(): ReactNode {
     try {
       const answer = await Notification.requestPermission();
       setPermission(answer as Permission);
+      /* Granted just now: register immediately rather than waiting for the next visit,
+         so the switch somebody just turned on is true by the time they leave. */
+      if (answer === 'granted' && pushAvailable) setPush(await registerForPush());
     } finally {
       setAsking(false);
     }
@@ -100,8 +135,22 @@ export function NotificationSettings(): ReactNode {
         className={`settings-switch${settings[key] ? ' on' : ''}`}
         onClick={() => {
           const next = !settings[key];
-          if (next) void enable({ [key]: true });
-          else update({ [key]: false });
+          if (next) {
+            void enable({ [key]: true });
+            return;
+          }
+          update({ [key]: false });
+          /*
+             With every message switch off there is nothing left for a push to say, so
+             the device is unregistered rather than left as an address the server keeps
+             sending to. Sound is not one of these: somebody silencing the tone still
+             wants the notification.
+          */
+          const remaining = { ...settings, [key]: false };
+          if (!remaining.direct && !remaining.groups && push === 'REGISTERED') {
+            setPush('IDLE');
+            void unregisterFromPush();
+          }
         }}
       >
         <span aria-hidden="true" />
@@ -133,6 +182,27 @@ export function NotificationSettings(): ReactNode {
       ) : permission === 'default' ? (
         <p className="settings-note" role="status">
           Turning any of these on will ask your browser for permission once.
+        </p>
+      ) : null}
+
+      {/*
+        What happens when StarLink is CLOSED, which is a different promise from the
+        switches below and is worth separating.
+
+        The switches govern this device raising a notification while the browser is
+        running. Push is the only thing that reaches somebody who has shut the laptop, and
+        it needs a Firebase project the operator has to configure — so when it is absent
+        the panel says the switches still work rather than pretending everything is on.
+      */}
+      {permission === 'granted' ? (
+        <p className="settings-note" role="status">
+          {!pushAvailable
+            ? 'Notifications appear while StarLink is open in a tab. Delivery when the browser is closed is not configured on this deployment.'
+            : push === 'REGISTERED'
+              ? 'This device is registered, so notifications also arrive when StarLink is closed.'
+              : push === 'FAILED'
+                ? 'This device could not be registered for notifications while StarLink is closed. Notifications still work while it is open.'
+                : 'Registering this device…'}
         </p>
       ) : null}
 

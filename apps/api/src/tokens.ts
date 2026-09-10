@@ -61,6 +61,8 @@ export const ATTACHMENT_STORE = Symbol('SL_ATTACHMENT_STORE');
 export const OBJECT_STORAGE = Symbol('SL_OBJECT_STORAGE');
 export const ATTACHMENT_SCANNER = Symbol('SL_ATTACHMENT_SCANNER');
 export const NOTIFICATION_OUTBOX = Symbol('SL_NOTIFICATION_OUTBOX');
+/** FCM registration tokens, for the PUSH transport and the device routes. */
+export const DEVICE_TOKENS = Symbol('SL_DEVICE_TOKENS');
 export const NOTIFICATION_TRANSPORTS = Symbol('SL_NOTIFICATION_TRANSPORTS');
 export const NOTIFICATION_RECIPIENTS = Symbol('SL_NOTIFICATION_RECIPIENTS');
 export const NOTIFICATION_PREFERENCES = Symbol('SL_NOTIFICATION_PREFERENCES');

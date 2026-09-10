@@ -8,3 +8,5 @@ export * from './repositories/index.js';
  */
 export { resetTeamFixtures } from './testing/fixture-reset.js';
 export * as schema from './schema.js';
+
+export { PgDeviceTokenStore } from './repositories/device-token-store.js';

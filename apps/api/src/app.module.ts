@@ -16,6 +16,8 @@ import { LocalObjectStorage, MockObjectStorage, S3ObjectStorage } from '@starlin
 import { DevAttachmentScanner } from '@starlink/adapter-attachment-scanner';
 import {
   EmailNotificationTransport,
+  FcmSender,
+  PushNotificationTransport,
   InAppNotificationTransport,
   SmtpEmailSender,
   type EmailSender,
@@ -26,6 +28,7 @@ import {
   MockWorkOrchestrator,
 } from '@starlink/adapter-work-orchestrator';
 import {
+  PgDeviceTokenStore,
   PgAdminStore,
   PgAttachmentStore,
   PgAvailabilityReader,
@@ -107,6 +110,7 @@ import {
   AVATAR_STORE,
   HIDDEN_MESSAGE_STORE,
   MESSAGE_STORE,
+  DEVICE_TOKENS,
   NOTIFICATION_OUTBOX,
   NOTIFICATION_PREFERENCES,
   NOTIFICATION_RECIPIENTS,
@@ -147,6 +151,7 @@ import { SweepHost } from './sweeps.host.js';
 import { NotificationService } from './notifications/notification-service.js';
 import { NotificationRecipients } from './notifications/recipients.js';
 import { ConversationNotifier } from './notifications/conversation-notifier.js';
+import { DevicesController } from './notifications/devices.controller.js';
 import { NotificationAdminController } from './notifications/notification-admin.controller.js';
 import { EmployeeNotificationsController } from './notifications/notifications.controller.js';
 import { AttachmentService } from './attachments/attachment-service.js';
@@ -398,7 +403,10 @@ const providers: Provider[] = [
   },
   {
     provide: NOTIFICATION_TRANSPORTS,
-    inject: [CONFIG, EMPLOYEE_DIRECTORY, LOGGER],
+    /* DATABASE joins the list because the push transport needs the token store - it is
+       the one transport whose address book is StarLink's own table rather than the
+       directory's. */
+    inject: [CONFIG, EMPLOYEE_DIRECTORY, LOGGER, DATABASE],
     /**
      * One transport per channel (§29.3). A channel absent from this map is not an error —
      * the worker leaves its rows queued rather than discarding them, which is what keeps
@@ -408,6 +416,7 @@ const providers: Provider[] = [
       config: ApiConfig,
       directory: EmployeeDirectoryProvider,
       logger: ReturnType<typeof createLogger>,
+      pool: pg.Pool,
     ): ReadonlyMap<string, NotificationTransport> => {
       /**
        * The relay, or nothing at all.
@@ -491,11 +500,46 @@ const providers: Provider[] = [
           }),
       ];
 
+      /*
+         Push, on the same terms as email: configured or absent, never a stub.
+
+         All three settings or none. A project id with no key would build a sender that
+         fails every send, and §29.6's "provider outage — rows accumulate as pending and
+         drain on recovery" only behaves as designed when an unconfigured channel has no
+         sender at all.
+      */
+      const fcm =
+        config.SL_NOTIFY_PUSH_PROJECT_ID !== undefined &&
+        config.SL_NOTIFY_PUSH_CLIENT_EMAIL !== undefined &&
+        config.SL_NOTIFY_PUSH_PRIVATE_KEY !== undefined
+          ? new FcmSender({
+              projectId: config.SL_NOTIFY_PUSH_PROJECT_ID,
+              clientEmail: config.SL_NOTIFY_PUSH_CLIENT_EMAIL,
+              privateKey: config.SL_NOTIFY_PUSH_PRIVATE_KEY,
+            })
+          : undefined;
+
+      const pushTransport: [string, NotificationTransport] = [
+        'PUSH',
+        new PushNotificationTransport({
+          ...(fcm !== undefined ? { sender: fcm } : {}),
+          tokens: new PgDeviceTokenStore(pool),
+          /* The deep link is a path; the worker needs an absolute URL to open. */
+          webOrigin: config.SL_WEB_EMPLOYEE_ORIGIN,
+        }),
+      ];
+
       const enabled = new Set(config.SL_NOTIFY_TRANSPORTS);
       if (enabled.has('EMAIL')) entries.push(emailTransport);
+      if (enabled.has('PUSH')) entries.push(pushTransport);
 
       return new Map<string, NotificationTransport>(entries);
     },
+  },
+  {
+    provide: DEVICE_TOKENS,
+    inject: [DATABASE],
+    useFactory: (pool: pg.Pool) => new PgDeviceTokenStore(pool),
   },
   {
     provide: NOTIFICATION_RECIPIENTS,
@@ -731,6 +775,7 @@ const providers: Provider[] = [
     HealthController,
     EmployeeAuthController,
     EmployeeAdminController,
+    DevicesController,
     NotificationAdminController,
     EmployeeNotificationsController,
     EmployeeConversationsController,

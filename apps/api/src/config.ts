@@ -218,6 +218,25 @@ const schema = z.object({
   SL_NOTIFY_EMAIL_PORT: z.coerce.number().int().positive().max(65535).default(587),
   /** Implicit TLS (465). Left false for the usual STARTTLS-on-587 relay. */
   SL_NOTIFY_EMAIL_SECURE: booleanFlag(false),
+  /**
+   * Firebase Cloud Messaging, for the PUSH channel (§29).
+   *
+   * All three or none: `PROJECT_ID` is the switch, and a partially configured project
+   * gets no sender rather than one that fails on every send. The same posture the email
+   * transport takes, and for the same reason — a channel that cannot deliver must look
+   * undelivered, not broken.
+   *
+   * The private key comes out of the service-account JSON with its newlines escaped as
+   * `\n`, which is how it survives an environment variable. Unescaped here so callers
+   * do not each have to remember.
+   */
+  SL_NOTIFY_PUSH_PROJECT_ID: z.string().min(1).optional(),
+  SL_NOTIFY_PUSH_CLIENT_EMAIL: z.string().email().optional(),
+  SL_NOTIFY_PUSH_PRIVATE_KEY: z
+    .string()
+    .min(1)
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value.replace(/\\n/g, '\n'))),
   SL_NOTIFY_EMAIL_USER: z.string().min(1).optional(),
   SL_NOTIFY_EMAIL_PASSWORD: z.string().min(1).optional(),
   /** Envelope sender. A relay will refuse a domain it does not own. */

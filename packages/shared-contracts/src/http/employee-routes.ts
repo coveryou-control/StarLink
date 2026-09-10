@@ -277,6 +277,15 @@ export const employeeRoutes = {
    * `v` is the picture's own `updatedAt`, hung on the URL so a changed picture is not
    * served from a stale cache and an UNCHANGED one is served from cache forever.
    */
+  /**
+   * This browser's push registration (§29's PUSH channel).
+   *
+   * No route takes a principal: a registration token is an address for somebody's phone,
+   * and the caller is always the session. See `devices.controller.ts`.
+   */
+  devices: `${EMPLOYEE_API_BASE}/devices`,
+  device: (token: string) => `${EMPLOYEE_API_BASE}/devices/${encodeURIComponent(token)}`,
+
   avatar: (principalId: string, version?: string) =>
     `${EMPLOYEE_API_BASE}/avatars/${principalId}` +
     (version === undefined ? '' : `?v=${encodeURIComponent(version)}`),

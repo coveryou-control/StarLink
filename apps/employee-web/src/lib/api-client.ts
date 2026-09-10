@@ -1171,6 +1171,17 @@ export const api = {
   removeMyAvatar: () =>
     request<{ removed: boolean }>(employeeRoutes.auth.avatar, { method: 'DELETE' }),
 
+  /** Tell the server this browser can receive a push. Idempotent; see the controller. */
+  registerDevice: (token: string, platform: 'WEB' | 'ANDROID' | 'IOS' = 'WEB') =>
+    request<{ registered: boolean }>(employeeRoutes.devices, {
+      method: 'POST',
+      body: JSON.stringify({ token, platform }),
+    }),
+
+  /** Stop sending push to this browser. */
+  forgetDevice: (token: string) =>
+    request<{ forgotten: boolean }>(employeeRoutes.device(token), { method: 'DELETE' }),
+
   setConversationAvatar: (conversationId: string, base64: string, contentType = 'image/png') =>
     request<{ updatedAt: string }>(employeeRoutes.conversations.avatar(conversationId), {
       method: 'PUT',
