@@ -24,9 +24,12 @@
  * falling back to the reader's own time, which would be a wrong answer wearing a right
  * one's clothes.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api, ApiError, type DirectoryEntry, type SharedFile } from '../lib/api-client';
 import { extensionOf, formatBytes } from './attachment-picker';
+import { MediaGalleryProvider } from './media-gallery';
+import type { GalleryItem } from './media-viewer';
+import { useGallery } from './media-gallery';
 import { relativeTime } from './conversation-naming';
 
 /**
@@ -230,40 +233,175 @@ export function SharedFiles({
     };
   }, [conversationId, revision]);
 
-  return (
-    <section className="details-section">
-      <h3 className="details-section-title">
-        Shared files
-        {files !== undefined && files.length > 0 ? (
-          <span className="details-count">{files.length}</span>
-        ) : null}
-        {files !== undefined && files.length > SHOWN && !all ? (
-          <button type="button" className="details-more" onClick={() => setAll(true)}>
-            See all
-          </button>
-        ) : null}
-      </h3>
+  /*
+     Pictures are SHOWN, documents are listed — which is the same rule the thread follows
+     and the reason this section used to look wrong. A conversation's photographs rendered
+     as a column of rows reading `PNG · 853 KB`, and a picture named by its size is a
+     picture you have to open to identify. WhatsApp's info panel splits them for exactly
+     this reason, and the split is on the SNIFFED type: what the scanner read out of the
+     bytes, never what the uploader called the file.
+  */
+  const media = (files ?? []).filter((file) => mediaKindOfShared(file) !== undefined);
+  const docs = (files ?? []).filter((file) => mediaKindOfShared(file) === undefined);
 
-      {problem !== undefined ? (
-        <p className="details-empty" role="alert">
-          {problem}
-        </p>
-      ) : files === undefined ? (
-        <p className="details-empty">Loading…</p>
-      ) : files.length === 0 ? (
-        <p className="details-empty">Nothing has been shared here yet.</p>
-      ) : (
-        <ul className="shared-files">
-          {(all ? files : files.slice(0, SHOWN)).map((file) => (
-            <li key={file.attachmentId}>
-              <SharedFileRow file={file} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+  /*
+     The grid's own gallery.
+
+     This panel is outside `MessageList`, so `useGallery()` finds nothing here and a
+     thumbnail would have nowhere to open. Its own provider gives the same viewer — paging,
+     filmstrip and all — over the conversation's media in the order the server returned it,
+     newest first. Grants are still fetched one at a time as thumbnails appear.
+  */
+  const items: readonly GalleryItem[] = media.map((file) => ({
+    attachmentId: file.attachmentId,
+    kind: mediaKindOfShared(file) ?? 'image',
+    filename: file.filename,
+    declaredBytes: file.declaredBytes,
+    senderDisplayName: file.uploadedBy ?? 'Someone',
+    senderPrincipalId: undefined,
+    sentAt: file.sharedAt,
+    mine: false,
+  }));
+
+  return (
+    <MediaGalleryProvider items={items}>
+      {media.length > 0 ? (
+        <section className="details-section">
+          <h3 className="details-section-title">
+            Media
+            <span className="details-count">{media.length}</span>
+            {media.length > MEDIA_SHOWN && !all ? (
+              <button type="button" className="details-more" onClick={() => setAll(true)}>
+                See all
+              </button>
+            ) : null}
+          </h3>
+          <ul className="shared-media">
+            {(all ? media : media.slice(0, MEDIA_SHOWN)).map((file) => (
+              <li key={file.attachmentId}>
+                <SharedThumb file={file} kind={mediaKindOfShared(file) ?? 'image'} />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section className="details-section">
+        <h3 className="details-section-title">
+          {media.length > 0 ? 'Documents' : 'Shared files'}
+          {docs.length > 0 ? <span className="details-count">{docs.length}</span> : null}
+          {docs.length > SHOWN && !all ? (
+            <button type="button" className="details-more" onClick={() => setAll(true)}>
+              See all
+            </button>
+          ) : null}
+        </h3>
+
+        {problem !== undefined ? (
+          <p className="details-empty" role="alert">
+            {problem}
+          </p>
+        ) : files === undefined ? (
+          <p className="details-empty">Loading…</p>
+        ) : docs.length === 0 ? (
+          <p className="details-empty">
+            {media.length > 0
+              ? 'No documents here yet.'
+              : 'Nothing has been shared here yet.'}
+          </p>
+        ) : (
+          <ul className="shared-files">
+            {(all ? docs : docs.slice(0, SHOWN)).map((file) => (
+              <li key={file.attachmentId}>
+                <SharedFileRow file={file} />
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+    </MediaGalleryProvider>
   );
 }
+
+/**
+ * Which shared files may be drawn rather than listed.
+ *
+ * The same families `mediaKindOf` admits in the thread, and for the same reasons — SVG
+ * absent because it is a document that can carry script. It cannot simply CALL
+ * `mediaKindOf`: that takes an `AttachmentView` and checks `state === 'BOUND'`, which the
+ * shared-files query has already done in SQL.
+ */
+function mediaKindOfShared(file: SharedFile): 'image' | 'video' | undefined {
+  const type = file.contentType;
+  if (type === undefined) return undefined;
+  if (/^image\/(png|jpeg|gif|webp|avif)$/.test(type)) return 'image';
+  if (/^video\/(mp4|webm|quicktime)$/.test(type)) return 'video';
+  return undefined;
+}
+
+/**
+ * One square in the media grid, which asks for its grant when it scrolls into view.
+ *
+ * The same rule as everywhere else: §28.4's ledger says "this was shown to them", so a
+ * panel that pre-fetched fifty thumbnails would write fifty entries for somebody who
+ * opened an info panel.
+ */
+function SharedThumb({
+  file,
+  kind,
+}: {
+  readonly file: SharedFile;
+  readonly kind: 'image' | 'video';
+}): React.JSX.Element {
+  const gallery = useGallery();
+  const holder = useRef<HTMLButtonElement>(null);
+  const url = gallery?.urlFor(file.attachmentId);
+
+  useEffect(() => {
+    const element = holder.current;
+    if (element === null || url !== undefined || gallery === undefined) return;
+    const watcher = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((entry) => entry.isIntersecting)) return;
+        watcher.disconnect();
+        void gallery.request(file.attachmentId);
+      },
+      { rootMargin: '120px' },
+    );
+    watcher.observe(element);
+    return () => watcher.disconnect();
+  }, [file.attachmentId, url, gallery]);
+
+  return (
+    <button
+      type="button"
+      ref={holder}
+      className="shared-thumb"
+      onClick={() => gallery?.open(file.attachmentId)}
+      title={file.filename}
+      aria-label={`Open ${file.filename}`}
+    >
+      {url === undefined ? (
+        <span className="shared-thumb-blank" aria-hidden="true" />
+      ) : kind === 'image' ? (
+        <img src={url} alt="" loading="lazy" />
+      ) : (
+        <video src={url} preload="metadata" muted playsInline />
+      )}
+      {kind === 'video' ? (
+        <span className="shared-thumb-play" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="13" height="13" focusable="false">
+            <path d="M8.5 6.2 17 12l-8.5 5.8V6.2Z" fill="currentColor" />
+          </svg>
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+/** Nine squares is three rows of the grid, which is what the column holds before it
+    pushes everything below it off a laptop. */
+const MEDIA_SHOWN = 9;
 
 /** The reference shows two rows and a "See all"; four is what this column holds. */
 const SHOWN = 4;

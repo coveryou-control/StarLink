@@ -34,6 +34,7 @@ import {
 } from '../../../components/conversation-info';
 import { ConversationSearch } from '../../../components/conversation-search';
 import { GroupGlyph } from '../../../components/group-glyph';
+import { GroupIdentity } from '../../../components/group-identity';
 import { PinnedBar } from '../../../components/pinned-bar';
 import { ForwardDialog } from '../../../components/forward-dialog';
 import { MessageInfoPanel } from '../../../components/message-info-panel';
@@ -1458,6 +1459,29 @@ export default function ThreadPage(): ReactNode {
 
         <div className="details-body">
         <div className="details-identity">
+        {/*
+          A group's picture and name carry their own controls; everything else does not.
+
+          `GroupIdentity` wraps the avatar to hang a camera off its corner and renders the
+          name with a pencil after it. A one-to-one is named after a person and a channel
+          is renamed from its own settings, so neither takes it — and an announcement has
+          no name anybody may change at all.
+        */}
+        {isGroup ? (
+          <GroupIdentity
+            conversationId={conversationId}
+            title={activeConversation !== undefined ? conversationLabel(activeConversation) : 'Group'}
+            onChanged={() => {
+              void refetch();
+              refreshConversations();
+            }}
+          >
+            <span className="chat-avatar group" aria-hidden="true">
+              <GroupGlyph />
+            </span>
+          </GroupIdentity>
+        ) : (
+        <>
           <span
             className={`chat-avatar${isChannel ? ' channel' : isGroup ? ' group' : ''}`}
             aria-hidden="true"
@@ -1493,6 +1517,8 @@ export default function ThreadPage(): ReactNode {
               ? conversationLabel(activeConversation)
               : 'Conversation'}
           </span>
+        </>
+        )}
           {/*
             BR-23 / D-15 in one line: an internal conversation has no case, no SLA, no queue
             and no routing, so there is nothing else true to say about it here. Saying what

@@ -92,7 +92,7 @@ export function MediaGalleryProvider({
    * strip that never fills in.
    */
   const cache = useRef(new Map<string, string>());
-  const [, setVersion] = useState(0);
+  const [version, setVersion] = useState(0);
   /** In-flight requests, so two thumbnails asking at once make one audited grant. */
   const pending = useRef(new Map<string, Promise<string | undefined>>());
 
@@ -132,9 +132,20 @@ export function MediaGalleryProvider({
     return task;
   }, []);
 
+  /*
+     `version` is in the deps, and leaving it out was a real bug rather than a tidy-up.
+
+     The callbacks are stable, so a value memoised on them alone never changes — and a
+     context whose value never changes never re-renders its consumers. The grants arrived
+     (measured: six requests, all 200) and every thumbnail stayed a grey square, because
+     `urlFor` is a function reading a ref and nothing told anybody to call it again. The
+     viewer's own strip worked throughout, which is what made it confusing: `MediaViewer`
+     is rendered BY this component, so the provider's own re-render reached it, while
+     `children` — passed in as an element from above — was bailed out of.
+  */
   const value = useMemo<Gallery>(
     () => ({ open: setOpenId, publish, urlFor, request }),
-    [publish, urlFor, request],
+    [publish, urlFor, request, version],
   );
 
   const index = items.findIndex((item) => item.attachmentId === openId);

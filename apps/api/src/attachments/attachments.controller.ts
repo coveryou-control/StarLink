@@ -303,8 +303,12 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
     if (!allowed) return refuse();
 
     const result = await this.pool.query(
+      /* `sniffed_mime`, not `declared_mime`: the panel draws pictures from this list, and
+         deciding how to render bytes from what the uploader CLAIMED they were is how an
+         uploader chooses what every recipient's browser does with their file. It is the
+         same rule `mediaKindOf` follows in the thread. */
       `SELECT a.attachment_id, a.original_filename, a.declared_bytes, a.created_at,
-              p.display_name AS uploaded_by
+              a.sniffed_mime, p.display_name AS uploaded_by
          FROM conversation.attachments a
          LEFT JOIN identity.principals p ON p.principal_id = a.uploader_id
         WHERE a.conversation_id = $1
@@ -321,6 +325,7 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
         filename: row.original_filename ?? 'Attachment',
         declaredBytes: Number(row.declared_bytes),
         sharedAt: (row.created_at as Date).toISOString(),
+        ...(row.sniffed_mime !== null ? { contentType: row.sniffed_mime as string } : {}),
         ...(row.uploaded_by !== null ? { uploadedBy: row.uploaded_by as string } : {}),
       })),
     };

@@ -43,6 +43,7 @@ const ACCEPT = AVATAR_CONTENT_TYPES.join(',');
 
 export function AvatarPicker({
   label,
+  variant,
   hasPicture,
   onChosen,
   onRemove,
@@ -52,10 +53,19 @@ export function AvatarPicker({
   /** Called with re-encoded PNG bytes, base64, ready for the body. */
   readonly onChosen: (base64: string) => Promise<void>;
   readonly onRemove?: (() => Promise<void>) | undefined;
+  /**
+   * `corner` is a camera on the edge of the avatar; the default is the labelled block.
+   *
+   * Both exist because both are right somewhere. A group's picture is edited from the
+   * panel that shows it, where the circle is right there to hang a control off. The
+   * settings form has no such anchor and wants a named button.
+   */
+  readonly variant?: 'block' | 'corner';
 }): ReactNode {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | undefined>();
+  const compact = variant === 'corner';
 
   const handle = async (file: File): Promise<void> => {
     setProblem(undefined);
@@ -80,19 +90,73 @@ export function AvatarPicker({
     }
   };
 
+  const input = (
+    <input
+      ref={inputRef}
+      type="file"
+      accept={ACCEPT}
+      className="sr-only"
+      aria-label={label}
+      onChange={(event) => {
+        const file = event.target.files?.[0];
+        if (file !== undefined) void handle(file);
+      }}
+    />
+  );
+
+  /*
+     A camera on the corner of the picture it changes.
+
+     The full form below is a labelled button, a Remove beside it and a paragraph about
+     how the file is stored — three rows of chrome under a group's avatar, saying things
+     nobody reads twice. On the corner of the circle it is the affordance every product
+     puts there, it needs no label to be understood, and it is beside the thing it edits
+     rather than below a heading.
+
+     The explanation is not lost, it is moved to where an explanation belongs: the
+     control's title and accessible name. Somebody who wants to know what happens to their
+     file can find out; somebody who does not is no longer reading it every time they open
+     the panel.
+  */
+  if (compact) {
+    return (
+      <span className="avatar-edit">
+        {input}
+        <button
+          type="button"
+          className="avatar-edit-button"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+          aria-label={
+            busy
+              ? 'Working…'
+              : `${hasPicture ? 'Change' : 'Add'} the picture. Stored as a 256px square; location data and anything else hidden in the file is discarded.`
+          }
+          title={hasPicture ? 'Change picture' : 'Add a picture'}
+        >
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+            <path
+              d="M4.5 8.5h3l1.4-2h6.2l1.4 2h3v10h-15v-10Z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+            />
+            <circle cx="12" cy="13" r="3.1" fill="none" stroke="currentColor" strokeWidth="1.8" />
+          </svg>
+        </button>
+        {problem !== undefined ? (
+          <span className="sr-only" role="alert">
+            {problem}
+          </span>
+        ) : null}
+      </span>
+    );
+  }
+
   return (
     <div className="avatar-picker">
-      <input
-        ref={inputRef}
-        type="file"
-        accept={ACCEPT}
-        className="sr-only"
-        aria-label={label}
-        onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file !== undefined) void handle(file);
-        }}
-      />
+      {input}
 
       <button type="button" disabled={busy} onClick={() => inputRef.current?.click()}>
         {busy ? 'Working…' : hasPicture ? 'Change picture' : 'Upload a picture'}

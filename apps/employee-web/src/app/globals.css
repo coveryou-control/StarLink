@@ -10430,6 +10430,185 @@ input.signin-control {
   padding: 2px var(--space-3) 7px;
 }
 
+/* ============================================================ group info: picture and name ===
+
+   Both controls sit ON the thing they change, which is the whole point of moving them.
+   They were a labelled button, a Remove and a paragraph three sections down the panel.
+   ============================================================================================ */
+
+/* The circle plus whatever hangs off it. The avatar keeps its own size; this only gives
+   the camera something to be positioned against. */
+.details-avatar-slot {
+  position: relative;
+  display: inline-flex;
+}
+
+.avatar-edit {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: inline-flex;
+}
+
+/*
+   The camera, on the corner.
+
+   A disc in the accent rather than a neutral one: it is the only editable thing in the
+   identity block, and on a photograph a grey button on a grey circle disappears. The ring
+   in the panel's own surface colour is what separates it from whatever the picture behind
+   it happens to be — the same trick a presence dot uses.
+*/
+.avatar-edit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--surface);
+  color: #fff;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.avatar-edit-button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+/*
+   The pencil, at the end of the name.
+
+   Inline with the text rather than on a row of its own, so the name stays one object. It
+   is quiet until the name is hovered or it is focused — an edit control beside a title is
+   a thing you look for when you want it, not a thing that should compete with the title
+   for attention every time the panel opens.
+*/
+.details-identity-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.details-name-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-subtle);
+  opacity: 0.65;
+  transition:
+    color var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+
+.details-identity-name:hover .details-name-edit,
+.details-name-edit:focus-visible {
+  color: var(--text);
+  opacity: 1;
+}
+
+.details-rename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 280px;
+}
+
+.details-rename input {
+  flex: 1;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+}
+
+.details-rename button {
+  flex: none;
+  height: 34px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--text-base);
+  font-weight: 600;
+}
+
+.details-rename button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================================ shared media, as a grid ===
+
+   A conversation's photographs were a column of rows reading `PNG · 853 KB`, which is a
+   picture you have to open to identify. Three to a row, square, cropped to fill — a
+   contact sheet, which is what a person scans when they are looking for "that screenshot".
+   Documents keep the list: a filename IS the useful fact about a contract.
+   ======================================================================================== */
+
+.shared-media {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.shared-thumb {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--surface-sunken, var(--surface-raised));
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.shared-thumb img,
+.shared-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.shared-thumb-blank {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.shared-thumb-play {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 50%;
+  background: rgb(16 16 20 / 68%);
+  color: #fff;
+}
+
 /* ------------------------------------------------------- the picture, before it is sent ---
 
    A full-window panel, and the reason it is not a small popover over the composer is the

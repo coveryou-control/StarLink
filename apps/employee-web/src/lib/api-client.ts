@@ -279,6 +279,13 @@ export interface SharedFile {
   readonly filename: string;
   readonly declaredBytes: number;
   readonly sharedAt: string;
+  /**
+   * The SNIFFED type, so the info panel can tell a picture from a contract.
+   *
+   * Absent on anything the scanner did not report one for, which is the fail-closed
+   * answer: no type means it is listed as a file rather than drawn as an image.
+   */
+  readonly contentType?: string;
   readonly uploadedBy?: string;
 }
 

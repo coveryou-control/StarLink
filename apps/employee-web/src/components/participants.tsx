@@ -31,7 +31,6 @@ import { useRefreshConversations } from './active-conversation';
 import { initialsFor } from './conversation-naming';
 import { PresenceDot, useOnlineSet } from './presence';
 import { AvatarImage } from './avatar-image';
-import { AvatarPicker } from './avatar-picker';
 import { useActiveConversation } from './active-conversation';
 import { useSession } from './session-provider';
 import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
@@ -85,7 +84,6 @@ export function Participants({
   const someoneElseIsAdmin = members.some((m) => m.role === 'CREATOR');
   const listIsComplete = (active?.participantCount ?? 0) <= members.length + 1;
   const canRemoveMembers = !isGroup || (listIsComplete && !someoneElseIsAdmin);
-  const currentTitle = active?.title ?? '';
 
   /**
    * How many members hold a realtime lease.
@@ -98,45 +96,15 @@ export function Participants({
   const online = useOnlineSet();
   const onlineCount = members.filter((m) => online.has(m.principalId)).length;
 
-  const [title, setTitle] = useState(currentTitle);
-  const [renaming, setRenaming] = useState(false);
-  /** Whether the name is being edited. Closed by default — see the pencil below. */
-  const [editingName, setEditingName] = useState(false);
-  /* Set once a picture has been uploaded in this session, so the button says "Change"
-     rather than "Upload" afterwards. The panel does not otherwise know whether a group has
-     one — the image either loads or 404s, and asking would be a request per panel open. */
-  const [groupPictureAt, setGroupPictureAt] = useState<string | undefined>();
+  /*
+     The rename and the picture upload moved out with their controls.
 
-  /**
-   * The field follows the conversation when it changes underneath — somebody else renaming
-   * the group, or the reader opening a different one. Guarded on the field being untouched
-   * so it cannot overwrite what is being typed.
-   */
-  useEffect(() => {
-    setTitle(currentTitle);
-  }, [currentTitle, active?.conversationId]);
-
-  const rename = async (): Promise<void> => {
-    const next = title.trim();
-    if (next === '' || next === currentTitle) return;
-    setRenaming(true);
-    setMessage(undefined);
-    try {
-      await api.renameConversation(conversationId, next);
-      setMessage(`Renamed to “${next}”.`);
-      // The header and the sidebar are named from the SUMMARY, which only the shell
-      // reloads — without this the group keeps its old name until the next load.
-      onChanged();
-    } catch (cause) {
-      setMessage(
-        cause instanceof ApiError && cause.isRefusal
-          ? 'You cannot rename this conversation.'
-          : 'That did not go through.',
-      );
-    } finally {
-      setRenaming(false);
-    }
-  };
+     They lived here holding four pieces of state — a draft title, a saving flag, an
+     editing flag and an uploaded-at stamp — for two controls three sections above this
+     component's own content. `group-identity.tsx` owns them now, beside the avatar and the
+     name they change. Leaving the state here while the controls moved would have been a
+     component reaching across the panel to render into another one.
+  */
 
   /**
    * The directory, searched as you type.
@@ -284,84 +252,17 @@ export function Participants({
         who opened it by accident expects.
       */}
       {/*
-        The group's picture.
+        The group's picture and its name are edited from the IDENTITY BLOCK now.
 
-        Anybody who may speak here may change it — the same rule as pinning, and for the
-        same reason: it is a change to what every participant sees rather than to your own
-        view. Removing it is deliberately absent; the default multi-person glyph is what a
-        group has before anybody sets one, and "remove" would need a second endpoint to
-        express something a new upload already expresses.
+        Both used to live here: a labelled "Upload a picture" button with a paragraph under
+        it about 256px squares, and a name row with a pencil — three sections down the
+        panel from the avatar and the title they change. A control belongs beside the thing
+        it edits, so the camera is on the corner of the circle and the pencil is at the end
+        of the name, where the panel already draws both. See `details-identity` in
+        `conversations/[id]/page.tsx`.
+
+        What stays here is membership, which is what this component is for.
       */}
-      {isGroup ? (
-        <AvatarPicker
-          label="Choose a picture for this group"
-          hasPicture={groupPictureAt !== undefined}
-          onChosen={async (base64) => {
-            const saved = await api.setConversationAvatar(conversationId, base64);
-            setGroupPictureAt(saved.updatedAt);
-            onChanged();
-          }}
-        />
-      ) : null}
-
-      {isGroup ? (
-        editingName ? (
-          <form
-            className="rename-group"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void rename().then(() => setEditingName(false));
-            }}
-          >
-            <label>
-              <span className="sr-only">Group name</span>
-              <input
-                autoFocus
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Escape') return;
-                  setTitle(currentTitle);
-                  setEditingName(false);
-                }}
-                maxLength={120}
-                placeholder="Name this group"
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={renaming || title.trim() === '' || title.trim() === currentTitle}
-            >
-              {renaming ? 'Saving…' : 'Save'}
-            </button>
-          </form>
-        ) : (
-          <div className="group-name-row">
-            <span className="group-name">{currentTitle}</span>
-            <button
-              type="button"
-              className="group-name-edit"
-              onClick={() => {
-                setTitle(currentTitle);
-                setEditingName(true);
-              }}
-              aria-label="Edit group name"
-              title="Edit group name"
-            >
-              <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
-                <path
-                  d="M4 20h4L19 9l-4-4L4 16v4Zm12.5-16.5 4 4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </button>
-          </div>
-        )
-      ) : null}
 
       {members.length > 0 ? (
         <div className="member-list">
