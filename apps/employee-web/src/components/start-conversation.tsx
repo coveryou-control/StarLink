@@ -653,8 +653,31 @@ export function StartConversation({
             */}
             {mode === 'group' ? (
               <div className="start-panel-foot">
-                <span className="muted">
-                  {chosen.length === 0 ? 'Choose at least two people' : `${chosen.length} selected`}
+                {/*
+                  The foot says what is STOPPING you, not what you have done.
+
+                  It used to read "2 selected" while the button beside it was disabled
+                  because the group had no name — so the sentence said "ready" and the
+                  control said "no", and the person was left pressing a dead button with the
+                  screen apparently agreeing with them. Reported from use on 2026-09-10 as
+                  "not able to click on create group? why so?", which is exactly the question
+                  the foot was failing to answer.
+
+                  The name field was moved to the top of the panel once already, for this
+                  same defect, with a note saying it made the requirement visible before it
+                  could refuse anything. Being visible and being STATED are not the same
+                  thing: an empty box does not say it is mandatory.
+
+                  So the blocking condition is named, in the order it blocks, and only the
+                  ready state reports a count — because at that point the count is the only
+                  thing left worth saying.
+                */}
+                <span className={canCreateGroup ? 'muted' : 'start-blocked'}>
+                  {chosen.length < 2
+                    ? 'Choose at least two people'
+                    : title.trim() === ''
+                      ? 'Name this group to create it'
+                      : `${chosen.length} selected`}
                 </span>
                 <button
                   type="button"

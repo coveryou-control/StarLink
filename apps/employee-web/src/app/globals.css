@@ -5978,8 +5978,8 @@ input[type='search']::-webkit-search-cancel-button {
   transform: translateX(18px);
 }
 
-/* `.settings-rows` has no gap of its own — its children carry hairlines — so a note that
-   follows one needs its own air. */
+/* `.settings-rows` has no gap of its own - its interactive children carry hairlines and the
+   fact rows carry padding - so a note that follows either needs its own air. */
 .settings-rows > .settings-note {
   margin-top: 16px;
 }
@@ -6020,14 +6020,25 @@ input[type='search']::-webkit-search-cancel-button {
   font-size: 13px;
 }
 
+/*
+   Facts from the directory: a label, and what it says. No rule between them.
+
+   They carried a hairline each, which is the right treatment for the settings rows further
+   down - those are CONTROLS, and a line says where one target ends and the next begins. A
+   definition list has no targets. Five rules through six short pairs turned a paragraph of
+   facts into a table with no columns, and the reader was being helped to separate things
+   nobody was going to confuse.
+
+   Asked for on 2026-09-10. The pairing does the work instead: a muted label on the left, the
+   value in the ink at the right, and enough air between rows to read them as a list.
+*/
 .settings-row {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-3);
   margin: 0;
-  padding: 16px 0;
-  border-bottom: 1px solid var(--border);
+  padding: 9px 0;
   font-size: 14px;
   color: var(--text-muted);
 }
@@ -10705,6 +10716,19 @@ input.signin-control {
   padding-top: var(--space-3);
   border-top: 1px solid var(--border);
   font-size: 13px;
+}
+
+/*
+   The sentence that says why the button is not available.
+
+   Not `--critical-label`: nothing has gone wrong, and a red line under a form somebody is
+   halfway through filling in reads as a rejection of what they have already done. This is
+   the ordinary ink, which is enough to be read - the point was never emphasis, it was that
+   the foot used to say "2 selected" while the button said no.
+*/
+.start-blocked {
+  color: var(--text-secondary);
+  font-weight: 550;
 }
 
 .start-panel-foot button.primary {
