@@ -121,16 +121,34 @@ export function Composer({
    * outlives its preview is a leak that nothing reports.
    */
   const previewFile = useCallback((file: File): void => {
+    /*
+       Every attachment gets the panel now, not only the ones that can be drawn.
+
+       It opened for a picture and a video, on the reasoning that a document is its
+       filename and a chip already says everything a preview could. Half of that is still
+       true — there is no honest thumbnail for a PDF in a browser, and the panel says so
+       rather than inventing one. The other half was wrong: a document could not be
+       CAPTIONED. It went as a bare chip with the message text beside it, and "the signed
+       copy" had nowhere to attach itself to the file it describes.
+
+       A blob URL only for what will read one. A document's bytes are already going up
+       through the ordinary pipeline and nothing in the panel renders them, so creating
+       one would be a leak with no reader.
+    */
     const kind = file.type.startsWith('image/')
       ? 'image'
       : file.type.startsWith('video/')
         ? 'video'
-        : undefined;
+        : file.type.startsWith('audio/')
+          ? /* A voice note has its own review, with a scrubber and a waveform - a second
+               panel over it would be two surfaces asking the same question. */
+            undefined
+          : 'file';
     if (kind === undefined) return;
     setPreview((current) => {
-      if (current !== undefined) URL.revokeObjectURL(current.url);
+      if (current !== undefined && current.url !== '') URL.revokeObjectURL(current.url);
       return {
-        url: URL.createObjectURL(file),
+        url: kind === 'file' ? '' : URL.createObjectURL(file),
         kind,
         filename: file.name,
         bytes: file.size,
@@ -141,7 +159,8 @@ export function Composer({
 
   const closePreview = useCallback((): void => {
     setPreview((current) => {
-      if (current !== undefined) URL.revokeObjectURL(current.url);
+      /* A document has no object URL to revoke — see `previewFile`. */
+      if (current !== undefined && current.url !== '') URL.revokeObjectURL(current.url);
       return undefined;
     });
   }, []);

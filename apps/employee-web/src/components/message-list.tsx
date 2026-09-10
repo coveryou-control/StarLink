@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { api, ApiError, type AttachmentView } from '../lib/api-client';
-import { extensionOf, formatBytes } from './attachment-picker';
+import { documentFamily, extensionOf, formatBytes } from './attachment-picker';
 import { AttachmentMedia, mediaKindOf } from './attachment-media';
 import { MediaGalleryProvider, type GalleryItem } from './media-gallery';
 import { VoiceNote, isVoiceNote } from './voice-note';
@@ -1299,12 +1299,65 @@ function AttachmentLink({ file }: { readonly file: AttachmentView }): ReactNode 
         onClick={() => void open()}
         disabled={busy}
       >
-        <span className="attachment-icon" aria-hidden="true">
-          {extensionOf(file.filename)}
+        {/*
+          A page with the extension ON it, tinted by family.
+
+          It was a rounded square carrying three letters, which is legible and is not
+          recognisable: a column of them is read rather than glanced at. The sheet is the
+          shape everything else calls a document, the fold is what makes it one at 34px,
+          and the colour says which kind before the name is read at all.
+        */}
+        <span
+          className={`attachment-icon is-${documentFamily(file.filename)}`}
+          aria-hidden="true"
+        >
+          <svg viewBox="0 0 32 40" width="30" height="34" focusable="false">
+            <path
+              d="M4 3.4A2.4 2.4 0 0 1 6.4 1h12.2L28 10.4v26.2a2.4 2.4 0 0 1-2.4 2.4H6.4A2.4 2.4 0 0 1 4 36.6Z"
+              fill="currentColor"
+              opacity="0.16"
+            />
+            <path
+              d="M4 3.4A2.4 2.4 0 0 1 6.4 1h12.2L28 10.4v26.2a2.4 2.4 0 0 1-2.4 2.4H6.4A2.4 2.4 0 0 1 4 36.6Z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+            />
+            {/* The folded corner, which is what reads as "document" rather than "card". */}
+            <path
+              d="M18.6 1v7a2.4 2.4 0 0 0 2.4 2.4h7"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+            />
+          </svg>
+          <span className="attachment-ext">{extensionOf(file.filename)}</span>
         </span>
         <span className="attachment-text">
           <span className="attachment-name">{file.filename}</span>
-          <span className="attachment-meta">{formatBytes(file.declaredBytes)}</span>
+          {/*
+            The kind AND the size. It said only the size, so two files with the same
+            name and different formats were one row repeated — and "4 MB" alone tells you
+            nothing about whether the thing will open in front of you or land in Downloads.
+          */}
+          <span className="attachment-meta">
+            {extensionOf(file.filename)} · {formatBytes(file.declaredBytes)}
+          </span>
+        </span>
+        {/* What pressing it does. The card navigates to a `Content-Disposition:
+            attachment` URL — see `media-viewer.tsx` for why that header stays — so the
+            honest glyph is a download, not an "open". */}
+        <span className="attachment-go" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="17" height="17" focusable="false">
+            <path
+              d="M12 4v11m0 0 4.2-4.2M12 15l-4.2-4.2M4.5 18.5h15"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </span>
       </button>
       {problem !== undefined ? <span role="alert"> {problem}</span> : null}

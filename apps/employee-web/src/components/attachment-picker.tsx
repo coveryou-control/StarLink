@@ -66,6 +66,40 @@ import { uploadAttachment, type StagedAttachment } from '../lib/upload-attachmen
 */
 export type { StagedAttachment } from '../lib/upload-attachment';
 
+/**
+ * Which FAMILY of document a file belongs to, for the card that shows it.
+ *
+ * A PDF, a spreadsheet and a slide deck are three different things to somebody scanning a
+ * conversation for one of them, and a column of identical grey rectangles reading
+ * `PDF · 23 kB`, `XLSX · 4 MB`, `DOCX · 90 kB` makes that a reading task rather than a
+ * glance. Colour is what turns it back into a glance, and it is the same argument the
+ * attach menu's three tinted discs already make.
+ *
+ * Decided from the EXTENSION rather than the sniffed type, and that is a deliberate
+ * exception to the rule the thread follows. The sniffed type decides how bytes are
+ * INTERPRETED — whether they are handed to an `<img>`, which is an execution decision —
+ * and there the uploader must not get a vote. This decides what colour a rectangle is.
+ * The worst an uploader achieves by lying is a blue icon on a spreadsheet, and the
+ * extension is what a person reads in the filename anyway.
+ */
+export type DocumentFamily = 'pdf' | 'doc' | 'sheet' | 'slides' | 'text' | 'archive' | 'file';
+
+const FAMILIES: readonly { readonly family: DocumentFamily; readonly ext: readonly string[] }[] = [
+  { family: 'pdf', ext: ['pdf'] },
+  { family: 'doc', ext: ['doc', 'docx', 'odt', 'rtf', 'pages'] },
+  { family: 'sheet', ext: ['xls', 'xlsx', 'ods', 'csv', 'numbers'] },
+  { family: 'slides', ext: ['ppt', 'pptx', 'odp', 'key'] },
+  { family: 'text', ext: ['txt', 'md', 'log', 'json', 'xml', 'yml', 'yaml'] },
+  { family: 'archive', ext: ['zip', 'rar', '7z', 'tar', 'gz'] },
+];
+
+export function documentFamily(filename: string): DocumentFamily {
+  const dot = filename.lastIndexOf('.');
+  if (dot === -1) return 'file';
+  const ext = filename.slice(dot + 1).toLowerCase();
+  return FAMILIES.find((entry) => entry.ext.includes(ext))?.family ?? 'file';
+}
+
 /** How long to wait for a verdict before saying so rather than spinning for ever. */
 const SCAN_DEADLINE_MS = 60_000;
 /**

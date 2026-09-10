@@ -34,10 +34,17 @@
  */
 import { useEffect, useRef } from 'react';
 
+import { documentFamily, extensionOf } from './attachment-picker';
+
 export interface MediaPreview {
-  /** The object URL. Created by the composer, revoked by the composer. */
+  /**
+   * The object URL. Created by the composer, revoked by the composer.
+   *
+   * Empty for a document: there is nothing to render it into, and creating a blob URL for
+   * bytes nothing will read would be a leak with no reader.
+   */
   readonly url: string;
-  readonly kind: 'image' | 'video';
+  readonly kind: 'image' | 'video' | 'file';
   readonly filename: string;
   readonly bytes: number;
   /** Known once the grant comes back; until then the file cannot be cancelled by id. */
@@ -152,11 +159,55 @@ export function MediaPreviewOverlay({
         <div className="media-preview-stage">
           {preview.kind === 'image' ? (
             <img src={preview.url} alt={preview.filename} />
-          ) : (
+          ) : preview.kind === 'video' ? (
             /* Controls, because a video's first frame is often black and "is this the
                right clip" cannot be answered by a still. No autoplay: a recording that
                starts talking the moment it is picked is startling in an office. */
             <video src={preview.url} controls preload="metadata" />
+          ) : (
+            /*
+               A document, which cannot be previewed and says so.
+
+               There is no honest thumbnail for a PDF or a spreadsheet in a browser — the
+               first page needs a renderer this product does not ship, and a generic icon
+               pretending to be a preview is worse than the sentence. What the panel CAN
+               confirm is the thing somebody actually needs before sending: that this is
+               the right file, by name, kind and size.
+
+               It is still the same panel, because the act is the same act. A document
+               gets a caption too, which is the other half of why it is here — that was
+               previously impossible: a document went as a bare chip with the message text
+               beside it, and there was nowhere to write "the signed copy" against the
+               file it describes.
+            */
+            <div className="media-preview-doc">
+              <span className={`media-preview-doc-icon is-${documentFamily(preview.filename)}`} aria-hidden="true">
+                <svg viewBox="0 0 32 40" width="64" height="80" focusable="false">
+                  <path
+                    d="M4 3.4A2.4 2.4 0 0 1 6.4 1h12.2L28 10.4v26.2a2.4 2.4 0 0 1-2.4 2.4H6.4A2.4 2.4 0 0 1 4 36.6Z"
+                    fill="currentColor"
+                    opacity="0.16"
+                  />
+                  <path
+                    d="M4 3.4A2.4 2.4 0 0 1 6.4 1h12.2L28 10.4v26.2a2.4 2.4 0 0 1-2.4 2.4H6.4A2.4 2.4 0 0 1 4 36.6Z"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  />
+                  <path
+                    d="M18.6 1v7a2.4 2.4 0 0 0 2.4 2.4h7"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  />
+                </svg>
+              </span>
+              <p className="media-preview-doc-name">{preview.filename}</p>
+              <p className="media-preview-doc-meta">
+                {extensionOf(preview.filename)} · {humanBytes(preview.bytes)}
+              </p>
+              <p className="media-preview-doc-note">No preview available</p>
+            </div>
           )}
         </div>
 
