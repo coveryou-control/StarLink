@@ -6611,10 +6611,69 @@ input[type='search']::-webkit-search-cancel-button {
      a label at any weight this size — a property of the brand colour, not of this screen,
      and the reason the accent is a signal rather than a surface. `#cf4429` is the same hue
      deepened to 4.65:1 and still unmistakably coral.
-   - "Forgot password?" is `#c8402b` at 4.97:1, for the same reason.
+   - "Forgot password?" WAS `#c8402b` at 4.97:1. It is the muted ink now: measured against
+     the rest of the panel rather than against the background alone, a carefully-contrasted
+     red is still the third red on a screen with one action and one error. See
+     `.signin-label-row .signin-quiet`.
 
    The mark and the graphic keep CY Orange at full strength: neither carries text.
    ===================================================================================== */
+
+/*
+   The sign-in screen in the dark, which until now did not exist.
+
+   Every `--si-*` above is a hardcoded light value, defined once and never redefined - so a
+   person whose machine is set to dark opened StarLink to a white page, signed in, and
+   watched the product turn dark underneath them. Measured before and after: light and dark
+   rendered byte-identical.
+
+   ## Two blocks, three states
+
+   The viewer has three: an explicit choice stamps `data-theme` on the root, and the default
+   "system" setting stamps nothing. So the media query is guarded with
+   `:not([data-theme='light'])` - an explicit LIGHT choice must beat a dark OS - and the
+   stamped selector repeats the values so an explicit DARK choice beats a light OS. This is
+   the pattern `theme.ts` sets up and the rest of the sheet follows.
+
+   ## Every value is measured
+
+   Against the card at #1b1a26 unless said otherwise, AA being 4.5:1 for text at these
+   sizes:
+
+     ink      #ecebf3   14.52:1        muted   #aba7c0   7.38:1
+     subtle   #9d99b4    6.26:1        field ink on #242232   13.14:1
+
+   ## The action colour does NOT change
+
+   `#cf4429` stays, and that is the measurement rather than laziness: white on it is 4.65:1,
+   and every lighter coral fails - #d94c30 is 4.18, #e2543a is 3.77, CY Orange itself is
+   3.30. The button is a filled disc of one colour with a white label, so the ground behind
+   it is irrelevant and the only question is whether the label reads. One action colour,
+   both themes.
+*/
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .signin {
+    --si-ink: #ecebf3;
+    --si-muted: #aba7c0;
+    --si-subtle: #9d99b4;
+    --si-line: rgb(255 255 255 / 12%);
+    --si-line-strong: rgb(255 255 255 / 26%);
+    --si-card: rgb(27 26 38 / 94%);
+    --si-field: #242232;
+    --si-page: #0f0e16;
+  }
+}
+
+:root[data-theme='dark'] .signin {
+  --si-ink: #ecebf3;
+  --si-muted: #aba7c0;
+  --si-subtle: #9d99b4;
+  --si-line: rgb(255 255 255 / 12%);
+  --si-line-strong: rgb(255 255 255 / 26%);
+  --si-card: rgb(27 26 38 / 94%);
+  --si-field: #242232;
+  --si-page: #0f0e16;
+}
 
 .signin {
   --si-ink: #1c1a2e;
@@ -6633,7 +6692,6 @@ input[type='search']::-webkit-search-cancel-button {
   */
   --si-card-w: 376px;
   --si-action: #cf4429;
-  --si-link: #c8402b;
 
   position: relative;
   /* Its own stacking context, so the canvas at z-index 0 cannot slide behind the page's
@@ -6971,6 +7029,14 @@ input.signin-control {
    is visible or hidden unless it is carefully crossed — and the word is both the state and
    the action. `aria-pressed` carries it for a screen reader either way.
 */
+/*
+   "Forgot password?" and "Show" are QUIET, and quiet is not red.
+
+   `--si-link` used to paint these, which is why a help link and a refusal arrived in the
+   same colour. Neither of these is an error and neither is the primary action; the muted
+   ink is what they are. Measured 6.33:1 on the card in light and 7.38:1 in dark - both
+   past AA, and neither competing with the one coral thing on the panel.
+*/
 .signin-quiet {
   flex: none;
   padding: 0;
@@ -6988,12 +7054,21 @@ input.signin-control {
   color: var(--si-ink);
 }
 
-/* "Forgot password?" carries the action's hue, because it is the only other thing on the
-   card somebody might be looking for. Deepened to 4.97:1 — CY Orange as text is 3.30:1. */
-.signin-label-row .signin-quiet {
-  color: var(--si-link);
-}
+/*
+   "Forgot password?" no longer carries the action's hue.
 
+   It did, on the reasoning that it is the only other thing on the card somebody might be
+   looking for - deepened to 4.97:1, carefully measured, and still the wrong call. Measured
+   against the REST of the panel rather than against the background alone, it was the third
+   red on a screen with one action and one error: the refusal, the link and the button all
+   arrived at rgb(200, 64, 43) / rgb(207, 68, 41), so nothing about the colour told a person
+   which was which.
+
+   It inherits `.signin-quiet` now - the same muted ink as "Show" beside the password, which
+   is the other secondary control on the panel and was always drawn that way. One colour for
+   "this is a small thing you may want", coral reserved for the one action, critical for the
+   one failure.
+*/
 .signin-label-row .signin-quiet:hover,
 .signin-label-row .signin-quiet:focus-visible {
   color: var(--si-ink);
@@ -7070,16 +7145,59 @@ input.signin-control {
 
 /* --------------------------------------------------------------------------- action --- */
 
+/*
+   The refusal, and it is the only CRITICAL thing on this screen.
+
+   It used to be drawn from `--si-action` - the same coral as the button - so the error ink
+   measured rgb(200, 64, 43), "Forgot password?" measured rgb(200, 64, 43), and the Sign in
+   button was filled rgb(207, 68, 41). Three things in one colour, of which only one is a
+   problem and only one is the primary action. A person scanning the panel had no way to
+   tell a refusal from a link.
+
+   `--critical-*` is the design system's own pair. Two things follow from using it rather
+   than a hex chosen here: it is a different red from the brand coral, so the banner stops
+   competing with the button; and it is defined for both themes, which a local colour could
+   not be.
+
+   Radius 11 to match the fields it sits under. It was 10 against their 11, which is the
+   kind of near-miss that reads as sloppiness without anybody being able to name it.
+*/
 .signin-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
   margin: 0;
   padding: 11px 13px;
-  border: 1px solid color-mix(in srgb, var(--si-action) 26%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--si-action) 7%, #ffffff);
-  color: var(--si-link);
+  border: 1px solid color-mix(in srgb, var(--critical-label) 30%, transparent);
+  border-radius: 11px;
+  background: var(--critical-bg);
+  color: var(--critical-label);
   font-size: 12.5px;
   line-height: 1.45;
   font-weight: 500;
+}
+
+/* The glyph never shrinks and never wraps: at two lines of text the flex row would
+   otherwise squeeze it into an oval. */
+.signin-error svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+/*
+   The two fields, while a refusal is on screen.
+
+   BOTH of them, because the server does not say which was wrong and must not - telling
+   somebody that the username exists but the password is wrong is an account enumeration
+   oracle (§27.3). Marking one would be the interface inventing a detail the boundary
+   deliberately withholds.
+
+   A border rather than a fill: the field still has to be readable and re-typed into, and
+   tinting the ground behind a password somebody is about to correct is the least helpful
+   moment to reduce contrast.
+*/
+.signin-control.invalid {
+  border-color: color-mix(in srgb, var(--critical-label) 55%, transparent);
 }
 
 /*

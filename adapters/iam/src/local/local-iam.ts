@@ -122,8 +122,20 @@ export class LocalIamAdapter implements IdentityAuthorizationClient {
      * a domain check — this adapter has no business deciding which domains are the company's,
      * and the credential is what authenticates either way.
      */
-    const at = username.indexOf('@');
-    const identifier = at > 0 ? username.slice(0, at) : username;
+    /* Trimmed first. An address pasted from a mail client or a chat message arrives with
+       whitespace more often than not, and " archit.bali " was refused for it. */
+    const typed = username.trim();
+    const at = typed.indexOf('@');
+    /*
+       Lowercased, because an email address is not case-sensitive to the person typing it.
+
+       `ARCHIT.BALI@CoverYou.co.in` was refused while `archit.bali@coveryou.co.in` worked -
+       measured on 2026-09-10 - and the refusal is the uniform "those details did not match
+       an account", so somebody typing their own address the way they write it in email got
+       told their account did not exist. Capitalising a name is the single most likely way
+       for a person to type it.
+    */
+    const identifier = (at > 0 ? typed.slice(0, at) : typed).toLowerCase();
 
     const rows = await db
       .select({
@@ -132,7 +144,26 @@ export class LocalIamAdapter implements IdentityAuthorizationClient {
         status: schema.principals.status,
       })
       .from(schema.principals)
-      .where(and(eq(schema.principals.username, identifier), eq(schema.principals.kind, 'EMPLOYEE')))
+      /*
+         `lower(username)`, matching the lowercased input above.
+
+         A functional comparison rather than trusting every stored username to be lowercase:
+         the column is UNIQUE and free text, so nothing stops one arriving with a capital,
+         and a case-insensitive match that only works when the stored side happens to be
+         lowercase is a bug waiting for its first user.
+
+         It does not use the unique index. That is acceptable HERE and would not be in the
+         product: this is the `SL_ADAPTER_IAM=local` placeholder over a handful of dev
+         accounts, and HRMS - which owns this question properly - replaces it whole (rule
+         11). If this adapter ever faced a real directory it would want an index on
+         `lower(username)`, and this comment is where that starts.
+      */
+      .where(
+        and(
+          sql`lower(${schema.principals.username}) = ${identifier}`,
+          eq(schema.principals.kind, 'EMPLOYEE'),
+        ),
+      )
       .limit(1);
 
     const principal = rows[0];

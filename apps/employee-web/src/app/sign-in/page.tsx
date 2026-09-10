@@ -146,7 +146,17 @@ export default function SignInPage(): ReactNode {
               draws the surface, so both fields now get their appearance the same way and
               neither can lose that argument alone.
             */}
-            <span className="signin-control signin-control-group">
+            {/*
+              Both fields are marked, not one.
+
+              The server never says WHICH of the two was wrong - §27.3, and deliberately:
+              distinguishing them tells an attacker which usernames exist. So the interface
+              must not pretend to know either. Marking both is the honest rendering of one
+              refusal about a pair.
+            */}
+            <span
+              className={`signin-control signin-control-group${error !== undefined ? ' invalid' : ''}`}
+            >
               <span className="signin-adornment" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="15" height="15" focusable="false">
                   <rect
@@ -172,6 +182,7 @@ export default function SignInPage(): ReactNode {
                 type="text"
                 inputMode="email"
                 autoComplete="username"
+                aria-invalid={error !== undefined}
                 required
                 placeholder="name@coveryou.co.in"
                 value={username}
@@ -211,7 +222,9 @@ export default function SignInPage(): ReactNode {
               </button>
             </div>
 
-            <div className="signin-control signin-control-group">
+            <div
+              className={`signin-control signin-control-group${error !== undefined ? ' invalid' : ''}`}
+            >
               <span className="signin-adornment" aria-hidden="true">
                 <svg viewBox="0 0 24 24" width="15" height="15" focusable="false">
                   <rect
@@ -237,6 +250,7 @@ export default function SignInPage(): ReactNode {
                 id="signin-password"
                 type={showPassword ? 'text' : 'password'}
                 autoComplete="current-password"
+                aria-invalid={error !== undefined}
                 required
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -258,6 +272,30 @@ export default function SignInPage(): ReactNode {
               </button>
             </div>
           </div>
+
+          {/*
+            The refusal, directly under the two fields it is about.
+
+            It used to sit below "Keep me signed in", three rows further down and directly
+            above the button you were about to press again - so the thing that had gone
+            wrong was as far as it could be from the boxes that caused it.
+
+            A BANNER rather than red text, and that is what separates it from the other red
+            on this screen. `--critical-bg` / `--critical-label` are the design system's own
+            critical pair rather than a hex chosen here: the kit already decides what "this
+            failed" looks like, and it decides it for both themes, which a local colour
+            could not.
+          */}
+          {error !== undefined ? (
+            <p role="alert" className="signin-error">
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="1.8" />
+                <path d="M12 7.4v5.3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                <circle cx="12" cy="16.4" r="1.05" fill="currentColor" />
+              </svg>
+              <span>{error}</span>
+            </p>
+          ) : null}
 
           {helpOpen ? (
             <p className="signin-help">
@@ -291,12 +329,6 @@ export default function SignInPage(): ReactNode {
             </span>
             Keep me signed in on this device
           </label>
-
-          {error !== undefined ? (
-            <p role="alert" className="signin-error">
-              {error}
-            </p>
-          ) : null}
 
           <button type="submit" disabled={busy} className="signin-submit">
             {busy ? 'Signing in…' : 'Sign in'}
