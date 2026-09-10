@@ -269,7 +269,26 @@ export function useVoiceRecorder(): VoiceRecorder {
     setElapsed(0);
     setLevels([]);
 
-    if (discardRef.current || blob.size === 0 || durationMs <= 0) return undefined;
+    /*
+       Discarded is silent. EMPTY is not.
+
+       These were one branch, and that is the defect behind "it is not recording
+       anything": a recording that produced no bytes returned `undefined` exactly like a
+       cancelled one, so `voice-composer.tsx` skipped the review and the bar simply
+       vanished. No note, no chip, no message — the person pressed record, spoke, pressed
+       stop, and the product returned to how it had been with nothing to say.
+
+       A microphone that is muted in hardware, held by another application, or feeding
+       silence through a virtual device all land here, and every one of them is worth a
+       sentence.
+    */
+    if (discardRef.current) return undefined;
+    if (blob.size === 0 || durationMs <= 0) {
+      setProblem(
+        'No audio was captured. Check that the right microphone is selected and not muted, then try again.',
+      );
+      return undefined;
+    }
     return { blob, recordedAs, durationMs, levels: captured };
   }, [release]);
 

@@ -190,3 +190,45 @@ describe('what to say when the microphone will not start', () => {
     expect(microphoneProblem(undefined)).toMatch(/could not be started/i);
   });
 });
+
+/**
+ * The messages a person actually gets when recording will not work.
+ *
+ * Added after "the voice note feature is not recording anything" — a report that turned
+ * out to have several distinct causes, only one of which the copy named. The insecure
+ * origin is the one worth pinning: recording requires a secure context, and StarLink
+ * opened over plain http at a LAN address (a laptop's IP, from a phone) fails with a
+ * message about the microphone, which sends somebody to their audio settings instead of
+ * to the address bar.
+ */
+describe('the microphone message names the real cause', () => {
+  const named = (name: string): unknown => Object.assign(new Error('x'), { name });
+
+  it('keeps the specific messages it already had', () => {
+    expect(microphoneProblem(named('NotAllowedError'))).toMatch(/Allow it for this site/);
+    expect(microphoneProblem(named('NotFoundError'))).toMatch(/No microphone was found/);
+    expect(microphoneProblem(named('NotReadableError'))).toMatch(/in use by another application/);
+  });
+
+  it('blames the connection when the page is not secure, whatever the error says', () => {
+    /* This suite runs without a DOM, which is also the shape `microphoneProblem` guards
+       for — it checks `typeof window` before reading it. Standing a minimal `window` up
+       is what lets the browser branch be exercised at all. */
+    const had = 'window' in globalThis;
+    const previous = (globalThis as { window?: unknown }).window;
+    (globalThis as { window?: unknown }).window = { isSecureContext: false };
+    try {
+      expect(microphoneProblem(named('NotSupportedError'))).toMatch(/secure connection/);
+      /* Even an unrecognised error: an insecure origin is the likelier explanation than
+         anything the name could add. */
+      expect(microphoneProblem(named('WhoKnowsError'))).toMatch(/secure connection/);
+    } finally {
+      if (had) (globalThis as { window?: unknown }).window = previous;
+      else delete (globalThis as { window?: unknown }).window;
+    }
+  });
+
+  it('falls back to something true when there is nothing better to say', () => {
+    expect(microphoneProblem(named('WhoKnowsError'))).toBe('The microphone could not be started.');
+  });
+});

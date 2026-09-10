@@ -159,5 +159,23 @@ export function microphoneProblem(error: unknown): string {
   if (name === 'NotReadableError' || name === 'AbortError') {
     return 'The microphone is in use by another application.';
   }
+  /*
+     `NotSupportedError`, and the insecure-origin case behind most of them.
+
+     Recording requires a SECURE CONTEXT. On `http://` at anything other than `localhost`
+     — a laptop's LAN address opened from a phone, which is exactly how somebody tests
+     this — `navigator.mediaDevices` is undefined or refuses, and the message a person
+     got was "The microphone could not be started". True, useless, and it sends them
+     looking at their microphone instead of at the address bar.
+
+     `isSecureContext` is the browser's own answer to the question, so this reports the
+     real reason rather than inferring one from the error name.
+  */
+  if (typeof window !== 'undefined' && window.isSecureContext === false) {
+    return 'Recording needs a secure connection. Open StarLink over https, or at localhost, and try again.';
+  }
+  if (name === 'NotSupportedError') {
+    return 'This browser refused to start the microphone. If StarLink is not on https, that is usually why.';
+  }
   return 'The microphone could not be started.';
 }

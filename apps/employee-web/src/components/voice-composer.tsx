@@ -75,6 +75,30 @@ export function VoiceComposer({
      parent's state would be one render behind besides. */
   useEffect(() => onActiveChange(active), [active, onActiveChange]);
 
+  /* Read in an effect for the same reason the support check is: `isSecureContext` does
+     not exist during the server render, and reading it there is a hydration mismatch. */
+  const [insecure, setInsecure] = useState(false);
+  useEffect(() => {
+    setInsecure(typeof window !== 'undefined' && window.isSecureContext === false);
+  }, []);
+
+  /*
+     Unsupported because the page is not secure is worth SAYING, not hiding.
+
+     The rule below — no support, no button — is right for a browser that genuinely
+     cannot record. It is wrong for the commonest case in practice: StarLink opened over
+     plain http at a LAN address, where `navigator.mediaDevices` does not exist and the
+     microphone silently is not there. Somebody testing from a phone sees a composer with
+     no microphone and no reason, which reads as a missing feature.
+  */
+  if (!recorder.supported && recorder.problem === undefined && insecure) {
+    return (
+      <p className="voice-problem" role="status">
+        Voice notes need a secure connection. Open StarLink over https, or at localhost.
+      </p>
+    );
+  }
+
   if (!recorder.supported && recorder.problem === undefined) {
     /*
        No microphone support, no button.
