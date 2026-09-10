@@ -349,7 +349,26 @@ function ReviewBar({
         {formatDuration(playing || position > 0 ? position : recording.durationMs)}
       </span>
 
-      <Waveform bars={bars} progress={played} />
+      {/*
+        A recording with no sound in it, said before it is sent rather than discovered
+        after.
+
+        A muted microphone produces a valid file of the right length full of silence: it
+        uploads, it sends, it plays, and it plays nothing. The person finds out when a
+        colleague tells them, or never. The levels already collected for the waveform are
+        what make this knowable, and the waveform beside this message is the evidence —
+        it is flat.
+
+        It does NOT block sending. The recording belongs to the person who made it and
+        might be deliberately quiet; what they need is to know, not to be overruled.
+      */}
+      {recording.silent ? (
+        <span className="voice-silent" role="status">
+          No sound was picked up — check your microphone is not muted.
+        </span>
+      ) : (
+        <Waveform bars={bars} progress={played} />
+      )}
 
       {url !== undefined ? (
         <audio

@@ -35,6 +35,19 @@ export interface Recording {
   readonly durationMs: number;
   /** Peak levels over the whole recording, for the review waveform. */
   readonly levels: readonly number[];
+  /**
+   * Nothing audible was captured, though bytes were.
+   *
+   * A microphone muted in hardware, or the wrong input selected, produces a perfectly
+   * valid Opus stream several seconds long that contains silence. It uploads, it sends,
+   * it plays — and it plays nothing, which is reported as "it is recording but there is
+   * no sound". The bytes cannot tell you this; the LEVELS can, and they are already
+   * being collected for the waveform.
+   *
+   * A flag rather than a refusal: the recording is the person's and might be
+   * deliberately quiet. The review warns and still lets them send it.
+   */
+  readonly silent: boolean;
 }
 
 export interface VoiceRecorder {
@@ -282,6 +295,17 @@ export function useVoiceRecorder(): VoiceRecorder {
        silence through a virtual device all land here, and every one of them is worth a
        sentence.
     */
+    /*
+       Loud enough to have been anything at all.
+
+       `captured` holds the peak of each animation frame, so the maximum across it is the
+       loudest instant of the recording. Real speech peaks near 1 and a quiet room still
+       registers a few hundredths; a muted input is flat zero. 0.02 sits above the noise
+       floor of a live microphone in a silent room and far below any utterance.
+    */
+    const loudest = captured.reduce((highest, level) => Math.max(highest, level), 0);
+    const silent = loudest < 0.02;
+
     if (discardRef.current) return undefined;
     if (blob.size === 0 || durationMs <= 0) {
       setProblem(
@@ -289,7 +313,7 @@ export function useVoiceRecorder(): VoiceRecorder {
       );
       return undefined;
     }
-    return { blob, recordedAs, durationMs, levels: captured };
+    return { blob, recordedAs, durationMs, levels: captured, silent };
   }, [release]);
 
   const cancel = useCallback(() => {
