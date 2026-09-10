@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 
 import { initialsFor } from './conversation-naming';
 import { AvatarImage, useAvatarStamp } from './avatar-image';
+import { NotificationSettings } from './notification-settings';
 import { ProfilePhoto } from './profile-photo';
 import { employeeRoutes } from '@starlink/shared-contracts';
 import { runtimeOrigins } from '../lib/runtime-origins';
@@ -79,12 +80,15 @@ const THEME_KEY = 'starlink.theme';
  *
  * `status` is new: what you say you are doing, which was previously not sayable at all.
  */
-type SectionId = 'profile' | 'status' | 'appearance' | 'privacy';
+type SectionId = 'profile' | 'status' | 'appearance' | 'notifications' | 'privacy';
 
 const SECTIONS: readonly { readonly id: SectionId; readonly label: string }[] = [
   { id: 'profile', label: 'Profile' },
   { id: 'status', label: 'Status' },
   { id: 'appearance', label: 'Appearance' },
+  /* Between Appearance and Privacy: it is a preference about this device, like the
+     theme above it, rather than a security control like the section below. */
+  { id: 'notifications', label: 'Notifications' },
   { id: 'privacy', label: 'Privacy & security' },
 ];
 
@@ -96,6 +100,8 @@ function descriptionOf(section: SectionId): string {
       return 'What colleagues see beside your name. You set it; nothing is guessed.';
     case 'appearance':
       return 'Applies to this device. Other devices keep their own choice.';
+    case 'notifications':
+      return 'What this device does when something arrives. Unread counts are unaffected.';
     case 'privacy':
       return 'Your session, where it is signed in, and how to end it everywhere at once.';
   }
@@ -230,6 +236,8 @@ export function SettingsPanel({
         {section === 'status' ? (
           <DeclaredStatusSettings current={myStatus} onChanged={setMyStatus} />
         ) : null}
+
+        {section === 'notifications' ? <NotificationSettings /> : null}
 
         {section === 'appearance' ? (
           <div className="settings-rows">

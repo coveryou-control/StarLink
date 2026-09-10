@@ -6346,6 +6346,52 @@ input[type='search']::-webkit-search-cancel-button {
   transform: translateX(18px);
 }
 
+/*
+   The same switch, when the BUTTON is the switch.
+
+   `.settings-toggle` wraps a switch elsewhere and carries the state; the notification
+   panel's controls are themselves `role="switch"`, because each sits beside its own
+   label rather than inside a row that is one big toggle. Same object, same three
+   numbers, state read from the element that actually has it.
+*/
+button.settings-switch {
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
+
+.settings-switch[aria-checked='true'] {
+  background: var(--accent);
+}
+
+.settings-switch[aria-checked='true']::after {
+  transform: translateX(18px);
+}
+
+/* The quiet-hours pair. Tabular, so 09:00 and 20:00 do not shuffle the "to" between
+   them. */
+.settings-times {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  color: var(--text-muted);
+  font-size: var(--text-base);
+}
+
+.settings-times input {
+  width: auto;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-base);
+  font-variant-numeric: tabular-nums;
+}
+
 /* `.settings-rows` has no gap of its own - its interactive children carry hairlines and the
    fact rows carry padding - so a note that follows either needs its own air. */
 .settings-rows > .settings-note {
