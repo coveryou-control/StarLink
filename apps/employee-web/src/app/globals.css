@@ -4203,51 +4203,127 @@ input[type='search']::-webkit-search-cancel-button {
 }
 
 /*
-   The attach control: a paperclip with the real input stretched transparently over it.
+   The attach control: a paperclip that asks what kind, and a hidden input behind it.
 
-   The input keeps its box, its focus and its `aria-label` — `opacity` is the only thing
-   touched, so it stays visible to assistive technology and to the test that asserts the
-   control exists. What changes is that the person sees a paperclip instead of the browser's
-   "Choose File | No file chosen".
+   The input used to be stretched transparently over the glyph, which is the standard way
+   to replace the browser's "Choose File | No file chosen". It is behind a menu now, so
+   there is nothing to lay it over - the button is the control and carries its own focus
+   ring. `[hidden]` on the input is what keeps `setInputFiles` and assistive technology
+   able to reach it while it takes no space.
 */
 .attach-control {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  color: var(--text-muted);
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 
-.attach-control:hover {
+.attach-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+
+.attach-trigger:hover:not(:disabled),
+.attach-trigger[aria-expanded='true'] {
+  background: var(--surface-sunken, var(--surface-raised));
   color: var(--text);
 }
 
-/* The focus ring is drawn here because the element that actually holds focus is the
-   invisible input inside. Without this, tabbing to Attach shows nothing at all. */
-.attach-control:focus-within {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+.attach-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
-.attach-glyph {
-  display: inline-flex;
-  pointer-events: none;
-}
+/*
+   What to attach.
 
-.composer-actions input[type='file'] {
+   Above the paperclip, because the composer is at the foot of the window and a menu that
+   dropped would open past it. Left-aligned to the trigger and allowed to be wider than it:
+   the widest label is "Photos & videos", and a menu sized to a 36px button would wrap
+   every line of itself.
+*/
+.attach-menu {
   position: absolute;
-  inset: 0;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 30;
+  min-width: 194px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 16px 34px -14px rgb(24 22 40 / 34%);
+}
+
+.attach-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 11px;
   width: 100%;
-  height: 100%;
-  padding: 0;
-  margin: 0;
+  padding: 8px 10px;
   border: 0;
-  opacity: 0;
-  cursor: pointer;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease);
+}
+
+.attach-menu-item:hover,
+.attach-menu-item:focus-visible {
+  background: var(--surface-raised);
+}
+
+/*
+   A tinted disc per kind, and the tints are not decoration.
+
+   Three rows of identical grey glyphs are three rows a person has to READ before choosing,
+   every time. Colour is what makes the second visit a glance. The hues are the kit's own
+   semantic set rather than three picked here, and each is mixed into the surface so the
+   discs stay quiet on both grounds - a saturated fill would put three coloured dots beside
+   a composer whose one accent is the send button.
+*/
+.attach-menu-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+}
+
+.attach-menu-icon.is-document {
+  background: color-mix(in srgb, var(--info, #3b6ef5) 15%, var(--surface));
+  color: color-mix(in srgb, var(--info, #3b6ef5) 78%, var(--text));
+}
+
+.attach-menu-icon.is-media {
+  background: color-mix(in srgb, var(--accent) 15%, var(--surface));
+  color: color-mix(in srgb, var(--accent) 78%, var(--text));
+}
+
+.attach-menu-icon.is-audio {
+  background: color-mix(in srgb, var(--success, #2f9e6b) 15%, var(--surface));
+  color: color-mix(in srgb, var(--success, #2f9e6b) 78%, var(--text));
 }
 
 .composer-actions input[type='file']:disabled {
@@ -8147,14 +8223,27 @@ input.signin-control {
 
   /* Both controls become circles. The attach one is neutral; send keeps the accent and the
      one shadow rule 4 allows for something that floats. */
-  /* The circle is the CONTROL, not the glyph inside it — `.attach-glyph` is an inline-flex
-     wrapper with no box of its own, so sizing that left a bare paperclip on the pill's edge. */
-  .attach-control {
+  /*
+     The circle is the BUTTON, not the wrapper and not the glyph.
+
+     This has now been wrong in both directions. It was on `.attach-glyph`, an inline-flex
+     span with no box of its own, which left a bare paperclip on the pill's edge; it then
+     moved to `.attach-control`, which was the right element while the control WAS the
+     wrapper. The wrapper is now a positioning context for the menu as well, so sizing it
+     to 44px would size the menu's anchor rather than the thing being pressed.
+  */
+  .attach-trigger {
     width: 44px;
     height: 44px;
     border-radius: 50%;
     background: var(--surface-sunken);
     color: var(--text-secondary);
+  }
+
+  /* A phone's composer is at the very foot of the screen and the pane is 320px wide, so
+     the menu takes the width it needs and opens from the left edge of the pill. */
+  .attach-menu {
+    min-width: min(232px, calc(100vw - 32px));
   }
 
   .composer-send.icon {

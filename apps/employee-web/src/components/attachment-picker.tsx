@@ -105,6 +105,68 @@ const VERDICTS: Record<string, { state: 'READY' | 'FAILED' | 'GONE'; problem?: s
   EXPIRED: { state: 'FAILED', problem: 'This upload expired before it was sent. Attach it again.' },
 };
 
+/**
+ * What the paperclip offers, and what each choice will accept.
+ *
+ * The paperclip used to be a bare file input with no `accept` at all, so every press
+ * opened the operating system's browser on the whole disk and left the person to find
+ * their own way to a photograph. Naming the kind first is what every messenger does, and
+ * it is not decoration: `accept` is what makes the file dialog open filtered, which is the
+ * entire difference between "find your photo" and "here are your photos".
+ *
+ * ## `accept` is a hint, not a gate
+ *
+ * A person can still pick anything - every browser offers "All files" in that dialog, and
+ * a determined one can rename a file. So nothing here is a check. The real ones are where
+ * they have always been: the grant declares a type and a size, and section 28.1 refuses at
+ * the boundary when the bytes do not match what was declared. This list makes the common
+ * path short; it does not make the uncommon one safe, because it never could.
+ *
+ * ## Why extensions are listed as well as MIME types
+ *
+ * Windows reports no MIME type for several Office formats when the application that owns
+ * them is not installed, so an `accept` list of those MIME types silently shows an empty
+ * folder. The extension is what actually filters there.
+ */
+const ATTACH_KINDS = [
+  {
+    id: 'document',
+    label: 'Document',
+    accept:
+      '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods,application/pdf,text/plain,text/csv',
+    icon: (
+      <>
+        <path d="M13.5 3.5H7.2A1.7 1.7 0 0 0 5.5 5.2v13.6a1.7 1.7 0 0 0 1.7 1.7h9.6a1.7 1.7 0 0 0 1.7-1.7V8.5Z" />
+        <path d="M13.5 3.5v5h5" />
+      </>
+    ),
+  },
+  {
+    id: 'media',
+    label: 'Photos & videos',
+    accept: 'image/*,video/*',
+    icon: (
+      <>
+        <rect x="3.5" y="5.5" width="17" height="13" rx="2.2" />
+        <path d="m4.6 16.2 4.2-4.2 3.1 3.1 3-3 4.5 4.5" />
+        <circle cx="9" cy="9.6" r="1.4" />
+      </>
+    ),
+  },
+  {
+    id: 'audio',
+    label: 'Audio',
+    accept: 'audio/*,.mp3,.m4a,.wav,.ogg,.aac,.flac',
+    icon: (
+      <>
+        <path d="M9 17.5V6.2l9-1.7v11" />
+        <circle cx="6.8" cy="17.6" r="2.3" />
+        <circle cx="15.8" cy="15.6" r="2.3" />
+      </>
+    ),
+  },
+] as const;
+
 export function AttachmentPicker({
   conversationId,
   staged,
@@ -124,7 +186,47 @@ export function AttachmentPicker({
   readonly onStagedChange: Dispatch<SetStateAction<readonly StagedAttachment[]>>;
 }): React.JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  /*
+     One input, re-pointed, rather than one per kind.
+
+     Three inputs would be three things to keep in step and three labels for assistive
+     technology to read out for what is one control. `accept` is set immediately before the
+     click, which every browser reads at open time.
+  */
+  const choose = (accept: string): void => {
+    const input = inputRef.current;
+    if (input === null) return;
+    input.accept = accept;
+    setMenuOpen(false);
+    input.click();
+  };
+
+  /* Escape and a press outside, the same two exits every other popover here has. */
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      setMenuOpen(false);
+      triggerRef.current?.focus();
+    };
+    const onDown = (event: MouseEvent): void => {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target) === true) return;
+      if (triggerRef.current?.contains(target) === true) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown, true);
+    };
+  }, [menuOpen]);
 
   const update = (
     attachmentId: string,
@@ -245,23 +347,33 @@ export function AttachmentPicker({
   return (
     <div className="attachment-picker">
       {/*
-        A paperclip, with the real input laid transparently over it.
+        A paperclip that asks WHAT, and one file input behind it.
 
-        The browser's own file control renders "Choose File | No file chosen" — a
-        two-part, locale-dependent widget with a fixed label that no stylesheet can
-        change, and it looked exactly as out of place in a chat composer as it sounds.
+        It used to be the input itself, stretched transparently over the glyph — the
+        standard accessible pattern, and the reason for it still holds: the browser's own
+        control renders "Choose File | No file chosen", a locale-dependent widget with a
+        fixed label no stylesheet can change. What was wrong was not the technique but the
+        step it skipped. One press opened the whole disk, so attaching a photograph meant
+        navigating to it, and the product had nothing to say about the difference between a
+        photograph, a recording and a contract.
 
-        This is the standard accessible pattern rather than a trick: the `input` is still
-        an input, still focusable, still keyboard-operable, still carries its own
-        `aria-label`, and is what actually receives the click — it is stretched over the
-        glyph at zero opacity, not hidden. `visibility` and `display` are untouched, so it
-        remains present to assistive technology and to any test that asserts the control
-        is there. The glyph is `aria-hidden` decoration; the focus ring is drawn on the
-        wrapper via `:focus-within`, because the element that has focus is invisible.
+        So the glyph is a real button now and the input sits behind it, kept in the DOM and
+        kept labelled — `setInputFiles` and any assistive technology still reach it — while
+        the menu is what a person presses. The input is `hidden` rather than transparent
+        because there is nothing left to lay it over; the button is the control.
       */}
       <span className="attach-control">
-        <span className="attach-glyph" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="19" height="19" focusable="false">
+        <button
+          ref={triggerRef}
+          type="button"
+          className="attach-trigger"
+          aria-label="Attach"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          disabled={busy}
+          onClick={() => setMenuOpen((was) => !was)}
+        >
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
             <path
               d="M20.5 11.5 12 20a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.9-7.8"
               fill="none"
@@ -271,11 +383,44 @@ export function AttachmentPicker({
               strokeLinejoin="round"
             />
           </svg>
-        </span>
+        </button>
+
+        {menuOpen ? (
+          <div className="attach-menu" role="menu" aria-label="What to attach" ref={menuRef}>
+            {ATTACH_KINDS.map((kind) => (
+              <button
+                key={kind.id}
+                type="button"
+                role="menuitem"
+                className="attach-menu-item"
+                onClick={() => choose(kind.accept)}
+              >
+                <span className={`attach-menu-icon is-${kind.id}`} aria-hidden="true">
+                  <svg
+                    viewBox="0 0 24 24"
+                    width="17"
+                    height="17"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    focusable="false"
+                  >
+                    {kind.icon}
+                  </svg>
+                </span>
+                {kind.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+
         <input
           ref={inputRef}
           type="file"
           aria-label="Attach a file"
+          hidden
           disabled={busy}
           onChange={(e) => {
             const file = e.target.files?.[0];

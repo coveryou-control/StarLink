@@ -43,17 +43,25 @@ type Mode = 'chat' | 'group';
 
 export function StartConversation({
   onStarted,
-  openSignal,
+  request,
+  onRequestTaken,
 }: {
   readonly onStarted: (conversationId: string) => void;
   /**
-   * A counter the shell increments to open this from somewhere else.
+   * An outstanding request to open this, from somewhere else in the shell.
    *
-   * A counter rather than a boolean, because the caller is not tracking whether the picker
-   * is currently open and should not have to: "open it" is an event, and a boolean would
-   * need resetting after every use or the second press would do nothing.
+   * This was a counter the shell incremented, compared against the value from the previous
+   * render. A comparison cannot see a request that arrived in the same render as this
+   * component's own mount — and that is the common case, because this dialog is inside the
+   * chats panel and the sidebar's New chat switches to the chats panel on its way here. The
+   * first press from any other destination opened nothing at all.
+   *
+   * A request has no such blind spot: it is either present when this renders or it is not.
+   * `at` is what makes a second press a second request.
    */
-  readonly openSignal?: number;
+  readonly request?: { readonly mode: 'chat' | 'group'; readonly at: number };
+  /** Called once the request has been acted on, so the shell can drop it. */
+  readonly onRequestTaken?: () => void;
 }): React.JSX.Element {
   const [open, setOpen] = useState(false);
   /*
@@ -90,12 +98,20 @@ export function StartConversation({
   const fieldRef = useRef<HTMLInputElement>(null);
   /** The dialog itself, so focus can be moved into it when it opens. */
   const panelRef = useRef<HTMLElement>(null);
-  const lastSignal = useRef(openSignal);
+  /* `at` rather than the object, so a re-render that hands back an equal request does not
+     re-open a dialog the person has since closed. */
+  const takenAt = useRef<number | undefined>(undefined);
   useEffect(() => {
-    if (openSignal === undefined || openSignal === lastSignal.current) return;
-    lastSignal.current = openSignal;
+    if (request === undefined || request.at === takenAt.current) return;
+    takenAt.current = request.at;
+    setMode(request.mode);
+    onRequestTaken?.();
     setOpen(true);
-  }, [openSignal]);
+    /* `request` alone: `onRequestTaken` is a fresh closure every render and listing it
+       would re-run this on every render of the shell. The `at` guard above is what makes
+       re-running harmless anyway, but a request that opens the dialog once is what this
+       is for. */
+  }, [request]);
   const { state } = useSession();
 
   /**

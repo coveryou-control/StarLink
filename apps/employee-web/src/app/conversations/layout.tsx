@@ -61,9 +61,28 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
    * two components reading one fact, which is exactly what a shell is for.
    */
   const [chatView, setChatView] = useState<ChatView>('all');
-  /* Bumped by the sidebar's New chat, which is a second door onto the composer the list
-     masthead already owns. A counter, so pressing it twice opens it twice. */
-  const [composeSignal, setComposeSignal] = useState(0);
+  /**
+   * A REQUEST to compose, held until the dialog has taken it.
+   *
+   * It was a counter — bumped by the sidebar's New chat, compared against the previous
+   * value inside the dialog. That works while the dialog is on screen and fails the moment
+   * it is not: `StartConversation` lives inside the chats panel, and the chats panel is
+   * only mounted while Chats is the open destination. Pressing New chat from Channels,
+   * Announcements or Connect therefore did two things in one render — switched the section
+   * and bumped the counter — and the dialog MOUNTED holding the new number, saw no change
+   * against it, and did nothing. Measured from all three: first press switches the panel
+   * and opens nothing, second press works.
+   *
+   * That is also what "it takes me to Unread first" is: the panel arriving on whichever
+   * slice was last selected, with no dialog over it.
+   *
+   * A request survives the mount, because it is not a comparison against a previous
+   * render. The dialog clears it when it acts on it, so coming back to Chats later does
+   * not re-open a dialog nobody asked for.
+   */
+  const [composeRequest, setComposeRequest] = useState<
+    { readonly mode: 'chat' | 'group'; readonly at: number } | undefined
+  >(undefined);
   /*
      The shell no longer holds a theme.
 
@@ -412,7 +431,9 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
         onChatView={setChatView}
         onNewChat={() => {
           setSection('chats');
-          setComposeSignal((n) => n + 1);
+          /* `at` makes two presses two distinct requests even when the mode matches, so a
+             dialog dismissed and asked for again re-opens. */
+          setComposeRequest({ mode: 'chat', at: Date.now() });
         }}
       />
 
@@ -462,9 +483,19 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                   phone twin is the button after the magnifier.
                 */}
                 <StartConversation
-                  openSignal={composeSignal}
+                  {...(composeRequest === undefined ? {} : { request: composeRequest })}
+                  onRequestTaken={() => setComposeRequest(undefined)}
                   onStarted={(id) => {
                     void refresh();
+                    /*
+                       Back to the whole list, because that is the only slice the new
+                       conversation is certainly in.
+                       Starting a chat from Unread left the person in the thread with a
+                       list beside it that could not contain what they had just made — it
+                       has no unread messages for them, by definition, since they are the
+                       one who started it. Archived and Favourites are the same story.
+                    */
+                    setChatView('all');
                     router.push(`/conversations/${id}`);
                   }}
                 />

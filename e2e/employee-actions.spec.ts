@@ -305,8 +305,17 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
         /^Message #? ?E2E /,
       );
       await expect(employee.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
-      // Attachments stay available on an internal thread (SL-054).
-      await expect(employee.getByLabel('Attach a file')).toBeVisible();
+      /*
+         Attachments stay available on an internal thread (SL-054).
+
+         The visible control is the paperclip BUTTON now, not the file input. The input is
+         still there and still labelled — `setInputFiles` in `attachments.spec.ts` reaches
+         it — but it is `hidden`, because it sits behind a menu asking which kind of file
+         rather than being stretched transparently over the glyph. Asserting on the input's
+         visibility would now be asserting the old mechanism rather than the capability.
+      */
+      await expect(employee.getByRole('button', { name: 'Attach', exact: true })).toBeVisible();
+      await expect(employee.getByLabel('Attach a file')).toBeAttached();
     });
 
     await test.step('and a message sent on that thread persists', async () => {

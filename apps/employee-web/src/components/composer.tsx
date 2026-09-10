@@ -149,6 +149,26 @@ export function Composer({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   /**
+   * The caret comes back to the field when a file is staged.
+   *
+   * Enter already sends a file-only message - `send` treats "no words AND no ready file"
+   * as the empty case, so a staged document with no covering note goes. What stopped it
+   * was where the focus was: picking a file leaves it on the file input, and Enter there
+   * re-opens the file dialog. Pressing the arrow was the only way to send an attachment,
+   * which is not what anybody tries first.
+   *
+   * On a GROWING list only. Removing a chip must not yank the caret out of a sentence
+   * somebody is in the middle of typing, and neither must a chip changing state from
+   * SCANNING to READY - which is why this counts rather than watching the array.
+   */
+  const stagedCount = staged.length;
+  const stagedBefore = useRef(stagedCount);
+  useEffect(() => {
+    if (stagedCount > stagedBefore.current) textareaRef.current?.focus();
+    stagedBefore.current = stagedCount;
+  }, [stagedCount]);
+
+  /**
    * Mentions the draft currently carries, and the `@query` the caret is inside.
    *
    * Held here rather than derived from the text on send, because the OFFSETS are the point
