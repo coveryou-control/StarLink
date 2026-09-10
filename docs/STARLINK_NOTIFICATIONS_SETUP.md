@@ -13,8 +13,11 @@ The two are not the same size of job, and the first thing this guide does is say
 | --- | --- | --- | --- |
 | `INAPP` | `NotificationTransport` | `adapters/notification-provider/src/inapp/` | **Built and always on** |
 | `EMAIL` | `NotificationTransport` | `adapters/notification-provider/src/email/` | **Built. Configuration only** |
-| `PUSH` | declared in `NotificationChannel` | — | **Nothing. Has to be written** |
+| `PUSH` | declared in `NotificationChannel` | — | **No transport.** But see the client half below |
 | `WHATSAPP`, `SMS` | declared | — | Nothing |
+
+There is also a **device layer** in the browser that is not a `NotificationChannel` at
+all, and it is further along than the table suggests — see B0.
 
 `NotificationChannel` lives in `packages/shared-contracts/src/adapters/infrastructure.ts`.
 
@@ -29,10 +32,11 @@ means writing a row the recipient's client reads when it next looks. There is no
 to configure, nothing to switch on, and no reason to route it through Google.
 
 **What Firebase would give you is the `PUSH` channel** — an operating-system notification
-that arrives when StarLink is not the focused tab, or is closed entirely. That is the
-thing StarLink cannot currently do, and it is genuinely unbuilt: there is no FCM code, no
-service worker, no device-token storage, and `Notification.requestPermission()` appears
-nowhere in either web application. I checked; the grep is empty.
+that arrives when StarLink is **closed entirely**. There is no FCM code and no
+device-token storage.
+
+But the browser-side half is largely built already, which changes the size of the job.
+See B0 before planning any of it.
 
 So:
 
@@ -151,9 +155,54 @@ because it is the property the whole outbox design exists to protect.
 
 # Part B — Firebase push (a build, not a setup)
 
-Nothing here exists yet. This section is what has to be true, not a list of buttons.
+## B0. What the browser side ALREADY has
 
-## B1. The shape it has to take
+Correcting an earlier draft of this guide, which said there was no service worker and no
+device layer. Both exist:
+
+| File | What it does |
+| --- | --- |
+| `apps/employee-web/src/lib/device-notifications.ts` | Per-device preferences — direct, groups, sound, quiet hours — in `localStorage`. Raises a system notification through `notify()` |
+| `apps/employee-web/public/sw.js` | A real service worker. Registered, `skipWaiting`/`clients.claim`, and a `notificationclick` handler that focuses or opens the right conversation |
+| `apps/employee-web/src/lib/use-notifications.ts` | Reads the preferences and calls `notify()` when something arrives |
+
+The service worker exists because Chrome on Android **refuses** `new Notification(...)`
+from a page — `ServiceWorkerRegistration.showNotification` is the only supported path
+there. Its header is explicit that it has no `fetch` handler on purpose (rule 9:
+recovery is re-fetch, and a stale cached response would show somebody a conversation as
+it was ten minutes ago) and that it **does not receive push**.
+
+So the gap to Firebase is narrower than "build a client": add a `push` listener to a
+service worker that already exists, and a subscription to store.
+
+### A confirmed defect sitting in the middle of this
+
+`Notification.requestPermission()` is called **nowhere** — grep across `apps`, `packages`
+and `adapters` returns nothing. `notify()` correctly refuses to ask (a permission prompt
+raised by an incoming message is a prompt nobody grants) and returns early unless
+permission is already `granted`.
+
+Its docblock says permission "is asked for on the settings screen at the moment somebody
+turns a switch on". **There is no such screen**: `quietHours` and
+`DEVICE_NOTIFICATION_DEFAULTS` appear in no `.tsx` file. The switches are not rendered
+anywhere.
+
+The consequence is that **desktop notifications cannot currently fire at all**, however
+the preferences are set — the permission is never requested, so `Notification.permission`
+never becomes `granted`. This is worth fixing before any Firebase work, because it is
+cheap, it is on the path anyway, and it makes the existing layer work:
+
+1. Render the device switches in Settings (the preferences and defaults already exist).
+2. Call `Notification.requestPermission()` when somebody turns one on — never on load.
+3. Handle `denied` honestly: say the browser is blocking it and where to change that.
+
+That alone gives notifications while the tab is open or backgrounded, which the comment
+above notes "on a phone is a backgrounded PWA and is the common case". Firebase is only
+needed for the application being fully closed.
+
+## B1. The shape the transport has to take
+
+This section is what has to be true, not a list of buttons.
 
 `PUSH` is already a valid `NotificationChannel`. What is missing is a
 `NotificationTransport` implementation for it, which means the work is bounded and lands
@@ -170,12 +219,11 @@ Plus three things outside the adapter:
 - **Device token storage.** A table of `(principal_id, token, platform, last_seen_at)`,
   in the `identity` schema. Tokens expire and are reissued; a token that FCM reports as
   `UNREGISTERED` must be deleted, or the backlog fills with permanent failures.
-- **A service worker** in `apps/employee-web/public/`, which is what receives a push when
-  the tab is closed. This is the part with no equivalent anywhere in the codebase today.
-- **A permission request.** `Notification.requestPermission()` appears nowhere. It must be
-  asked for **after** a deliberate act — a "turn on notifications" control in Settings —
-  and never on page load. A permission prompt on arrival is the reliable way to get
-  permanently denied.
+- **A `push` listener in the existing service worker.** `public/sw.js` is already
+  registered and already handles `notificationclick`; what it does not have is a `push`
+  event handler. This is an addition to a working file, not a new one.
+- **A permission request** — see B0. It is missing today and blocks the existing device
+  layer as well as this.
 
 Register the transport in `app.module.ts` beside the email one, gated the same way:
 
@@ -226,16 +274,19 @@ it that way, and get it confirmed rather than assumed.
 
 ## B4. Order of work
 
+0. **The permission request and the Settings switches** (B0). Do this first whatever else
+   happens — it is small, it unblocks the notification layer that is already built, and
+   every later step depends on permission having been granted.
 1. Token table and migration.
-2. The permission request and the token registration call, behind a Settings control.
-3. The service worker, and confirm a push arrives with the tab **closed** — that is the
-   whole point and it is the step most likely to be quietly broken.
+2. Token registration, from the same Settings control.
+3. A `push` listener added to `public/sw.js`, and confirm a push arrives with the browser
+   **fully closed** — the whole point, and the step most likely to be quietly broken.
 4. `PushNotificationTransport`, registered in `app.module.ts`.
 5. `SL_NOTIFY_TRANSPORTS=inapp,email,push`.
 6. Token cleanup on `UNREGISTERED`.
 
-Steps 1–3 are the client-side half and can be built and tested before any server work: a
-service worker that receives a push you send by hand from the Firebase console proves the
+Steps 0–3 are the client half and can be built and tested before any server work: a
+service worker that receives a push sent by hand from the Firebase console proves the
 hard part.
 
 ---
@@ -244,11 +295,16 @@ hard part.
 
 | | Effort | Blocked on |
 | --- | --- | --- |
-| **In-app** | Done | — |
+| **In-app (unread, badges)** | Done | — |
+| **Device notifications** | Built but **cannot fire** | The permission request and the Settings switches (B0) |
 | **Email** | Configuration | Relay credentials, sending domain, SPF/DKIM |
-| **Push** | A feature | Firebase project, then the build in B4 |
+| **Push (app fully closed)** | A feature | B0 first, then a Firebase project and the build in B4 |
 
-If the immediate need is "people should know when they are mentioned while the tab is
-closed", **email is one afternoon away and push is not.** They also stack: turning on
-email now does not make the push work later any harder, because both are transports
-behind the same port.
+If the immediate need is "people should know when they are mentioned", the cheapest real
+progress is **B0 then email**, in that order — B0 is a few hours and switches on a layer
+that is already written, and email is an afternoon of which most is waiting on the relay
+owner. Firebase is worth doing when "the browser is closed" is the case that matters, and
+it is smaller after B0 than before it.
+
+They stack: none of these makes the next any harder, because every one of them is a
+transport behind the same port.
