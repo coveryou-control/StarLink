@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import type { MessageView } from '../lib/api-client';
@@ -70,6 +70,52 @@ export function MessageActions({
   }, [reactOpen]);
 
   /**
+   * The strip, pulled back inside the thread column.
+   *
+   * ## Why the stylesheet cannot do this
+   *
+   * The strip is 264px wide and hangs off a 28px bar, and where that bar sits depends on
+   * how wide the BUBBLE is — the bar is in the gutter beside the message, so a long message
+   * puts it near the right edge of the column and a short one puts it near the left. CSS
+   * can express "open rightward" or "open leftward"; it cannot ask whether there is room.
+   *
+   * The sheet chose per row type instead: rightward for incoming, leftward for your own.
+   * That holds at 1440 and fails at 900, where an incoming message wide enough to push the
+   * bar past x=636 sends the strip off the right edge — measured at 900px on two of three
+   * conversations, with the last two choices unreachable. This is the same failure the
+   * `internal` rule already carries a comment about, in a case that rule does not cover.
+   *
+   * ## What it does
+   *
+   * One measurement after the strip is in the DOM and before the browser paints, so there
+   * is no visible correction: if either end is outside the thread column, shift by exactly
+   * the overhang. A strip that already fits is not touched, and `useLayoutEffect` rather
+   * than `useEffect` is what keeps a shifted one from being seen in its wrong place first.
+   */
+  const stripRef = useRef<HTMLDivElement>(null);
+  const [nudge, setNudge] = useState(0);
+
+  useLayoutEffect(() => {
+    if (!reactOpen) {
+      setNudge(0);
+      return;
+    }
+    const strip = stripRef.current;
+    const column = strip?.closest('.thread');
+    if (strip == null || column == null) return;
+    const box = strip.getBoundingClientRect();
+    const within = column.getBoundingClientRect();
+    /* The column's 28px padding is fair game - the strip may sit in it - but the pane
+       beyond it is not. `MARGIN` keeps the shadow off the edge as well as the strip. */
+    const MARGIN = 8;
+    const overRight = box.right - (within.right - MARGIN);
+    const overLeft = within.left + MARGIN - box.left;
+    const shift = overRight > 0 ? -overRight : overLeft > 0 ? overLeft : 0;
+    /* Rounded, because a fractional translate blurs an emoji at these sizes. */
+    setNudge(Math.round(shift));
+  }, [reactOpen]);
+
+  /**
    * A deleted message has nothing to react to or reply to.
    *
    * Showing the bar over "this message was deleted" would be two controls attached to an
@@ -111,7 +157,13 @@ export function MessageActions({
           </button>
 
           {reactOpen ? (
-            <div className="reaction-strip" role="menu" aria-label="React">
+            <div
+              className="reaction-strip"
+              role="menu"
+              aria-label="React"
+              ref={stripRef}
+              style={nudge === 0 ? undefined : { transform: `translateX(${nudge}px)` }}
+            >
               {QUICK.map((emoji) => {
                 const mine = message.reactions?.some((r) => r.emoji === emoji && r.mine) ?? false;
                 return (

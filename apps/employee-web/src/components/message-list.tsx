@@ -461,7 +461,18 @@ function MessageRow({
     [],
   );
   /** Which chip's detail panel is open, if any. */
-  const [detailsFor, setDetailsFor] = useState<string | undefined>();
+  /*
+     Which chip was asked about, AND where that chip is.
+
+     The emoji alone was not enough. The panel was positioned at the message stack's edge,
+     so on a message carrying three chips all three opened the same panel in the same place
+     — measured at x 1152..1412 whichever of them was pressed, which is a panel that answers
+     a question without saying which one it answered. The offset travels with the emoji so
+     the panel can point at the thing that opened it.
+  */
+  const [detailsFor, setDetailsFor] = useState<
+    { readonly emoji: string; readonly left: number; readonly caret: number } | undefined
+  >();
 
   return (
     <li
@@ -894,9 +905,54 @@ function MessageRow({
                    is "who?". Toggling here as well would mean the same click both removed
                    your reaction and asked about it.
                 */
-                onClick={() =>
-                  setDetailsFor(detailsFor === reaction.emoji ? undefined : reaction.emoji)
-                }
+                onClick={(event) => {
+                  if (detailsFor?.emoji === reaction.emoji) {
+                    setDetailsFor(undefined);
+                    return;
+                  }
+                  /*
+                     Measured at the moment of the press, not derived in CSS.
+
+                     The panel's left edge has to be clamped so it cannot leave the thread
+                     column, and the caret has to point at the chip REGARDLESS of that
+                     clamp — which means the caret's position depends on the clamped value.
+                     `clamp()` can express the first and cannot be read back for the second,
+                     so both are computed here where the resolved number is available.
+                  */
+                  const chip = event.currentTarget.getBoundingClientRect();
+                  const stack = event.currentTarget.closest('.message-stack');
+                  const column = stack?.closest('.thread');
+                  if (stack == null || column == null) return;
+                  const box = stack.getBoundingClientRect();
+                  /*
+                     The boundary is the THREAD, not the message.
+
+                     Clamping to `.message-stack` was the first attempt and it collapsed the
+                     fix: a stack is only as wide as its own bubble — about 410px for a
+                     one-line message — so a 260px panel had 150px of travel inside it, and
+                     two chips 43px apart both hit the same limit. Measured: x 1164..1424 for
+                     both, which is the bug this was meant to remove.
+
+                     A panel is allowed to reach across the column it hangs in. It is not
+                     allowed to leave it, which is what this actually measures.
+                  */
+                  const within = column.getBoundingClientRect();
+                  const width = Math.min(260, window.innerWidth - 32);
+                  const MARGIN = 8;
+                  const centre = chip.left - box.left + chip.width / 2;
+                  /* Everything below is in the stack's coordinates, which is what `left`
+                     on an absolutely positioned child of it means. */
+                  const lowest = within.left + MARGIN - box.left;
+                  const highest = within.right - MARGIN - width - box.left;
+                  const left =
+                    highest < lowest ? lowest : Math.max(lowest, Math.min(centre - width / 2, highest));
+                  setDetailsFor({
+                    emoji: reaction.emoji,
+                    left,
+                    /* Inset from the panel's edge, kept off the rounded corners. */
+                    caret: Math.max(14, Math.min(centre - left, width - 14)),
+                  });
+                }}
                 aria-haspopup="dialog"
                 aria-label={`${reaction.emoji} ${reaction.count}${
                   reaction.mine ? ', including you' : ''
@@ -914,11 +970,13 @@ function MessageRow({
       ) : null}
 
       {/*
-        Anchored to the message rather than portalled.
+        Anchored to the CHIP, and not portalled.
 
         `.message-stack` is already a positioning context — the hover action bar uses it —
         and a panel that scrolls with its own message is one the reader never has to hunt
-        for after the thread moves under it.
+        for after the thread moves under it. Within that context the panel is placed at the
+        offset the pressed chip reported, so a message with several chips opens a different
+        panel position for each of them.
       */}
       {detailsFor !== undefined && conversationId !== undefined ? (
         <ReactionDetails
@@ -926,7 +984,8 @@ function MessageRow({
           messageId={message.messageId}
           participants={participants ?? []}
           currentPrincipalId={currentPrincipalId}
-          initialEmoji={detailsFor}
+          initialEmoji={detailsFor.emoji}
+          anchor={{ left: detailsFor.left, caret: detailsFor.caret }}
           onClose={() => setDetailsFor(undefined)}
           onRemoveOwn={() => {
             const own = message.reactions?.find((entry) => entry.mine);

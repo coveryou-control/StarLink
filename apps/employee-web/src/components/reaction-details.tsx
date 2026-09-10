@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 import { api, ApiError } from '../lib/api-client';
 import { initialsFor, senderColour } from './conversation-naming';
@@ -36,6 +36,7 @@ export function ReactionDetails({
   participants,
   currentPrincipalId,
   initialEmoji,
+  anchor,
   onClose,
   onRemoveOwn,
 }: {
@@ -45,6 +46,16 @@ export function ReactionDetails({
   readonly currentPrincipalId: string;
   /** The chip that was clicked, pre-selected. */
   readonly initialEmoji: string;
+  /**
+   * Where the chip that opened this is, in `.message-stack` coordinates.
+   *
+   * `left` is already clamped to the column by the caller — the panel is not allowed to
+   * discover it is off-screen and correct itself, because that correction would be a
+   * visible jump after the panel is on screen. `caret` is the arrow's inset from the
+   * panel's own left edge, which is not `left` subtracted from anything the stylesheet
+   * can see once the clamp has been applied.
+   */
+  readonly anchor: { readonly left: number; readonly caret: number };
   readonly onClose: () => void;
   readonly onRemoveOwn: () => void;
 }): ReactNode {
@@ -114,7 +125,18 @@ export function ReactionDetails({
   const mine = all.find((entry) => entry.principalId === currentPrincipalId);
 
   return (
-    <div className="reaction-details" role="dialog" aria-label="Reactions" ref={panelRef}>
+    <div
+      className="reaction-details"
+      role="dialog"
+      aria-label="Reactions"
+      ref={panelRef}
+      style={
+        {
+          left: `${anchor.left}px`,
+          '--reaction-caret': `${anchor.caret}px`,
+        } as CSSProperties
+      }
+    >
       <header className="reaction-details-head">
         <strong>{all.length === 1 ? '1 reaction' : `${all.length} reactions`}</strong>
         <button type="button" className="reaction-details-close" onClick={onClose} aria-label="Close">

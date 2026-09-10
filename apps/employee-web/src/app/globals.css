@@ -171,19 +171,28 @@
      white text at well over AA, and no longer a hole in the page.
   */
   /*
-     Own messages are a PALE LAVENDER with dark text — the "Soft, light bubbles" direction.
+     Own messages are GREY with dark text.
 
-     They were a mid-grey slab with white text, which made a run of your own messages the
-     heaviest thing in a thread whose job is to be read. Tinting instead of darkening keeps
-     "mine" unmistakable at a glance while a long thread stays light all the way down, which
-     is the whole point of the direction.
+     Three positions, and this is the third. It was a mid-grey slab with white text, which
+     made a run of your own messages the heaviest thing in a thread whose job is to be read.
+     That was corrected to a pale lavender — light enough, but the tint read as purple, and
+     a purple bubble in a product whose one accent is coral is a second identity colour
+     nobody chose. `.message-row.mine` has said "Yours: CY Grey" since the bubbles were
+     first drawn; the tint is what drifted, not the direction.
+
+     So: light, as the lavender was, and neutral, as the direction says. `--neutral-200-2`
+     is the kit's own step rather than a grey mixed here, which is what keeps it from
+     drifting again. Measured light: rgb(225 227 238) against the white incoming bubble
+     (30 levels) and the #f7f8fa ground (22 levels) — separated by lightness now that it is
+     no longer separated by hue. Ink rgb(40 42 54) on it is 11.14:1.
 
      Everything derived — the meta, the ticks, a quoted reply inside your own bubble — is a
-     `color-mix` of `--bubble-mine-ink`, so flipping the ink from light to dark carries all
-     of them with it and none had to be restated.
+     `color-mix` of `--bubble-mine-ink`, so the neutral ink carries all of them and none had
+     to be restated. That is also why the ink moves: left at #262340 the ticks and the
+     timestamp would still be mixing a violet into a grey bubble.
   */
-  --bubble-mine: #e9e7fb;
-  --bubble-mine-ink: #262340;
+  --bubble-mine: var(--neutral-200-2);
+  --bubble-mine-ink: rgb(40 42 54);
   /*
      The hairline around a photograph or a video.
 
@@ -357,15 +366,20 @@
 */
 :root[data-theme='dark'] {
   /*
-     The same lavender identity, inverted rather than reused.
+     The same grey identity, inverted rather than reused.
 
      A pale bubble with dark text is right on paper and wrong on a dim page — it would be
-     the brightest thing on screen, on every message you sent. So the hue is kept and the
-     lightness swapped: a deep lavender carrying light ink, still obviously "mine" and still
-     distinct from the incoming bubble beside it.
+     the brightest thing on screen, on every message you sent. So the lightness swaps and
+     the neutrality is kept.
+
+     Incoming is `--neutral-200-2`, which in the dark scale is rgb(50 52 66); mine is one
+     step up at `--neutral-300-2`, rgb(77 81 104). Lightness is the only lever left once the
+     hue is gone, so the two bubbles are deliberately one full scale step apart rather than
+     a nudge — 27 levels, against the 23 of the ground behind them both. Ink measures
+     6.73:1.
   */
-  --bubble-mine: #383357;
-  --bubble-mine-ink: #ece9fb;
+  --bubble-mine: var(--neutral-300-2);
+  --bubble-mine-ink: rgb(236 238 244);
   /* Light on a dim ground, for the same reason the incoming bubble lifts rather than
      darkens: a darker line on a dark page is not a line. */
   --media-frame: rgb(255 255 255 / 15%);
@@ -2695,8 +2709,9 @@ input[type='search']::-webkit-search-cancel-button {
   line-height: var(--lh);
 }
 
-/* "Yours: CY Grey, white text, tail bottom-right." No hairline — a filled bubble draws
-   its own edge. */
+/* "Yours: CY Grey, tail bottom-right." No hairline — a filled bubble draws its own edge.
+   The ink is dark rather than the direction's white, because the bubble is a LIGHT grey:
+   white on it would be unreadable. See `--bubble-mine`. */
 .message-row.mine .message-main {
   background: var(--bubble-mine);
   color: var(--bubble-mine-ink);
@@ -3576,29 +3591,47 @@ input[type='search']::-webkit-search-cancel-button {
    font's opinion about it.
 */
 /*
-   The mark and its count, and nothing else around them.
+   A small tag with a ground of its own.
 
-   It was a white capsule on a hairline, which is what made a single thumbs-up read as a
-   large floating circle rather than as a mark on the message. There is no pill now: the
-   emoji sits on the thread the way it sits in the picker it was chosen from.
+   Three positions, and the middle one over-corrected. It was a white capsule at 34px tall,
+   which made a single thumbs-up read as a large floating circle; that was answered by
+   taking the capsule away entirely, and a bare glyph on a bubble is not a control — it has
+   no edge, no press target you can see, and nothing to say it is the thing you click to
+   find out who. Measured: 31x20, `rgba(0, 0, 0, 0)`, no border, no shadow.
 
-   The height is still pinned. Left to itself the button takes whatever line box the emoji
-   font asks for, which is far taller than the nominal size and is where the chip's
-   original 34px came from.
+   The capsule is back and the SIZE is what stays fixed. 34px was the fault, not the
+   ground: an emoji font's line box is far taller than its nominal size, and left to itself
+   the button took it. 22px is the height of the mark it carries plus its ring, which is a
+   tag on the message rather than an object beside it.
 */
 .reaction {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  height: 20px;
-  padding: 0 2px;
+  height: 22px;
+  padding: 0 6px 0 4px;
   border: 0;
-  border-radius: var(--sl-r, 5px);
-  background: transparent;
-  box-shadow: none;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  /* The ring, not a border: a border would take part in the 22px and the chip would grow
+     by two pixels the moment somebody reacted. */
+  box-shadow:
+    0 0 0 1px var(--border),
+    0 1px 2px -1px rgb(24 22 40 / 14%);
   color: var(--text-secondary);
   font-size: 11.5px;
   line-height: 1;
+  transition:
+    box-shadow var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+
+/* It opens a panel, so it has to look pressable. */
+.reaction:not(:disabled):hover {
+  background: var(--surface-raised);
+  box-shadow:
+    0 0 0 1px var(--border-strong, var(--border)),
+    0 2px 5px -2px rgb(24 22 40 / 22%);
 }
 
 /*
@@ -3627,17 +3660,25 @@ input[type='search']::-webkit-search-cancel-button {
    states. The ring and the ink carry it and the shape stays the reference's.
 */
 /*
-   Your own reaction, marked on the COUNT rather than by a ring.
+   Your own reaction: the ring takes the accent, and so does the count.
 
-   The ring needed a filled pill to sit on, and the pill is what made the chip look like an
-   object dropped next to the message. The count is the only part of the chip that can take
-   a colour — an emoji glyph ignores `color` — so it is the only honest place to put this.
+   The count alone had to carry this while the chip had no ground, and it is a weak signal
+   — an emoji glyph ignores `color`, so on a chip whose only coloured part is a single
+   digit, "am I in this?" was answered by the shade of one character. With the capsule back
+   the ring can answer it, and the count keeps the accent as well rather than instead.
 */
 .reaction.mine {
-  background: transparent;
-  box-shadow: none;
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
   color: var(--accent-ink, var(--accent));
   font-weight: 650;
+}
+
+.reaction.mine:not(:disabled):hover {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 58%, transparent),
+    0 2px 5px -2px rgb(24 22 40 / 22%);
 }
 
 .reaction-count {
@@ -10077,7 +10118,15 @@ input.signin-control {
      a thread it opened past the bottom of the scroller and had to be scrolled to. The
      chips sit under a bubble with the whole thread above them, so up is where the room is.
   */
-  bottom: calc(100% + 6px);
+  bottom: calc(100% + 9px);
+  /*
+     `left` is an inline style, set from the chip's measured offset — this is only what a
+     panel falls back to if it ever renders without one.
+
+     It used to be `left: 0`, with `right: 0` for your own messages, which meant every chip
+     on a message opened the panel in the same place. Measured on a message with two chips:
+     x 1152..1412 for both of them.
+  */
   left: 0;
   width: min(260px, calc(100vw - 32px));
   padding: 10px 4px 6px;
@@ -10088,11 +10137,39 @@ input.signin-control {
     0 12px 28px -12px rgb(24 22 40 / 26%);
 }
 
-/* Your own messages sit on the right, so their panel hangs from that edge instead of
-   running off the far side of the thread. */
-.message-row.mine .reaction-details {
-  left: auto;
-  right: 0;
+/*
+   The arrow, pointing at the chip that opened the panel.
+
+   The panel's left edge is CLAMPED to the thread column, so near either end of a wide
+   message the panel stops moving while the chips keep going — and without the arrow, the
+   panel would be in the same place for the last three chips of a row. The arrow is what
+   still distinguishes them. Its inset is computed against the clamped position, which is
+   why it arrives as a variable rather than being derived here.
+
+   Two elements: the border layer and the fill layer, one pixel apart. A single rotated
+   square would carry the panel's `0 0 0 1px` ring on all four of its sides, including the
+   two inside the panel, and draw a line across the panel's own bottom edge.
+*/
+.reaction-details::before,
+.reaction-details::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: calc(var(--reaction-caret, 20px) - 7px);
+  width: 0;
+  height: 0;
+  border: 7px solid transparent;
+  border-bottom: 0;
+}
+
+.reaction-details::before {
+  border-top-color: var(--border);
+}
+
+.reaction-details::after {
+  /* One pixel higher, so the fill covers all of the border triangle but its outline. */
+  border-top-width: 6px;
+  border-top-color: var(--surface);
 }
 
 .reaction-details-head {
