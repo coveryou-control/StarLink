@@ -185,6 +185,22 @@ export function Composer({
    * with its own version of the scanning and binding rules — which is what §28 exists to
    * prevent there being.
    */
+  /**
+   * A recording waiting to be SENT the moment the server will bind it.
+   *
+   * The review's arrow used to stage the audio and stop, so sending a voice note was two
+   * presses on two different controls — arrow, then the composer's own send — with a chip
+   * in between that nobody asked for. Pressing the arrow means "send this".
+   *
+   * It cannot send immediately: §28.1 binds only a CLEAN attachment and the upload
+   * resolves when the audio reaches the SCANNER, not when the scan finishes. Sending on
+   * that promise would post a message with no audio attached, which is the exact defect
+   * `attachment-picker.tsx` documents at length. So the id is parked here and the effect
+   * below sends when the chip turns READY - which is the poll that already exists,
+   * observed rather than duplicated.
+   */
+  const sendWhenReady = useRef<string | undefined>(undefined);
+
   const attachRecording = useCallback(
     async (recording: Recording): Promise<boolean> => {
       const declared = declaredMimeFor(recording.recordedAs);
@@ -194,7 +210,14 @@ export function Composer({
       /* Awaited, and the outcome returned: the recorder keeps its review open until this
          says the audio is safely with the scanner. Fire-and-forget here would have the
          review closing on a failed upload, taking the only copy of the recording with it. */
-      return uploadAttachment(conversationId, file, setStaged, recording.durationMs);
+      const attachmentId = await uploadAttachment(
+        conversationId,
+        file,
+        setStaged,
+        recording.durationMs,
+      );
+      if (attachmentId !== undefined) sendWhenReady.current = attachmentId;
+      return attachmentId !== undefined;
     },
     [conversationId],
   );
@@ -678,6 +701,27 @@ export function Composer({
     mentions,
     labelFor,
   ]);
+
+  /**
+   * Sends the parked recording the moment the server will bind it.
+   *
+   * Watches the chip the picker's own scan poll maintains rather than polling again —
+   * there is one poll for this and it is `attachment-picker.tsx`'s. Three outcomes and
+   * each clears the parking slot: READY sends, FAILED gives up and leaves the chip to
+   * explain itself, and a chip that vanished was bound by something else.
+   */
+  useEffect(() => {
+    const waiting = sendWhenReady.current;
+    if (waiting === undefined) return;
+    const chip = staged.find((file) => file.attachmentId === waiting);
+    if (chip === undefined || chip.state === 'FAILED') {
+      sendWhenReady.current = undefined;
+      return;
+    }
+    if (chip.state !== 'READY') return;
+    sendWhenReady.current = undefined;
+    void send();
+  }, [staged, send]);
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {

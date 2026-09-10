@@ -176,6 +176,14 @@ export interface ConversationSummary {
   readonly lastActivityAt: string;
   readonly lastMessagePreview?: string;
   readonly participantCount: number;
+  /**
+   * Who created it — a group's admin (migration 0023).
+   *
+   * Carried so the members list can label the admin even when the admin is the READER:
+   * `participants` excludes the caller, so their own role is not in it and the badge was
+   * the one thing about a group its creator could not see.
+   */
+  readonly createdBy?: string;
   readonly unreadCount: number;
   /**
    * Who issued this announcement. Absent on every other conversation type.

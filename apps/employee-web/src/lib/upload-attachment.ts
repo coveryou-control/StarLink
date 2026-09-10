@@ -52,9 +52,13 @@ export interface StagedAttachment {
  *
  * The picker still owns the CHIPS and the scan poll. Only the transfer moved.
  *
- * Resolves `false` when the file never reached the scanner. Every caller may ignore that —
- * the chip already says so — except the voice recorder, which must not throw away the only
- * copy of a recording it has just failed to send.
+ * Resolves the ATTACHMENT ID, or `undefined` when the file never reached the scanner.
+ *
+ * It resolved a boolean until the voice note's arrow had to send as well as stage: sending
+ * means binding one specific attachment, and "it worked" is not enough to name which. Every
+ * caller may still ignore the value — the chip already says what happened — except the
+ * recorder, which must not throw away the only copy of a recording it has just failed to
+ * send, and now also needs to know what it just uploaded.
  *
  * The steps, and why they are four, are documented on `attachment-picker.tsx`; this is the
  * same code, not a second implementation.
@@ -69,7 +73,7 @@ export async function uploadAttachment(
    * play button beside a PDF.
    */
   durationMs?: number,
-): Promise<boolean> {
+): Promise<string | undefined> {
   let attachmentId: string | undefined;
   try {
     /* 1. The grant. Declared values only — the server verifies the real MIME by content
@@ -128,7 +132,7 @@ export async function uploadAttachment(
           : item,
       ),
     );
-    return true;
+    return grant.attachmentId;
   } catch (cause) {
     /**
      * §34.4 requires an upload to fail EXPLICITLY so "the user keeps their message and can
@@ -185,7 +189,7 @@ export async function uploadAttachment(
      * played or re-sent from. Clearing that review on a failed upload destroys the
      * recording — so the recorder waits for this before it does.
      */
-    return false;
+    return undefined;
   }
 }
 

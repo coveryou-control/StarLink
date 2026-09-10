@@ -70,6 +70,8 @@ export interface ConversationSummary {
   readonly lastActivityAt: Timestamp;
   readonly lastMessagePreview?: string;
   readonly participantCount: number;
+  /** Who created it. Present for internal conversations; the group's admin (0023). */
+  readonly createdBy?: string;
   readonly unreadCount: number;
   /**
    * Who issued this announcement. Absent on every other conversation type.

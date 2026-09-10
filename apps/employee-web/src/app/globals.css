@@ -10669,7 +10669,11 @@ input.signin-control {
   overflow-y: auto;
 }
 
+/* A positioning context, so the corner camera has an edge to sit on — and `overflow`
+   so a chosen picture is a circle rather than a square behind one. */
 .new-chat-avatar {
+  position: relative;
+  overflow: visible;
   display: inline-grid;
   place-items: center;
   flex: none;
@@ -10678,6 +10682,15 @@ input.signin-control {
   border-radius: 50%;
   background: var(--surface-sunken, var(--surface-raised));
   color: var(--text-subtle);
+}
+
+/* The chosen picture fills the circle. `overflow: visible` above is for the camera, so
+   the clipping happens here instead. */
+.new-chat-avatar img {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
 .new-chat-name-field {
@@ -11036,7 +11049,20 @@ input.signin-control {
   gap: 12px;
 }
 
-.media-preview-caption {
+/*
+   `.media-preview .media-preview-caption`, and the extra class is load-bearing.
+
+   This is an `<input type="text">`, and the design system styles those at (0,1,1) with
+   `background: var(--surface)`. A single class scores (0,1,0) and LOSES — so the field
+   took the light surface while this rule's near-white ink applied anyway, and the caption
+   somebody typed over a photograph was white text on a white box. Invisible, reported
+   from use.
+
+   Exactly the collision `.signin-control` carries a comment about, in the one field added
+   since. A class-only selector cannot style a typed input in this sheet; anything that
+   needs to must out-specify the element rule or be an element selector itself.
+*/
+.media-preview .media-preview-caption {
   flex: 1 1 auto;
   min-width: 0;
   height: 46px;
@@ -11049,11 +11075,11 @@ input.signin-control {
   font-size: var(--text-md);
 }
 
-.media-preview-caption::placeholder {
+.media-preview .media-preview-caption::placeholder {
   color: rgb(246 245 250 / 52%);
 }
 
-.media-preview-caption:focus-visible {
+.media-preview .media-preview-caption:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

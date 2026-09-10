@@ -306,6 +306,12 @@ export function Participants({
               </span>
               <span className="person-name">
                 {meName} <span className="muted">(you)</span>
+                {/* The reader's own badge, which did not exist. `participants` excludes
+                    the caller, so their role was never in the list to check — the summary
+                    carries `createdBy` for exactly this. */}
+                {isGroup && active?.createdBy === signedInId ? (
+                  <span className="member-admin">Admin</span>
+                ) : null}
               </span>
             </li>
             {members.map((m) => (
@@ -327,7 +333,13 @@ export function Participants({
                      badge is text rather than an icon so it survives greyscale and so a
                      screen reader reads it as part of the row (NFR-ACC-3).
                   */}
-                  {m.role === 'CREATOR' ? <span className="member-admin">Admin</span> : null}
+                  {/* Either signal: the participation ROLE, which is what migration 0023
+                      records, or the conversation's own `created_by`. They agree in every
+                      ordinary case; the column is what still answers when the summary's
+                      participant list is truncated past this person. */}
+                  {m.role === 'CREATOR' || (isGroup && active?.createdBy === m.principalId) ? (
+                    <span className="member-admin">Admin</span>
+                  ) : null}
                 </span>
                 {/*
                   Remove sits on the MEMBER, which is the only place it makes sense.

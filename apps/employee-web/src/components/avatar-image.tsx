@@ -1,11 +1,12 @@
 'use client';
 
-import { createContext, useContext } from 'react';
+import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { employeeRoutes } from '@starlink/shared-contracts';
 
 import { runtimeOrigins } from '../lib/runtime-origins';
+import { AVATAR_CHANGED_EVENT } from '../lib/use-avatar-stamps';
 
 /**
  * Somebody's picture, where their initials would otherwise be.
@@ -101,18 +102,44 @@ export function ConversationAvatarImage({
   /** Set after an upload in this session, so the new picture appears without a poll. */
   readonly version?: string | undefined;
 }): ReactNode {
+  /**
+   * Re-reads when anybody announces an avatar change.
+   *
+   * A PERSON's picture has `useAvatarStamps`, which polls for a version and re-polls the
+   * moment `announceAvatarChange` fires — so setting your own photograph updates every
+   * face on screen at once. A CONVERSATION's had no such path: the URL was the same
+   * either side of an upload, so the browser served the cached bytes (or the cached 404)
+   * and the group kept its old picture until a hard reload. Reported from use.
+   *
+   * A nonce rather than a poll, because the group case has no equivalent of the stamps
+   * endpoint and does not need one: the only thing that changes a group's picture is
+   * somebody in the product doing it, and that somebody announces.
+   */
+  const [nonce, setNonce] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    const bump = (): void => setNonce(String(Date.now()));
+    window.addEventListener(AVATAR_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(AVATAR_CHANGED_EVENT, bump);
+  }, []);
+
   return (
     <img
       className="avatar-photo"
-      src={`${runtimeOrigins().api}${employeeRoutes.conversations.avatar(conversationId, version)}`}
+      src={`${runtimeOrigins().api}${employeeRoutes.conversations.avatar(conversationId, version ?? nonce)}`}
       alt=""
       crossOrigin="use-credentials"
       loading="lazy"
       decoding="async"
       /* A group with no picture 404s, and a broken-image glyph over the figures would be
          worse than nothing. Hidden on error so the glyph underneath is what remains. */
+      /* Hidden on error so the glyph underneath is what remains — and shown again on a
+         later load, or a group that had no picture when the page opened would stay
+         hidden after one was set. */
       onError={(event) => {
         event.currentTarget.style.display = 'none';
+      }}
+      onLoad={(event) => {
+        event.currentTarget.style.display = '';
       }}
     />
   );

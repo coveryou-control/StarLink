@@ -19,7 +19,7 @@ import {
   type PinnedMessage,
 } from '../../../lib/api-client';
 import { ChannelInfo } from '../../../components/channel-info';
-import { AvatarImage } from '../../../components/avatar-image';
+import { AvatarImage, ConversationAvatarImage } from '../../../components/avatar-image';
 import { useRealtime } from '../../../lib/use-realtime';
 import { ChatHeader } from '../../../components/chat-header';
 import {
@@ -1477,7 +1477,11 @@ export default function ThreadPage(): ReactNode {
             }}
           >
             <span className="chat-avatar group" aria-hidden="true">
+              {/* The glyph is the FALLBACK; the picture sits over it, the same arrangement
+                  the list row and the header use. The panel that edits a group's picture
+                  was the one place not showing it. */}
               <GroupGlyph />
+              <ConversationAvatarImage conversationId={conversationId} />
             </span>
           </GroupIdentity>
         ) : (
@@ -1565,16 +1569,17 @@ export default function ThreadPage(): ReactNode {
           */}
           {isAnnouncement ? null : (
             <div className="details-identity-actions">
-              <button
-                type="button"
-                className="primary"
-                onClick={() => {
-                  const field = document.querySelector<HTMLTextAreaElement>('.composer-input');
-                  field?.focus();
-                }}
-              >
-                Message
-              </button>
+              {/*
+                Search alone. "Message" was the design's primary action here and it never
+                had a job: this panel only opens FROM a conversation that is already on
+                screen, so the button's whole effect was to put the caret in a composer
+                three inches to the left of it. A filled primary button that does nothing
+                you could not do by clicking the box it points at is the loudest thing on
+                the panel promising the least.
+
+                The reference draws "Message" and "Call" because it is a contacts screen
+                where neither is open yet. This is not that screen.
+              */}
               <button type="button" onClick={() => setSearchOpen(true)}>
                 Search
               </button>

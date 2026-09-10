@@ -30,6 +30,7 @@ import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { api, ApiError } from '../lib/api-client';
+import { announceAvatarChange } from '../lib/use-avatar-stamps';
 import { AvatarPicker } from './avatar-picker';
 
 export function GroupIdentity({
@@ -99,6 +100,10 @@ export function GroupIdentity({
           onChosen={async (base64) => {
             const saved = await api.setConversationAvatar(conversationId, base64);
             setPictureAt(saved.updatedAt);
+            /* Every avatar for this conversation re-reads NOW — the list row, the header
+               and the circle right here — rather than keeping the cached bytes until a
+               reload. See `ConversationAvatarImage`. */
+            announceAvatarChange();
             onChanged();
           }}
         />

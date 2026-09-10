@@ -492,8 +492,21 @@ export class PgConversationReader implements ConversationReader {
     // same millisecond — so the id is the tiebreaker that stops a row being skipped or
     // repeated across pages.
     const result = await this.pool.query(
+      /*
+         `created_by`, so the interface can say who the admin IS rather than deduce it.
+
+         The members list showed "Admin" beside a CREATOR role it could see, and the
+         summary's participant array excludes the caller — so the one person guaranteed to
+         know they made the group was the only member never labelled as its admin. The
+         inference already in `participants.tsx` ("nobody visible holds CREATOR, so it must
+         be me") is fine for deciding whether to OFFER a control the server will re-check,
+         and not fine for stating a fact: it is wrong for a group whose creator has left.
+
+         A column rather than a scalar subquery for the caller's own role: this runs for
+         every row of the conversation list, and `created_by` is already on the table.
+      */
       `SELECT c.conversation_id, c.conversation_type, c.title, c.state, c.sensitivity,
-              c.last_activity_at, c.last_message_preview, c.participant_count,
+              c.created_by, c.last_activity_at, c.last_message_preview, c.participant_count,
               author.display_name AS publisher_name,
               ap.pinned_at AS announcement_pinned_at,
               /*
@@ -699,6 +712,9 @@ export class PgConversationReader implements ConversationReader {
       ...(row.last_message_preview !== null ? { lastMessagePreview: row.last_message_preview } : {}),
       participantCount: row.participant_count,
       unreadCount: row.unread_count,
+      /* Absent rather than null when unknown, so a reader that does not use it cannot
+         accidentally render one. */
+      ...(row.created_by !== null ? { createdBy: row.created_by as string } : {}),
       /* Announcement facts. Absent on every other type rather than null, so a reader that
          does not know about them cannot accidentally render one. */
       ...(row.publisher_name !== null && row.conversation_type === 'INTERNAL_ANNOUNCEMENT'

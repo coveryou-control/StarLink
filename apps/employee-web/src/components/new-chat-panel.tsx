@@ -42,6 +42,8 @@ import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
 
 import { api, ApiError, type DirectoryEntry } from '../lib/api-client';
 import { AvatarImage } from './avatar-image';
+import { AvatarPicker } from './avatar-picker';
+import { announceAvatarChange } from '../lib/use-avatar-stamps';
 import { initialsFor } from './conversation-naming';
 import { distinctIdentityHues, identityStyleFrom } from '../lib/identity-colour';
 import { useSession } from './session-provider';
@@ -73,6 +75,8 @@ export function NewChatPanel({
   const [loadingColleagues, setLoadingColleagues] = useState(true);
   const [chosen, setChosen] = useState<readonly DirectoryEntry[]>([]);
   const [title, setTitle] = useState('');
+  /** A group picture chosen before the group exists. See `NameStep`. */
+  const [picture, setPicture] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | undefined>();
   const fieldRef = useRef<HTMLInputElement>(null);
@@ -175,6 +179,26 @@ export function NewChatPanel({
         participantIds: people.map((person) => person.principalId),
         ...(name !== undefined && name.trim() !== '' ? { title: name.trim() } : {}),
       });
+      /*
+         The picture, now that there is somewhere to put it.
+
+         Before `onStarted`, which navigates and unmounts this panel — after it there is
+         no component left to report a failure from. Awaited for the same reason: the
+         group must not appear with its default glyph and then change under the person
+         who just chose a picture for it.
+
+         A failure here does NOT fail the creation. The group exists; only its icon did
+         not arrive, and that is a thing to say rather than a thing to undo.
+      */
+      if (picture !== undefined) {
+        try {
+          await api.setConversationAvatar(created.conversationId, picture);
+          announceAvatarChange();
+        } catch {
+          setMessage('The group was created, but its picture did not upload.');
+          return;
+        }
+      }
       /* BR-05: a repeated 1:1 returns the thread that already exists. Navigating to it is
          the right answer; reporting "already exists" would be telling somebody off for
          doing exactly what they meant. */
@@ -222,6 +246,8 @@ export function NewChatPanel({
         <NameStep
           title={title}
           onTitle={setTitle}
+          picture={picture}
+          onPicture={setPicture}
           chosen={chosen}
           busy={busy}
           message={message}
@@ -428,6 +454,8 @@ export function NewChatPanel({
 function NameStep({
   title,
   onTitle,
+  picture,
+  onPicture,
   chosen,
   busy,
   message,
@@ -435,6 +463,9 @@ function NameStep({
 }: {
   readonly title: string;
   readonly onTitle: (next: string) => void;
+  /** Raw PNG base64, held here until there is a conversation to attach it to. */
+  readonly picture: string | undefined;
+  readonly onPicture: (base64: string) => void;
   readonly chosen: readonly DirectoryEntry[];
   readonly busy: boolean;
   readonly message: string | undefined;
@@ -454,22 +485,41 @@ function NameStep({
       }}
     >
       {/*
-        A picture cannot be set before the group exists.
+        The picture, chosen here and uploaded the instant the group exists.
 
-        WhatsApp puts "Add group icon" here, and it can: its group is a local object until
-        you confirm. Ours is created by the server, and the avatar endpoint takes a
-        conversation id — so a control here would be collecting a file with nowhere to put
-        it. The placeholder says what the group will look like and the info panel is where
-        the picture is set, one press after this. Offering it here would be a picture of a
-        feature.
+        The first version of this said a picture could not be set before the group did:
+        the avatar endpoint takes a conversation id, so a control here would be collecting
+        a file with nowhere to put it. That was a statement about the ORDER of two
+        requests, not about what a person can be offered. The file is held in the page,
+        the group is created, and the picture is sent immediately after with the id the
+        server just returned — which is what the caller sees as one act, because it is one.
+
+        It stays honest about failure: if the group is created and the picture is not, the
+        group still exists and the panel says the picture did not go. Losing the group
+        because its icon failed would be much the worse trade.
       */}
-      <span className="new-chat-avatar" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" focusable="false">
-          <circle cx="9" cy="9" r="3.4" />
-          <path d="M2.8 19.4c0-3.2 2.8-5.2 6.2-5.2s6.2 2 6.2 5.2" />
-          <path d="M16.6 7.3a3.2 3.2 0 0 1 0 6" />
-          <path d="M18.2 19.4c0-2.4-.9-4-2.3-4.9" />
-        </svg>
+      <span className="new-chat-avatar">
+        {picture === undefined ? (
+          <svg viewBox="0 0 24 24" width="30" height="30" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" focusable="false">
+            <circle cx="9" cy="9" r="3.4" />
+            <path d="M2.8 19.4c0-3.2 2.8-5.2 6.2-5.2s6.2 2 6.2 5.2" />
+            <path d="M16.6 7.3a3.2 3.2 0 0 1 0 6" />
+            <path d="M18.2 19.4c0-2.4-.9-4-2.3-4.9" />
+          </svg>
+        ) : (
+          <img src={`data:image/png;base64,${picture}`} alt="" />
+        )}
+        {/*
+          The same corner camera the info panel uses, so setting a group's picture looks
+          the same before and after it exists. `onChosen` keeps the bytes instead of
+          uploading them — this is the one caller with nowhere to send them yet.
+        */}
+        <AvatarPicker
+          variant="corner"
+          label="Choose a picture for this group"
+          hasPicture={picture !== undefined}
+          onChosen={async (base64) => onPicture(base64)}
+        />
       </span>
 
       <label className="new-chat-name-field">
@@ -496,8 +546,15 @@ function NameStep({
       ) : null}
 
       <div className="new-chat-foot">
-        <span className={title.trim() === '' ? 'start-blocked' : 'muted'}>
-          {title.trim() === '' ? 'Name this group to create it' : 'Ready'}
+        {/*
+          The line says what is STOPPING you, and nothing when nothing is.
+
+          It said "Ready" once the name was filled in, which is the control's own state
+          read back as a sentence — the arrow beside it is not disabled, which is the
+          same fact said better and without a word.
+        */}
+        <span className="start-blocked">
+          {title.trim() === '' ? 'Name this group to create it' : ''}
         </span>
         <button
           type="submit"
