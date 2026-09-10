@@ -92,6 +92,38 @@ export const DEFAULT_POLICY: AttachmentPolicy = Object.freeze({
       'audio/ogg',
       'audio/mp4',
       'audio/mpeg',
+      /*
+         Video, and the rest of the picture formats.
+
+         Added 2026-09-10, because the composer had begun offering "Photos & videos" and
+         the server refused every video that came through it - the person saw "That file
+         cannot be attached here" over a control that had just invited them to attach it.
+         An interface that offers what the policy refuses is worse than one that offers
+         neither.
+
+         The three video types are the three `mediaKindOf` will draw inline, and that is
+         deliberate: a type on this list that the thread cannot render arrives as a file
+         card, which is a worse answer than not accepting it. `image/gif`, `image/webp`
+         and `image/avif` are here for the same reason in reverse - the renderer already
+         claimed all three and the policy accepted none, so those branches were dead.
+
+         Safe for the same reason the audio types are, and it is the container argument
+         rather than a new one: the scanner sniffs magic bytes, and the download path
+         serves everything as `application/octet-stream` with `Content-Disposition:
+         attachment`, so nothing here is ever interpreted as script by a browser.
+
+         SVG is still absent, and still deliberately. It is a document that can carry
+         script, and rendering one inline from a colleague is an execution decision.
+
+         `maxBytes` is NOT raised for these. 25MB is a configured value (ADR-017) and a
+         video-sized one is not this change's to invent - see STARLINK_OPEN_QUESTIONS.
+      */
+      'video/mp4',
+      'video/webm',
+      'video/quicktime',
+      'image/gif',
+      'image/webp',
+      'image/avif',
     ]),
     maxBytes: 25 * 1024 * 1024,
     // See the header: §28.2's exemption for employees is void once customers may upload.

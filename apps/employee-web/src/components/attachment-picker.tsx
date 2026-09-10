@@ -43,7 +43,15 @@
  * longer claims otherwise — the chip says it is still being checked, and the composer
  * reports afterwards what did not go.
  */
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../lib/api-client';
 import { uploadAttachment, type StagedAttachment } from '../lib/upload-attachment';
 
@@ -128,6 +136,9 @@ const VERDICTS: Record<string, { state: 'READY' | 'FAILED' | 'GONE'; problem?: s
  * them is not installed, so an `accept` list of those MIME types silently shows an empty
  * folder. The extension is what actually filters there.
  */
+/** The menu's width before it has been measured, and the `min-width` the sheet gives it. */
+const MENU_WIDTH = 194;
+
 const ATTACH_KINDS = [
   {
     id: 'document',
@@ -200,6 +211,8 @@ export function AttachmentPicker({
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  /** Where the portalled menu sits, in viewport coordinates. */
+  const [menuAt, setMenuAt] = useState<{ left: number; bottom: number } | undefined>(undefined);
 
   /*
      One input, re-pointed, rather than one per kind.
@@ -215,6 +228,51 @@ export function AttachmentPicker({
     setMenuOpen(false);
     input.click();
   };
+
+  /**
+   * The menu is placed against the WINDOW, not against the paperclip's ancestors.
+   *
+   * It was an absolutely positioned child of the control, opening rightward from
+   * `left: 0`. The paperclip sits at the right-hand end of the composer's action row, so
+   * a 194px menu ran off the right edge at every desktop width — measured at 1440, 1100,
+   * 900 and 760, past the window on all four — and `main.thread-column` is
+   * `overflow: hidden`, so what a person saw was the menu cut through the middle of a
+   * word rather than a scrollbar.
+   *
+   * Clamping inside that column would have fixed the symptom and left the menu bounded by
+   * a box it has no reason to be inside. It is a menu: it belongs to the window. So it is
+   * portalled to the body, positioned from the trigger's own rect, and clamped to the
+   * viewport with a margin — which no ancestor's `overflow` can undo.
+   *
+   * Right-aligned to the trigger by preference, because that is the edge with room when a
+   * control is at the end of a row; the clamp catches the case where it is not.
+   */
+  useLayoutEffect(() => {
+    if (!menuOpen) {
+      setMenuAt(undefined);
+      return;
+    }
+    const place = (): void => {
+      const trigger = triggerRef.current;
+      if (trigger === null) return;
+      const box = trigger.getBoundingClientRect();
+      const width = menuRef.current?.getBoundingClientRect().width ?? MENU_WIDTH;
+      const MARGIN = 8;
+      const preferred = box.right - width;
+      const highest = window.innerWidth - MARGIN - width;
+      const left = Math.max(MARGIN, Math.min(preferred, highest));
+      setMenuAt({ left, bottom: window.innerHeight - box.top + MARGIN });
+    };
+    place();
+    /* A resize or a scroll moves the paperclip out from under the menu. Re-placing is
+       cheaper and less surprising than closing, which would lose a deliberate press. */
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [menuOpen]);
 
   /* Escape and a press outside, the same two exits every other popover here has. */
   useEffect(() => {
@@ -398,36 +456,51 @@ export function AttachmentPicker({
           </svg>
         </button>
 
-        {menuOpen ? (
-          <div className="attach-menu" role="menu" aria-label="What to attach" ref={menuRef}>
-            {ATTACH_KINDS.map((kind) => (
-              <button
-                key={kind.id}
-                type="button"
-                role="menuitem"
-                className="attach-menu-item"
-                onClick={() => choose(kind.accept)}
+        {menuOpen
+          ? createPortal(
+              <div
+                className="attach-menu"
+                role="menu"
+                aria-label="What to attach"
+                ref={menuRef}
+                /* Hidden for the one frame between mounting and being measured, rather
+                   than drawn in the wrong place and then moved. */
+                style={
+                  menuAt === undefined
+                    ? { visibility: 'hidden' }
+                    : { left: `${menuAt.left}px`, bottom: `${menuAt.bottom}px` }
+                }
               >
-                <span className={`attach-menu-icon is-${kind.id}`} aria-hidden="true">
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="17"
-                    height="17"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.6"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    focusable="false"
+                {ATTACH_KINDS.map((kind) => (
+                  <button
+                    key={kind.id}
+                    type="button"
+                    role="menuitem"
+                    className="attach-menu-item"
+                    onClick={() => choose(kind.accept)}
                   >
-                    {kind.icon}
-                  </svg>
-                </span>
-                {kind.label}
-              </button>
-            ))}
-          </div>
-        ) : null}
+                    <span className={`attach-menu-icon is-${kind.id}`} aria-hidden="true">
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="17"
+                        height="17"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        focusable="false"
+                      >
+                        {kind.icon}
+                      </svg>
+                    </span>
+                    {kind.label}
+                  </button>
+                ))}
+              </div>,
+              document.body,
+            )
+          : null}
 
         <input
           ref={inputRef}

@@ -56,12 +56,33 @@ const SIGNATURES: readonly {
   readonly mime: string;
   readonly bytes: readonly number[];
   readonly at?: number;
+  /**
+   * Other types these same bytes legitimately carry.
+   *
+   * A container is not a MIME type. EBML is WebM audio and WebM video; ISO base media is
+   * an .m4a, an .mp4 and a .mov. There is no byte sequence that separates the members of
+   * either family at the header, so a sniffer that reports one of them and rejects the
+   * rest is not being strict - it is being wrong about what it read.
+   *
+   * So the signature says what its bytes may be, and a declared type from that set is
+   * accepted and reported back. This is bounded and it is not "trust the declaration":
+   * the set never crosses a container boundary, so an HTML file declared `image/png` is
+   * refused exactly as before. It is also the reasoning the WebM comment below has
+   * carried since voice notes shipped - what changed is that it is now enforced rather
+   * than merely noted.
+   */
+  readonly alsoCarries?: readonly string[];
 }[] = [
   { mime: 'application/pdf', bytes: [0x25, 0x50, 0x44, 0x46] }, // %PDF
   { mime: 'image/png', bytes: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },
   { mime: 'image/jpeg', bytes: [0xff, 0xd8, 0xff] },
   { mime: 'image/tiff', bytes: [0x49, 0x49, 0x2a, 0x00] },
   { mime: 'image/tiff', bytes: [0x4d, 0x4d, 0x00, 0x2a] },
+  { mime: 'image/gif', bytes: [0x47, 0x49, 0x46, 0x38] }, // GIF8 — both 87a and 89a
+  /* WEBP is a RIFF file, and RIFF at byte 0 is also a WAV and an AVI. The four bytes at
+     offset 8 are what name the form, so that is what is matched - `RIFF` alone would
+     claim two formats this list does not accept. */
+  { mime: 'image/webp', bytes: [0x57, 0x45, 0x42, 0x50], at: 8 },
   // ZIP container. Both a real archive and every modern Office document, which is why a
   // sniffed `application/zip` cannot be promoted to a .docx without inspecting further —
   // a limitation this stub records rather than guesses past.
@@ -78,11 +99,27 @@ const SIGNATURES: readonly {
      path serves octet-stream with `Content-Disposition: attachment` either way, and the
      player refuses anything it cannot decode as audio.
   */
-  { mime: 'audio/webm', bytes: [0x1a, 0x45, 0xdf, 0xa3] }, // EBML — WebM / Matroska
+  {
+    mime: 'audio/webm',
+    bytes: [0x1a, 0x45, 0xdf, 0xa3], // EBML — WebM / Matroska
+    alsoCarries: ['video/webm'],
+  },
   { mime: 'audio/ogg', bytes: [0x4f, 0x67, 0x67, 0x53] }, // OggS
-  /* `ftyp`, four bytes into an ISO base-media file: MP4, M4A and everything Safari's
-     recorder produces. */
-  { mime: 'audio/mp4', bytes: [0x66, 0x74, 0x79, 0x70], at: 4 },
+  /*
+     `ftyp`, four bytes into an ISO base-media file: MP4, M4A, MOV, AVIF and everything
+     Safari's recorder produces.
+
+     The brand that follows at offset 8 is what separates them, and `isoBrandOf` below
+     reads it. What it cannot separate is audio-only MP4 from MP4 with a video track -
+     both are commonly written with brand `isom` or `mp42`, including by Safari's own
+     recorder - so those two stay a set and the declared type picks between them.
+  */
+  {
+    mime: 'video/mp4',
+    bytes: [0x66, 0x74, 0x79, 0x70],
+    at: 4,
+    alsoCarries: ['audio/mp4'],
+  },
   { mime: 'audio/mpeg', bytes: [0x49, 0x44, 0x33] }, // ID3 — an MP3 with a tag
   { mime: 'audio/mpeg', bytes: [0xff, 0xfb] }, // a bare MPEG-1 Layer III frame
 ];
@@ -145,16 +182,21 @@ export class DevAttachmentScanner implements AttachmentScanner {
     // A ZIP container is an Office document or an archive, and this stub cannot tell.
     // Accepting it only where the caller has whitelisted the declared Office type keeps
     // the decision explicit instead of hidden in a guess.
+    /* The declared type is one of the ones these bytes carry — see `alsoCarries`. A
+       container that holds audio and video alike cannot be narrowed further, and calling
+       an .mp4 an .m4a because the sniffer had to pick one is not strictness. */
+    const carried = sniffed.alsoCarries.includes(request.declaredMime);
     const acceptable =
-      sniffed === request.declaredMime ||
-      (sniffed === 'application/zip' &&
+      sniffed.mime === request.declaredMime ||
+      carried ||
+      (sniffed.mime === 'application/zip' &&
         (this.options.acceptZipContainerAs ?? []).includes(request.declaredMime));
 
     if (!acceptable) {
       return ok({
         verdict: 'REJECTED',
-        reason: `declared ${request.declaredMime} but the contents are ${sniffed}`,
-        sniffedMime: sniffed,
+        reason: `declared ${request.declaredMime} but the contents are ${sniffed.mime}`,
+        sniffedMime: sniffed.mime,
         actualBytes,
         scanner: SCANNER_NAME,
       });
@@ -162,10 +204,11 @@ export class DevAttachmentScanner implements AttachmentScanner {
 
     return ok({
       verdict: 'CLEAN',
-      // The DECLARED type is reported when a container was accepted by whitelist,
-      // because that is what the bytes are agreed to be — and the caller re-checks it
-      // against the allow-list either way (`checkReceived`).
-      sniffedMime: sniffed === 'application/zip' ? request.declaredMime : sniffed,
+      // The DECLARED type is reported when a container was accepted by whitelist or by
+      // the set the signature carries, because that is what the bytes are agreed to be —
+      // and the caller re-checks it against the allow-list either way (`checkReceived`).
+      sniffedMime:
+        carried || sniffed.mime === 'application/zip' ? request.declaredMime : sniffed.mime,
       actualBytes,
       scanner: SCANNER_NAME,
     });
@@ -193,11 +236,57 @@ const containsEicar = (bytes: Uint8Array): boolean => {
   return head.includes(EICAR);
 };
 
-const sniff = (bytes: Uint8Array): string | undefined => {
+/**
+ * The major brand of an ISO base-media file, four bytes after `ftyp`.
+ *
+ * `undefined` when the file is too short to have one, which a 12-byte header legitimately
+ * is - the caller then falls back to the signature's own set rather than guessing.
+ */
+const isoBrandOf = (bytes: Uint8Array): string | undefined => {
+  if (bytes.byteLength < 12) return undefined;
+  return new TextDecoder('latin1').decode(bytes.subarray(8, 12));
+};
+
+/**
+ * Which types an ISO base-media file's brand pins it to.
+ *
+ * Only the brands that are UNAMBIGUOUS appear here. `isom`, `mp42`, `iso2` and their
+ * relatives are absent on purpose: they are written for audio-only files and for files
+ * with a video track alike, so pinning them to either would refuse the other.
+ */
+const ISO_BRANDS: readonly { readonly prefix: string; readonly mime: string }[] = [
+  { prefix: 'qt', mime: 'video/quicktime' }, // 'qt  ' — QuickTime
+  { prefix: 'M4A', mime: 'audio/mp4' },
+  { prefix: 'M4B', mime: 'audio/mp4' },
+  { prefix: 'M4P', mime: 'audio/mp4' },
+  { prefix: 'F4A', mime: 'audio/mp4' },
+  { prefix: 'avif', mime: 'image/avif' },
+  { prefix: 'avis', mime: 'image/avif' },
+];
+
+interface Sniffed {
+  readonly mime: string;
+  readonly alsoCarries: readonly string[];
+}
+
+const sniff = (bytes: Uint8Array): Sniffed | undefined => {
   for (const signature of SIGNATURES) {
     const at = signature.at ?? 0;
     if (bytes.byteLength < at + signature.bytes.length) continue;
-    if (signature.bytes.every((byte, index) => bytes[at + index] === byte)) return signature.mime;
+    if (!signature.bytes.every((byte, index) => bytes[at + index] === byte)) continue;
+
+    /* An ISO base-media file gets one more look: the brand narrows it where it can, and
+       leaves it a set where it genuinely cannot. */
+    if (signature.at === 4) {
+      const brand = isoBrandOf(bytes);
+      const pinned =
+        brand === undefined
+          ? undefined
+          : ISO_BRANDS.find((entry) => brand.startsWith(entry.prefix));
+      if (pinned !== undefined) return { mime: pinned.mime, alsoCarries: [] };
+    }
+
+    return { mime: signature.mime, alsoCarries: signature.alsoCarries ?? [] };
   }
   // Plain text is the one type with no magic bytes. Recognised only if every byte in the
   // head is printable or ordinary whitespace — otherwise an unknown binary would pass as
@@ -206,5 +295,5 @@ const sniff = (bytes: Uint8Array): string | undefined => {
   const printable = head.every(
     (byte) => byte === 0x09 || byte === 0x0a || byte === 0x0d || (byte >= 0x20 && byte <= 0x7e),
   );
-  return printable && head.byteLength > 0 ? 'text/plain' : undefined;
+  return printable && head.byteLength > 0 ? { mime: 'text/plain', alsoCarries: [] } : undefined;
 };

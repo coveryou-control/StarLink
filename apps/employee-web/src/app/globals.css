@@ -4263,10 +4263,17 @@ input[type='search']::-webkit-search-cancel-button {
    every line of itself.
 */
 .attach-menu {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: 0;
-  z-index: 30;
+  /*
+     Fixed and portalled to the body, with `left` and `bottom` set from the trigger's rect.
+
+     It was `position: absolute` inside the control, opening rightward. The paperclip is at
+     the right-hand end of the composer's row, so the menu ran off the window at 1440, 1100,
+     900 and 760 alike - and `main.thread-column` is `overflow: hidden`, so it was cut
+     through the middle of a word rather than merely overflowing. See `attachment-picker.tsx`
+     for why the answer is the window rather than a clamp inside that column.
+  */
+  position: fixed;
+  z-index: 60;
   min-width: 194px;
   padding: 6px;
   display: flex;
