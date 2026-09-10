@@ -917,11 +917,21 @@ export default function ThreadPage(): ReactNode {
       incoming line is 40px the words could have had. A group keeps them at every width —
       there the picture is the only thing saying who is talking.
     */}
-    /*
+    {/*
        `channel` on the pane, so the stylesheet can treat a channel's reading surface
        differently from a chat's. See `.thread-pane.channel .thread-scroll` — the
        wallpaper comes off in here.
-    */
+
+       BRACED, and the braces are the whole point. Written as a bare block comment it sat
+       in JSX child position and rendered as visible text across the top of every
+       conversation — which is what a comment is outside braces, and which measuring the
+       CSS could never have caught.
+
+       This note may not spell that comment out: the closing sequence inside a JSX comment
+       ends it early, and the first attempt at this sentence broke the build for exactly
+       that reason. Same family as the backtick-inside-a-template-literal trap the
+       platform notes already carry.
+    */}
     <div
       className={`thread-pane${isOneToOne ? ' one-to-one' : ''}${isChannel ? ' channel' : ''}`}
     >
@@ -933,6 +943,7 @@ export default function ThreadPage(): ReactNode {
       <ChatHeader
         conversation={activeConversation}
         conversationType={conversationType}
+        {...(channel?.description !== undefined ? { channelDescription: channel.description } : {})}
         connection={<ConnectionBadge status={status} />}
         detailsOpen={showDetails}
         onToggleDetails={canOpenDetails ? toggleDetails : undefined}
@@ -1062,6 +1073,19 @@ export default function ThreadPage(): ReactNode {
               </div>
             ) : null}
             <MessageList
+              /* Only for a channel, and only when the server has told us what it is —
+                 an intro built from a half-loaded record would name the room "Conversation". */
+              {...(channel !== undefined
+                ? {
+                    channelIntro: {
+                      name: channel.name,
+                      memberCount: channel.memberCount,
+                      ...(channel.description !== undefined
+                        ? { description: channel.description }
+                        : {}),
+                    },
+                  }
+                : {})}
               onReply={setReplyingTo}
               messages={messages}
               pending={stillPending}

@@ -98,6 +98,18 @@ interface MessageListProps {
    * in the domain package for why it is a minimum and why it resolves downward.
    */
   readonly readWatermark?: number;
+  /**
+   * What to say when a CHANNEL has no messages yet.
+   *
+   * Absent for a chat or a group, which keep "say hello". A channel is a persistent room
+   * that exists whether or not anybody has written in it, so the empty state names the
+   * room and its purpose instead of asking somebody to greet a department.
+   */
+  readonly channelIntro?: {
+    readonly name: string;
+    readonly description?: string;
+    readonly memberCount: number;
+  };
 }
 
 /**
@@ -130,8 +142,50 @@ export function MessageList({
   participants,
   onMessageInfo,
   readWatermark = 0,
+  channelIntro,
 }: MessageListProps): ReactNode {
   if (messages.length === 0 && pending.length === 0) {
+    /*
+       A channel that nobody has written in yet is a PLACE, not a blank chat.
+
+       "Say hello — this is the beginning of the conversation" is right for a thread
+       between two people and wrong for a department space: nobody says hello to
+       #Compliance, and a persistent room that exists whether or not anyone is talking is
+       precisely the thing the copy was denying. What somebody arriving needs to know is
+       what the room is for and who is in it, which is exactly what the directory row
+       promised them on the way in.
+
+       Centred in a full-height pane either way — but this one has something to say, so
+       the blankness reads as a room waiting rather than a screen that failed to load.
+    */
+    if (channelIntro !== undefined) {
+      return (
+        <div className="thread-empty">
+          <div className="channel-intro">
+            <span className="channel-intro-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="26" height="26" focusable="false">
+                <path
+                  d="M9.4 4 7.8 20M16.2 4l-1.6 16M4.6 9h15M3.8 15h15"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </span>
+            <h3>{channelIntro.name}</h3>
+            {channelIntro.description !== undefined ? (
+              <p className="channel-intro-purpose">{channelIntro.description}</p>
+            ) : null}
+            <p className="channel-intro-meta">
+              {channelIntro.memberCount} {channelIntro.memberCount === 1 ? 'member' : 'members'}
+              {' · '}
+              This is the beginning of the channel.
+            </p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="thread-empty">
         <p className="state-note">

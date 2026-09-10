@@ -40,6 +40,7 @@ import { identityStyle } from '../lib/identity-colour';
  * of the header, quiet when healthy and coloured only when it is not.
  */
 export function ChatHeader({
+  channelDescription,
   conversation,
   conversationType,
   connection,
@@ -52,6 +53,14 @@ export function ChatHeader({
   compact = false,
   narrow = false,
 }: {
+  /**
+   * A channel's one-line description, from the channel record the page holds.
+   *
+   * A prop rather than derived here: `conversation` is a `ConversationSummary` and a
+   * summary carries no channel facts — widening it to carry them would put the whole
+   * channel policy into every row of the conversation list that never shows it.
+   */
+  readonly channelDescription?: string;
   readonly conversation: ConversationSummary | undefined;
   readonly conversationType: string | undefined;
   /** Rendered as-is; the thread page owns what it says. */
@@ -201,10 +210,22 @@ export function ChatHeader({
      rendering of knowing nothing beyond the name already in the title.
   */
   const subtitle = isChannel
-    ? /* The room's membership, from the count the summary carries. A channel has no
-         participant NAMES here - the directory sends a number - and that is the honest
-         thing to show rather than a list of the three the header happens to know. */
-      channelSubtitle(conversation?.participantCount ?? 0)
+    ? /*
+         What the room is FOR, then how big it is.
+
+         It showed the count alone, so the header of a persistent department space said
+         exactly as much as the header of a two-person chat: a number. A channel's
+         description is the one line that distinguishes "#Finance" from "#Finance" in
+         somebody else's mental model, and the directory row already shows it — arriving
+         in the room and losing it was the room saying less than the list that led there.
+
+         Still the COUNT and not names: a channel has no participant names here, the
+         directory sends a number, and inventing three of forty would be worse than the
+         number.
+      */
+      [channelDescription, channelSubtitle(conversation?.participantCount ?? 0)]
+        .filter((part) => part !== undefined && part !== '')
+        .join(' · ')
     : isGroup
     ? groupSubtitle()
     : [department, otherIsOnline ? 'Active now' : undefined].filter(Boolean).join(' · ') ||

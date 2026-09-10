@@ -230,7 +230,11 @@ export function ChannelsPanel({
       <header className="panel-head channels-head">
         <span className="channels-head-text">
           <h2>Channels</h2>
-          <p>Persistent spaces for departments, teams and projects.</p>
+          {/* Short enough to be read at a glance and then ignored, which is what a
+              subtitle is for. The longer version wrapped to two lines above a search
+              field and a pill row, and three stacked explanations is a masthead nobody
+              gets past. */}
+          <p>Spaces for departments, teams and projects.</p>
         </span>
         {mayCreate ? (
           <button
@@ -249,7 +253,15 @@ export function ChannelsPanel({
       </header>
 
       <div className="search">
-        <label className="visually-hidden" htmlFor="channel-search">
+        {/*
+          `sr-only`, which is the class this stylesheet actually defines.
+
+          It said `visually-hidden` — a name that exists in plenty of codebases and in
+          none of this one's CSS — so the label was not hidden at all: "Search channels"
+          rendered as a visible line above a field whose placeholder already said it. The
+          only instance in the product; swept for.
+        */}
+        <label className="sr-only" htmlFor="channel-search">
           Search channels
         </label>
         <input
@@ -312,6 +324,20 @@ export function ChannelsPanel({
         </p>
       ) : null}
 
+      {/*
+        The list SCROLLS, which it did not.
+
+        The groups were rendered straight into `.panel`, which is a flex column with no
+        scroller of its own — so with seventeen channels the last row sat at 1692px inside
+        a 700px panel and the only ancestor with an overflow rule was `aside.sidebar`, set
+        to `hidden`. Ten of seventeen channels were unreachable: not below a fold, simply
+        absent, with nothing on screen suggesting anything was missing.
+
+        `.panel-body` is the scroller every other panel already uses — `flex: 1`,
+        `min-height: 0`, `overflow-y: auto`. The masthead, the search and the filter row
+        stay outside it and therefore stay put, which is why they are not inside it.
+      */}
+      <div className="panel-body channel-scroll">
       {grouped.map((group) => (
         <div key={group.heading ?? 'all'}>
           {group.heading !== undefined ? (
@@ -407,6 +433,8 @@ export function ChannelsPanel({
           </ul>
         </div>
       ))}
+
+      </div>
 
       {creating ? (
         <ChannelDialog

@@ -1705,6 +1705,27 @@ input[type='search']::-webkit-search-cancel-button {
   display: none;
 }
 
+/*
+   The right edge fades, so a clipped pill reads as "there is more" rather than as a
+   broken layout.
+
+   Four pills need 36px more than a 340px column has. Shortening "My Channels" to "Mine"
+   would fit them and would rename a filter the brief names — so the row keeps its words
+   and gains the signal instead. A hard cut at the panel edge is what made it look wrong;
+   a fade is what every horizontally scrolling row uses to say so.
+
+   `mask-image` rather than a gradient overlay: an overlay would need the panel's exact
+   background, and this row sits over two different ones (the sidebar and, on a phone,
+   the sheet).
+*/
+.filter-pills {
+  mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent 100%);
+}
+
+/* Nothing to fade once it is scrolled to the end — but there is no CSS for "scrolled",
+   so the fade stays. It is 28px of softening on a row whose last item is always partly
+   under it, which is the honest steady state rather than a lie in one direction. */
+
 .filter-pill {
   display: inline-flex;
   align-items: center;
@@ -1713,13 +1734,21 @@ input[type='search']::-webkit-search-cancel-button {
   /* One line, always — see `.filter-pills` for why the row scrolls instead. */
   white-space: nowrap;
   height: auto;
-  padding: 6px 12px;
+  /*
+     Tighter, so all four fit a 340px column at rest.
+
+     The row scrolls, which makes a fifth filter survivable — but a LAST pill clipped in
+     the resting state reads as a broken layout rather than as an invitation to scroll,
+     and nobody drags a row they do not know is draggable. Four fit; the scroll is there
+     for the day there are five.
+  */
+  padding: 6px 11px;
   border: 0;
   border-radius: var(--radius-pill);
   background: var(--surface);
   box-shadow: var(--hairline);
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 500;
   line-height: 1.4;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
@@ -10528,6 +10557,63 @@ input.signin-control {
   padding: 2px var(--space-3) 7px;
 }
 
+/*
+   A channel with nothing in it yet, which is a room rather than a blank chat.
+
+   Centred in the pane the way every empty state here is, but with something to say — the
+   name, what the room is for, and how many people are in it. The blankness then reads as
+   a space waiting for its first message rather than as a screen that failed to load,
+   which is what a large empty canvas under "Say hello" looked like.
+*/
+.channel-intro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 42ch;
+  padding: 0 var(--space-5);
+  text-align: center;
+}
+
+.channel-intro-mark {
+  display: inline-grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin-bottom: var(--space-2);
+  border-radius: var(--radius-large);
+  background: var(--surface-sunken, var(--surface-raised));
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text-secondary);
+}
+
+.channel-intro h3 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 620;
+  letter-spacing: var(--track-tight);
+}
+
+.channel-intro-purpose {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--text-md);
+  line-height: 1.5;
+}
+
+.channel-intro-meta {
+  margin: 2px 0 0;
+  color: var(--text-subtle);
+  font-size: var(--text-base);
+}
+
+/* The channel list's own scroller. `.panel-body`'s gap would double the space between
+   groups that already carry their own heading margins. */
+.channel-scroll {
+  gap: 0;
+  padding-bottom: var(--space-4);
+}
+
 /* ============================================================ the channel directory ===
 
    A place, not a table. The list already grouped by purpose and carried a search, tabs, a
@@ -10581,7 +10667,7 @@ input.signin-control {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-top: 2px;
+  margin-top: 3px;
   color: var(--text-subtle);
   font-size: var(--text-sm);
   font-variant-numeric: tabular-nums;
@@ -12816,8 +12902,15 @@ input.signin-control {
    em of tracking. `.details-section-title` reached the same conclusion for the same kind of
    label, and this now matches it.
 */
+/*
+   The headings carry the section, so they get room above and almost none below.
+
+   Even margins made them float between two lists rather than belonging to the one under
+   them — the classic proximity mistake, and the reason the three groups read as one long
+   list with words in it.
+*/
 .channel-group-heading {
-  margin: var(--space-4) 0 var(--space-1);
+  margin: var(--space-5) 0 var(--space-1);
   padding: 0 var(--space-4);
   font-size: var(--text-sm);
   font-weight: 600;
@@ -12879,14 +12972,22 @@ input.signin-control {
   opacity: 0.62;
 }
 
+/*
+   The mark aligns with the NAME, not with the middle of the row.
+
+   A row is three lines now — name, purpose, facts — and centring a 34px mark against all
+   three floated it beside the description, pointing at the least important line. Every
+   list in the product that has an avatar and two lines aligns the two tops; a channel is
+   the same shape with one more line.
+*/
 .channel-open {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-3);
   min-width: 0;
   height: auto;
-  padding: 10px var(--space-3);
+  padding: 11px var(--space-3) 12px;
   border: 0;
   border-radius: var(--radius);
   background: transparent;
@@ -12901,11 +13002,28 @@ input.signin-control {
   cursor: default;
 }
 
+/*
+   A tinted tile, not a loose glyph.
+
+   The hash was body-coloured text floating in the gutter, so a column of channels had no
+   visual anchor and the eye had to start at the name every time. A quiet tile gives the
+   list a left edge to run down — and it is deliberately ONE neutral tile rather than a
+   colour per channel: colour here would compete with the unread dot, which is the only
+   thing in this list that should pull the eye.
+
+   Nudged down by a pixel so its optical centre lines up with the name's cap height rather
+   than its line box.
+*/
 .channel-mark {
   flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  margin-top: 1px;
+  border-radius: 10px;
+  background: var(--surface-sunken, var(--surface-raised));
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text-secondary);
   width: 34px;
   height: 34px;
   border-radius: var(--radius);
@@ -12913,10 +13031,18 @@ input.signin-control {
   color: var(--text-secondary);
 }
 
+/*
+   `flex: 1` so the unread badge can be pushed to the row's edge.
+
+   A duplicate of this rule was briefly added earlier in the sheet; the later one won and
+   it did not carry this, so the badge stayed inline. One rule, and the addition is here
+   where the rule already lived.
+*/
 .channel-text {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
   gap: 1px;
 }
 
@@ -12950,6 +13076,21 @@ input.signin-control {
   font-weight: 600;
   letter-spacing: var(--track-caps);
   text-transform: uppercase;
+}
+
+/*
+   The unread count belongs at the ROW's edge, not after the description.
+
+   It was the last child of the text column, so it rendered inline at the end of whichever
+   line happened to be shortest — a red disc floating beside "People, policies and
+   benefits" rather than in the column where every other list in the product puts one.
+   `margin-left: auto` inside the row pushes it to the right; `align-self` puts it on the
+   name's line, which is the line it is about.
+*/
+.channel-open .channel-unread {
+  margin-left: auto;
+  align-self: flex-start;
+  margin-top: 4px;
 }
 
 .channel-unread {
