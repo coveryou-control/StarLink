@@ -10430,6 +10430,288 @@ input.signin-control {
   padding: 2px var(--space-3) 7px;
 }
 
+/* ============================================================ starting a conversation ===
+
+   A panel over the LIST, not a dialog over the page.
+
+   It was a centred card on a dimmed backdrop, which dimmed the thread somebody was reading
+   in order to ask a question about the column beside it. The answer belongs to the list —
+   the new conversation appears there — so the list is what it covers, and the thread stays
+   readable behind it.
+   ======================================================================================== */
+
+/* The column is the panel's containing block. Without this the absolute positioning below
+   would escape to the viewport and cover the whole product, which is the thing being
+   moved away from. */
+.panel {
+  position: relative;
+}
+
+.new-chat {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--surface);
+  /* It arrives from the left, like the page it is. Short, because it covers a column
+     rather than a screen and a long slide over 360px reads as a stutter. */
+  animation: new-chat-in 160ms var(--ease);
+}
+
+@keyframes new-chat-in {
+  from {
+    transform: translateX(-14px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-chat {
+    animation: none;
+  }
+}
+
+.new-chat-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 22px 20px 14px;
+}
+
+.new-chat-head h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+}
+
+.new-chat-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  transition: color var(--dur) var(--ease);
+}
+
+.new-chat-back:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.new-chat-search {
+  flex: none;
+  padding: 0 20px 12px;
+}
+
+.new-chat-search label {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.new-chat-search svg {
+  position: absolute;
+  left: 12px;
+  color: var(--text-subtle);
+  pointer-events: none;
+}
+
+.new-chat-search input {
+  width: 100%;
+  height: 40px;
+  padding: 0 12px 0 36px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-sunken, var(--surface-raised));
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+}
+
+.new-chat-search input::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+/*
+   "New group", as a row rather than a tab.
+
+   The two used to be tabs, which made a group a MODE of this screen. It is a destination:
+   pressing it takes you somewhere with its own title and its own way back. A row is what
+   says that, and it is where every messenger puts it.
+*/
+.new-chat-jump {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 20px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 550;
+  text-align: left;
+  transition: color var(--dur) var(--ease);
+}
+
+.new-chat-jump:hover {
+  color: var(--accent-ink, var(--accent));
+}
+
+.new-chat-jump-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-ink, var(--accent));
+}
+
+/* The list is the only thing that scrolls; the head, the search and the foot stay put. */
+.new-chat .people-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 12px 8px;
+}
+
+.new-chat .chosen {
+  flex: none;
+  padding: 0 20px 10px;
+}
+
+/*
+   The foot: what is stopping you, and the way on.
+
+   The line names the BLOCKING condition rather than reporting a count — the fix that came
+   out of "not able to click on create group? why so?", where a disabled control sat beside
+   "2 selected" and the screen said ready and no at the same time.
+*/
+.new-chat-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  font-size: var(--text-base);
+}
+
+.new-chat-next {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #fff;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.new-chat-next:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Not defined anywhere else in this sheet — the product's other waiting states are
+   skeletons, and this is the one place a control has to keep its shape while it waits. */
+@keyframes new-chat-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.new-chat-working {
+  display: block;
+  width: 16px;
+  height: 16px;
+  border: 2px solid rgb(255 255 255 / 40%);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: new-chat-spin 700ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .new-chat-working {
+    animation-duration: 2s;
+  }
+}
+
+/* --- the last step -------------------------------------------------------------------- */
+
+.new-chat-name {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4) 20px 0;
+  overflow-y: auto;
+}
+
+.new-chat-avatar {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  background: var(--surface-sunken, var(--surface-raised));
+  color: var(--text-subtle);
+}
+
+.new-chat-name-field {
+  width: 100%;
+}
+
+.new-chat-name-field input {
+  width: 100%;
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 11px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--text-md);
+  text-align: center;
+}
+
+/* Who is in it, so the last step is not a name field with no context. Centred and quiet:
+   it is a reminder, not a list to act on — the way back is one press. */
+.new-chat-members {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-base);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.new-chat-name .new-chat-foot {
+  width: calc(100% + 40px);
+  margin: auto -20px 0;
+}
+
 /* ============================================================ group info: picture and name ===
 
    Both controls sit ON the thing they change, which is the whole point of moving them.

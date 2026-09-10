@@ -18,6 +18,7 @@ import { ConversationList } from '../../components/conversation-list';
 import { ConversationSearch } from '../../components/conversation-search';
 import { SettingsPanel } from '../../components/settings-panel';
 import { StartConversation } from '../../components/start-conversation';
+import { NewChatPanel } from '../../components/new-chat-panel';
 import { FavouritesPanel } from '../../components/favourites-panel';
 import { TeamQueue } from '../../components/team-queue';
 import { TeamLoadPanel } from '../../components/team-load';
@@ -29,7 +30,7 @@ import { api, ApiError, type ConversationSummary,
 } from '../../lib/api-client';
 import { customerWorkspaceEnabled } from '../../lib/runtime-origins';
 import { watchSystemTheme } from '../../lib/theme';
-import { onShellAction, requestNewConversation } from '../../lib/shell-actions';
+import { onShellAction } from '../../lib/shell-actions';
 import { useNotifications } from '../../lib/use-notifications';
 import { usePresence } from '../../lib/use-presence';
 import { useDeclaredStatuses } from '../../lib/use-declared-status';
@@ -68,27 +69,19 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
    */
   const [chatView, setChatView] = useState<ChatView>('all');
   /**
-   * A REQUEST to compose, held until the dialog has taken it.
+   * Whether the new-chat panel is open, and on which step.
    *
-   * It was a counter — bumped by the sidebar's New chat, compared against the previous
-   * value inside the dialog. That works while the dialog is on screen and fails the moment
-   * it is not: `StartConversation` lives inside the chats panel, and the chats panel is
-   * only mounted while Chats is the open destination. Pressing New chat from Channels,
-   * Announcements or Connect therefore did two things in one render — switched the section
-   * and bumped the counter — and the dialog MOUNTED holding the new number, saw no change
-   * against it, and did nothing. Measured from all three: first press switches the panel
-   * and opens nothing, second press works.
-   *
-   * That is also what "it takes me to Unread first" is: the panel arriving on whichever
-   * slice was last selected, with no dialog over it.
-   *
-   * A request survives the mount, because it is not a comparison against a previous
-   * render. The dialog clears it when it acts on it, so coming back to Chats later does
-   * not re-open a dialog nobody asked for.
+   * The SHELL owns this, and that is the third arrangement. It was a counter compared
+   * against the previous render inside the dialog, which did nothing at all when the
+   * dialog mounted in the same render as the press — first press from Channels,
+   * Announcements or Connect opened nothing. Then a request the dialog cleared when it
+   * took it, which worked. Plain state is what became possible once the panel stopped
+   * owning its own visibility: two doors onto one place cannot keep the lock inside one
+   * of them.
    */
-  const [composeRequest, setComposeRequest] = useState<
-    { readonly mode: 'chat' | 'group'; readonly at: number } | undefined
-  >(undefined);
+  const [compose, setCompose] = useState<{ readonly mode: 'chat' | 'group' } | undefined>(
+    undefined,
+  );
   /*
      The shell no longer holds a theme.
 
@@ -300,6 +293,18 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   useEffect(
     () =>
       onShellAction({
+        /*
+           The empty pane's "New chat", which used to be answered by the dialog itself.
+
+           `StartConversation` carried this listener while it owned the panel. It does not
+           any more, and the listener has to move with the state rather than be left behind
+           — a dispatch nobody handles is a button that silently does nothing, which is
+           exactly the failure this whole area has already produced once.
+        */
+        onNewConversation: (mode) => {
+          setSection('chats');
+          setCompose({ mode: mode ?? 'chat' });
+        },
         onBrowseDirectory: () => setSection('people'),
         /* The event carries a string; the rail's own list is what decides whether it names
            a destination. An unknown one is ignored rather than setting a section that does
@@ -450,9 +455,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
         onChatView={setChatView}
         onNewChat={() => {
           setSection('chats');
-          /* `at` makes two presses two distinct requests even when the mode matches, so a
-             dialog dismissed and asked for again re-opens. */
-          setComposeRequest({ mode: 'chat', at: Date.now() });
+          setCompose({ mode: 'chat' });
         }}
       />
 
@@ -480,6 +483,34 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
         <aside className="sidebar">
           {section === 'chats' ? (
             <section className="panel" aria-label={panelName}>
+              {/*
+                The new-chat panel, over the list rather than over the page.
+
+                A sibling of the masthead and the list, absolutely positioned to cover
+                both — so the column it is about is the column it takes, and the thread
+                stays readable behind it. `.panel` is the positioning context; see the
+                stylesheet, which owns that.
+              */}
+              {compose !== undefined ? (
+                <NewChatPanel
+                  startAs={compose.mode}
+                  onClose={() => setCompose(undefined)}
+                  onStarted={(id) => {
+                    setCompose(undefined);
+                    void refresh();
+                    /*
+                       Back to the whole list, because that is the only slice the new
+                       conversation is certainly in. Starting a chat from Unread left the
+                       person in the thread with a list beside it that could not contain
+                       what they had just made — it has no unread messages for them, by
+                       definition, since they are the one who started it. Archived and
+                       Favourites are the same story.
+                    */
+                    setChatView('all');
+                    router.push(`/conversations/${id}`);
+                  }}
+                />
+              ) : null}
               <header className="panel-head">
                 {/*
                   The column says what the column holds — and until now it said "Chats"
@@ -561,23 +592,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                   stylesheet gives it the floating treatment below 640px — the masthead's
                   phone twin is the button after the magnifier.
                 */}
-                <StartConversation
-                  {...(composeRequest === undefined ? {} : { request: composeRequest })}
-                  onRequestTaken={() => setComposeRequest(undefined)}
-                  onStarted={(id) => {
-                    void refresh();
-                    /*
-                       Back to the whole list, because that is the only slice the new
-                       conversation is certainly in.
-                       Starting a chat from Unread left the person in the thread with a
-                       list beside it that could not contain what they had just made — it
-                       has no unread messages for them, by definition, since they are the
-                       one who started it. Archived and Favourites are the same story.
-                    */
-                    setChatView('all');
-                    router.push(`/conversations/${id}`);
-                  }}
-                />
+                <StartConversation onOpen={() => setCompose({ mode: 'chat' })} />
 
                 {/*
                   Search, on a phone, behind a magnifier.
@@ -621,7 +636,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                     <button
                       type="button"
                       className="panel-head-icon"
-                      onClick={() => requestNewConversation()}
+                      onClick={() => setCompose({ mode: 'chat' })}
                       aria-label="New conversation"
                     >
                       {/* The same bubble-with-a-plus the masthead's other compose control

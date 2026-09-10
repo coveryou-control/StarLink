@@ -182,9 +182,16 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
          to decide, so a confirm press would be the product asking a question it already
          has the answer to.
       */
+      /*
+         The panel opens ON the chat step, so there is no mode to choose first.
+
+         This used to press a "New chat" tab inside the dialog. Both the dialog and the
+         tabs are gone: it is a panel over the list column now, opening on the step that
+         answers the commonest question, with "New group" as a row you press to go
+         somewhere else. The region is named for the step it is on.
+      */
       await employee.getByRole('button', { name: 'New conversation' }).click();
-      const panel = employee.getByRole('region', { name: 'Start a conversation' });
-      await panel.getByRole('button', { name: /New chat/ }).click();
+      const panel = employee.getByRole('region', { name: 'New chat' });
       await panel.getByPlaceholder(/name, department/i).fill('E2E Lead');
       await panel.getByRole('button', { name: /E2E Lead/ }).first().click();
       await expect(employee).toHaveURL(/\/conversations\/[0-9a-f-]{36}/, { timeout: 20_000 });
