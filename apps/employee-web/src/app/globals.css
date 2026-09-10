@@ -9564,8 +9564,8 @@ input.signin-control {
 }
 
 .status-option[aria-checked='true'].status-away {
-  border-color: var(--warning-label, #a2670a);
-  color: var(--warning-label, #a2670a);
+  border-color: var(--warn-border);
+  color: var(--warn-text);
 }
 
 /*
@@ -9597,8 +9597,8 @@ input.signin-control {
 }
 
 .status-badge.status-away {
-  background: color-mix(in srgb, #a2670a 12%, transparent);
-  color: var(--warning-label, #a2670a);
+  background: color-mix(in srgb, var(--warn-text) 12%, transparent);
+  color: var(--warn-text);
 }
 
 /*
@@ -10661,17 +10661,25 @@ input.signin-control {
 }
 
 /*
-   "No sound was picked up", where the waveform would be.
+   "No sound picked up", on its own line BELOW the waveform.
 
-   In the waveform's own place deliberately: a flat line and a warning beside each other
-   would be saying one thing twice, and the flat line is the thing being explained.
+   It stood in the waveform's place at first, on the reasoning that a flat line and a
+   warning beside each other say one thing twice. In use that read as a broken player:
+   the warning appeared and the strip was simply gone. The row already wraps for the
+   failure message, so a full-basis item takes a second line and the flat waveform stays
+   above it as the evidence.
 */
 .voice-silent {
-  flex: 1;
+  flex: 0 0 100%;
+  /* LAST, so wrapping costs a line and not the layout. Without it the warning takes the
+     line break where it sits, between the strip and send, and the send button is pushed
+     alone onto a third row — which looks like the bar has come apart. */
+  order: 1;
   min-width: 0;
-  color: var(--warning-label, var(--text-secondary));
-  font-size: var(--text-base);
-  line-height: 1.3;
+  padding: 0 6px 2px 40px;
+  color: var(--warn-text);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 /* ============================================================ the channel directory ===
@@ -13501,9 +13509,18 @@ input.signin-control {
   line-height: 1.5;
 }
 
+/*
+   The warning summary in the create-channel dialog.
+
+   It read `--warning-bg` and `--warning-label`, and NEITHER token exists — the declared
+   names are `--warn-bg` and `--warn-text`. Both declarations were therefore invalid at
+   computed-value time: the background fell back to transparent, losing even the plain
+   surface the base rule gives it, and the colour inherited. The one state in this dialog
+   that exists to be noticed was the least visible thing in it.
+*/
 .channel-summary.warn {
-  background: var(--warning-bg);
-  color: var(--warning-label);
+  background: var(--warn-bg);
+  color: var(--warn-text);
 }
 
 .channel-dialog-foot {

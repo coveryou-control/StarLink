@@ -28,6 +28,61 @@ import {
 
 export type RecorderPhase = 'idle' | 'starting' | 'recording' | 'paused' | 'stopping';
 
+/**
+ * How many windows to reduce a decoded recording to.
+ *
+ * Comfortably more than any strip draws, so the review can resample it down without
+ * inventing detail, and small enough that the reduction is a few passes over the samples.
+ */
+const SHAPE_WINDOWS = 240;
+
+/**
+ * What a finished recording actually contains: its loudest sample, and its shape.
+ *
+ * Decoding a few seconds of Opus costs single-digit milliseconds and happens once, at
+ * stop — it is not on any hot path. The context is closed immediately: leaving one open
+ * per recording is how a long session ends up at the browser's limit and the NEXT
+ * recording gets no analyser at all.
+ *
+ * `undefined` when the audio cannot be read, which is not the same answer as silence.
+ */
+async function analyse(
+  blob: Blob,
+  windows: number,
+): Promise<{ peak: number; shape: readonly number[] } | undefined> {
+  if (typeof AudioContext === 'undefined') return undefined;
+  const context = new AudioContext();
+  try {
+    const decoded = await context.decodeAudioData(await blob.arrayBuffer());
+    /* Channel zero alone. A voice note is mono in practice, and where it is not the two
+       channels carry the same speech — a second pass would double the work to redraw the
+       same line. */
+    const samples = decoded.getChannelData(0);
+    const per = Math.max(1, Math.floor(samples.length / windows));
+
+    let peak = 0;
+    const shape: number[] = [];
+    for (let window = 0; window < windows; window += 1) {
+      const from = window * per;
+      if (from >= samples.length) break;
+      const until = Math.min(samples.length, from + per);
+      let loudest = 0;
+      for (let index = from; index < until; index += 1) {
+        const value = Math.abs(samples[index] ?? 0);
+        if (value > loudest) loudest = value;
+      }
+      if (loudest > peak) peak = loudest;
+      shape.push(loudest);
+    }
+    return { peak, shape };
+  } catch {
+    /* A container this browser records but cannot decode. Nothing can be claimed. */
+    return undefined;
+  } finally {
+    void context.close().catch(() => undefined);
+  }
+}
+
 export interface Recording {
   readonly blob: Blob;
   /** The type actually recorded, codec parameters and all. */
@@ -41,8 +96,12 @@ export interface Recording {
    * A microphone muted in hardware, or the wrong input selected, produces a perfectly
    * valid Opus stream several seconds long that contains silence. It uploads, it sends,
    * it plays — and it plays nothing, which is reported as "it is recording but there is
-   * no sound". The bytes cannot tell you this; the LEVELS can, and they are already
-   * being collected for the waveform.
+   * no sound".
+   *
+   * Decided by DECODING the recording, not by reading the live meter: the meter can fail
+   * on its own (a suspended `AudioContext` reports a flat line) and a warning built on it
+   * accuses the microphone of the analyser's fault. False when the audio could not be
+   * decoded at all — an unknown is not a silence.
    *
    * A flag rather than a refusal: the recording is the person's and might be
    * deliberately quiet. The review warns and still lets them send it.
@@ -194,6 +253,16 @@ export function useVoiceRecorder(): VoiceRecorder {
     try {
       const context = new AudioContext();
       audioRef.current = context;
+      /*
+         Resumed explicitly, because a suspended context reports SILENCE.
+
+         An `AudioContext` constructed outside a user gesture starts suspended, and some
+         platforms suspend one even inside a gesture. `getByteTimeDomainData` on a
+         suspended context fills the buffer with the 128 midpoint — a flat waveform that
+         looks exactly like a muted microphone. Resuming is a promise nobody awaited, and
+         a failure here costs the waveform and nothing else.
+      */
+      void context.resume().catch(() => undefined);
       const analyser = context.createAnalyser();
       analyser.fftSize = 1024;
       context.createMediaStreamSource(stream).connect(analyser);
@@ -295,17 +364,6 @@ export function useVoiceRecorder(): VoiceRecorder {
        silence through a virtual device all land here, and every one of them is worth a
        sentence.
     */
-    /*
-       Loud enough to have been anything at all.
-
-       `captured` holds the peak of each animation frame, so the maximum across it is the
-       loudest instant of the recording. Real speech peaks near 1 and a quiet room still
-       registers a few hundredths; a muted input is flat zero. 0.02 sits above the noise
-       floor of a live microphone in a silent room and far below any utterance.
-    */
-    const loudest = captured.reduce((highest, level) => Math.max(highest, level), 0);
-    const silent = loudest < 0.02;
-
     if (discardRef.current) return undefined;
     if (blob.size === 0 || durationMs <= 0) {
       setProblem(
@@ -313,7 +371,41 @@ export function useVoiceRecorder(): VoiceRecorder {
       );
       return undefined;
     }
-    return { blob, recordedAs, durationMs, levels: captured, silent };
+
+    /*
+       Read from the RECORDED AUDIO, not from the live analyser.
+
+       The first version of this read `captured` — the analyser's per-frame peaks, the
+       same numbers that draw the waveform. That inherits the analyser's failures: an
+       `AudioContext` that never resumes fills its buffer with the midpoint, which is
+       indistinguishable from a muted microphone. So a perfectly good recording was
+       reported as silent AND drawn without a waveform, both from the same cause.
+       Reported from use, with a screenshot of exactly that.
+
+       Decoding the blob asks the only question that matters — is there sound in the file
+       that is about to be sent — and it is independent of whether the meter worked.
+
+       Below the guards, so a cancelled or empty recording is never decoded.
+    */
+    const measured = await analyse(blob, SHAPE_WINDOWS);
+
+    /* An undecodable blob is NOT a silence. "I could not tell" and "there is no sound"
+       are different answers, and only one of them is worth warning somebody about. */
+    const silent = measured !== undefined && measured.peak < 0.01;
+
+    /*
+       The meter's shape when the meter worked, the recording's shape when it did not.
+
+       The live strip is the better source when it runs: it is what the person watched
+       while speaking, pauses and all. But it is also the thing that fails, and a review
+       that then shows a flat line — or, as it did until now, no strip at all — reads as a
+       broken player rather than as a quiet recording. The decoded shape always exists and
+       is always true, so there is always a waveform to show.
+    */
+    const meterWorked = captured.some((level) => level > 0.01);
+    const levels = meterWorked ? captured : (measured?.shape ?? captured);
+
+    return { blob, recordedAs, durationMs, levels, silent };
   }, [release]);
 
   const cancel = useCallback(() => {

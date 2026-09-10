@@ -361,14 +361,20 @@ function ReviewBar({
 
         It does NOT block sending. The recording belongs to the person who made it and
         might be deliberately quiet; what they need is to know, not to be overruled.
+
+        The warning REPLACED the waveform at first, on the reasoning that a flat line and
+        a sentence are the same fact twice. In use that was wrong: with the warning up
+        there was no strip on screen at all, which reads as a broken player — reported in
+        exactly those words. The bars are drawn from the decoded recording now, so a flat
+        line is the evidence for the sentence beside it rather than a repetition of it.
       */}
+      <Waveform bars={bars} progress={played} />
+
       {recording.silent ? (
         <span className="voice-silent" role="status">
-          No sound was picked up — check your microphone is not muted.
+          No sound picked up — check your microphone is not muted.
         </span>
-      ) : (
-        <Waveform bars={bars} progress={played} />
-      )}
+      ) : null}
 
       {url !== undefined ? (
         <audio
