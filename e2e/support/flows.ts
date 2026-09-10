@@ -20,7 +20,10 @@ export async function signIn(page: Page, who: keyof typeof CREDENTIALS): Promise
      takes the local part of an address, so a bare username still signs in — which is why
      the fixtures below did not have to grow a domain. */
   await page.getByLabel('Work email').fill(CREDENTIALS[who].username);
-  await page.getByLabel('Password').fill(CREDENTIALS[who].password);
+  /* `exact`, because the reveal control beside this field is labelled "Show password" -
+     an accessible name that has to say what it reveals - and a substring match on
+     "Password" resolves to both. `security-baseline.spec.ts` already did it this way. */
+  await page.getByLabel('Password', { exact: true }).fill(CREDENTIALS[who].password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/conversations/);
 }

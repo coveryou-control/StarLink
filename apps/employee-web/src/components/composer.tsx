@@ -599,6 +599,31 @@ export function Composer({
                   attachmentId: a.attachmentId,
                   filename: a.filename,
                   declaredBytes: a.declaredBytes,
+                  /*
+                     Without this the row you just sent is a FILE CARD.
+
+                     `mediaKindOf` decides from a content type and this shape had none, so
+                     a photograph arrived as `PNG photo.png 853 KB` — and stayed one,
+                     because nothing replaces an optimistic row until the thread is
+                     re-read. Measured at six seconds and still a card.
+
+                     It is the type the browser declared, used to draw bytes this browser
+                     already holds. The authoritative read that follows carries the SNIFFED
+                     type and replaces this, so nothing downstream is trusting a
+                     client-supplied value.
+                  */
+                  contentType: a.contentType,
+                  /*
+                     And the length, for the same reason.
+
+                     `isVoiceNote` is satisfied by the content type alone, so a recording
+                     is recognised as one without this — but `voice-note.tsx` draws its
+                     scrubber from `durationMs`, and the note of the whole component is
+                     that the row is complete BEFORE any grant is spent. Without it the
+                     recording you just made is a player that does not know how long it is
+                     until the server is asked.
+                  */
+                  ...(a.durationMs !== undefined ? { durationMs: a.durationMs } : {}),
                   state: 'BOUND',
                 })),
             }

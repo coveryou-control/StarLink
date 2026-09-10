@@ -48,7 +48,14 @@ const stroke = { fill: 'none', stroke: 'currentColor', strokeWidth: 1.7 } as con
 /** Where the sidebar remembers whether it was collapsed. */
 const SIDENAV_KEY = 'starlink.sidenav';
 
-/** The sidebar's chat destinations, in the order they were asked for. */
+/**
+ * The chat slices — ALL of them, in the order they were asked for.
+ *
+ * This is the table of what a slice is CALLED. `RAIL_CHAT_VIEWS` below is the subset the
+ * sidebar lists, and the two are different questions: the panel masthead reads its name
+ * from here whether or not the rail offers a row for it. They were one list until Archive
+ * needed a name without needing a row.
+ */
 export const CHAT_VIEWS: readonly {
   readonly id: ChatView;
   readonly label: string;
@@ -93,7 +100,16 @@ export const CHAT_VIEWS: readonly {
   },
   {
     id: 'direct',
-    label: '1:1',
+    /*
+       "Personal", not "1:1".
+
+       `1:1` is how the DOMAIN writes it — a direct conversation, exactly two participants,
+       and the schema calls it that. It is not how anybody says it. A sidebar is read by
+       people rather than by the model, and a label made of two digits and a colon has to
+       be decoded before it can be used; "Personal" is the same list named the way somebody
+       would ask for it. The id stays `direct`, so nothing downstream moves.
+    */
+    label: 'Personal',
     icon: (
       <>
         <circle cx="12" cy="8.6" r="3.4" {...stroke} />
@@ -113,6 +129,22 @@ export const CHAT_VIEWS: readonly {
     ),
   },
 ];
+
+/**
+ * The slices the SIDEBAR lists. Archive is deliberately not among them.
+ *
+ * Archive is not a destination alongside All and Unread — it is where things you have put
+ * away go, and it is visited rarely and on purpose. Given a row in the main run it took
+ * the same weight as the lists somebody actually lives in, and it was the fifth of six
+ * things to read past on the way to Unread. It is a control in the chat panel's masthead
+ * now, which is where a "show me what I have put away" toggle belongs.
+ *
+ * Derived rather than retyped, so a slice added to `CHAT_VIEWS` appears in the rail by
+ * default and leaving it out stays a deliberate act with a name attached.
+ */
+const NOT_IN_RAIL: readonly ChatView[] = ['archive'];
+
+export const RAIL_CHAT_VIEWS = CHAT_VIEWS.filter((view) => !NOT_IN_RAIL.includes(view.id));
 
 const SECTIONS: readonly {
   readonly id: RailSection;
@@ -657,7 +689,7 @@ function DesktopSidebar({
 
       <p className="sidenav-label">Chats</p>
       <ul className="sidenav-items">
-        {CHAT_VIEWS.map((view) => (
+        {RAIL_CHAT_VIEWS.map((view) => (
           <li key={view.id}>
             <button
               type="button"

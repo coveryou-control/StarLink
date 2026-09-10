@@ -27,7 +27,8 @@ import { useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { api, ApiError, type AttachmentView } from '../lib/api-client';
-import { MediaViewer } from './media-viewer';
+import { useGallery } from './media-gallery';
+import { localMediaFor } from '../lib/local-media';
 
 /** What may be drawn rather than listed. Narrow on purpose — anything else is a file. */
 export function mediaKindOf(file: AttachmentView): 'image' | 'video' | undefined {
@@ -51,20 +52,49 @@ export function AttachmentMedia({
   readonly kind: 'image' | 'video';
 }): ReactNode {
   const [url, setUrl] = useState<string | undefined>();
-  /** Whether the full-size viewer is up. See `MediaViewer` for why it is not a new tab. */
-  const [viewing, setViewing] = useState(false);
   const [problem, setProblem] = useState<string | undefined>();
   const holder = useRef<HTMLDivElement>(null);
+  /**
+   * The thread's gallery, when there is one.
+   *
+   * Pressing a picture opens the conversation's media at this file rather than opening
+   * this file alone — see `media-gallery.tsx`. It is `undefined` outside a thread (the
+   * forward dialog, message info), and there the thumbnail is simply not a button, which
+   * is honest: there is nothing to page through in those places.
+   */
+  const gallery = useGallery();
+
+  /*
+     Your own file, drawn from the copy this browser still holds.
+
+     No grant, no round trip and no audit entry for being shown a picture you sent thirty
+     seconds ago. Absent for everything else — including your own files after a reload,
+     which is right: by then the attachment is a real BOUND object with a sniffed type and
+     the ordinary path is the correct one.
+  */
+  const local = localMediaFor(file.attachmentId);
 
   useEffect(() => {
+    if (local !== undefined) return;
     const element = holder.current;
     if (element === null || url !== undefined) return;
 
     let live = true;
     const fetchGrant = async (): Promise<void> => {
       try {
-        const grant = await api.downloadAttachment(file.attachmentId);
-        if (live) setUrl(grant.url);
+        /* Through the gallery when there is one: it de-duplicates, so a picture the viewer
+           has already opened does not spend a second audited grant to draw its thumbnail,
+           and vice versa. `request` returns the cached URL when it holds one. */
+        const granted =
+          gallery !== undefined
+            ? await gallery.request(file.attachmentId)
+            : (await api.downloadAttachment(file.attachmentId)).url;
+        /* The gallery swallows the cause and answers `undefined`, so the shape of the
+           refusal is lost by the time it gets here. 403 is the honest stand-in: it lands
+           on the "not available to you" branch below, which is what an absent grant means
+           to the person looking at the picture. */
+        if (granted === undefined) throw new ApiError(403, 'no_grant', 'no download grant');
+        if (live) setUrl(granted);
       } catch (cause) {
         /* §34.4: an explicit "temporarily unavailable", never a broken image — a person
            reads a broken image as "the file is gone". */
@@ -102,7 +132,7 @@ export function AttachmentMedia({
       live = false;
       watcher.disconnect();
     };
-  }, [file.attachmentId, url]);
+  }, [file.attachmentId, url, gallery, local]);
 
   if (problem !== undefined) {
     return (
@@ -112,9 +142,12 @@ export function AttachmentMedia({
     );
   }
 
+  /* The local copy wins where there is one; otherwise the granted URL. */
+  const shown = local ?? url;
+
   return (
     <div className="attachment-media" ref={holder} data-kind={kind}>
-      {url === undefined ? (
+      {shown === undefined ? (
         /* A box of the right shape while the grant is in flight, so the thread does not
            jump when the picture lands. */
         <div className="attachment-media-pending" aria-label={`Loading ${file.filename}`} />
@@ -129,16 +162,20 @@ export function AttachmentMedia({
            governs navigation; the `<img>` right here renders the same bytes without
            complaint, which is what `MediaViewer` uses.
 
-           A button rather than an anchor, because it no longer goes anywhere.
+           A button rather than an anchor, because it no longer goes anywhere. It opens the
+           thread's whole gallery AT this picture, so next and previous work — outside a
+           thread there is no gallery and the button is inert rather than opening a viewer
+           with one item and two dead chevrons.
         */
         <button
           type="button"
           className="attachment-media-open"
-          onClick={() => setViewing(true)}
+          onClick={() => gallery?.open(file.attachmentId)}
+          disabled={gallery === undefined}
           title={file.filename}
           aria-label={`Open ${file.filename}`}
         >
-          <img src={url} alt={file.filename} loading="lazy" />
+          <img src={shown} alt={file.filename} loading="lazy" />
         </button>
       ) : (
         /* `preload="metadata"` so the poster frame and duration are there without pulling
@@ -148,27 +185,18 @@ export function AttachmentMedia({
            it sits. `Expand` is for the other case, and opens the same viewer a picture uses
            rather than navigating, for the same reason. */
         <>
-          <video src={url} controls preload="metadata" playsInline title={file.filename} />
-          <button
-            type="button"
-            className="attachment-media-expand"
-            onClick={() => setViewing(true)}
-          >
-            Expand
-          </button>
+          <video src={shown} controls preload="metadata" playsInline title={file.filename} />
+          {gallery !== undefined ? (
+            <button
+              type="button"
+              className="attachment-media-expand"
+              onClick={() => gallery.open(file.attachmentId)}
+            >
+              Expand
+            </button>
+          ) : null}
         </>
       )}
-      {viewing && url !== undefined ? (
-        <MediaViewer
-          media={{
-            kind,
-            url,
-            filename: file.filename,
-            declaredBytes: file.declaredBytes,
-          }}
-          onClose={() => setViewing(false)}
-        />
-      ) : null}
     </div>
   );
 }

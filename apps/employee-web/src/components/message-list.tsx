@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { api, ApiError, type AttachmentView } from '../lib/api-client';
 import { extensionOf, formatBytes } from './attachment-picker';
 import { AttachmentMedia, mediaKindOf } from './attachment-media';
+import { MediaGalleryProvider, type GalleryItem } from './media-gallery';
 import { VoiceNote, isVoiceNote } from './voice-note';
 import { AvatarImage } from './avatar-image';
 import { deliveryTick, type DeliveryTick } from '@starlink/shared-contracts';
@@ -165,7 +166,55 @@ export function MessageList({
 
   const dividerAt = unreadDividerIndex(messages, currentPrincipalId, unreadOnOpen);
 
+  /**
+   * Every picture and video in this thread, in the order they were sent.
+   *
+   * Assembled here because this is the only component that knows the ORDER — a viewer
+   * built from what the bubbles happened to fetch would page in scroll order, or in
+   * whichever order the grants came back. A voice note is deliberately absent: it is a
+   * control, not something to look at, and putting one in a picture gallery would be a
+   * blank frame between two photographs.
+   *
+   * Memoised on the message ids so reacting, editing or a read receipt landing does not
+   * rebuild the strip under somebody's finger.
+   */
+  const galleryKey = messages.map((message) => message.messageId).join(',');
+  const galleryItems = useMemo<readonly GalleryItem[]>(() => {
+    const collected: GalleryItem[] = [];
+    for (const message of messages) {
+      for (const file of message.attachments ?? []) {
+        if (isVoiceNote(file)) continue;
+        const kind = mediaKindOf(file);
+        if (kind === undefined) continue;
+        collected.push({
+          attachmentId: file.attachmentId,
+          kind,
+          filename: file.filename,
+          declaredBytes: file.declaredBytes,
+          senderDisplayName: message.senderDisplayName,
+          senderPrincipalId: message.senderPrincipalId,
+          sentAt: message.createdAt,
+          mine: message.senderPrincipalId === currentPrincipalId,
+        });
+      }
+    }
+    return collected;
+    /*
+       `galleryKey` stands in for `messages`, deliberately and by hand.
+
+       The array's identity changes on every poll, so depending on it would rebuild this
+       list - and the strip's scroll position with it - several times a minute under
+       somebody's finger. The ids are what actually decide the contents.
+
+       There is no `react-hooks/exhaustive-deps` rule configured in this repository, so
+       nothing checks the claim mechanically and no disable comment is possible either:
+       naming a rule ESLint does not have is itself a build error. Keep this list correct
+       by hand, as `attachment-picker.tsx` does for the same reason.
+    */
+  }, [galleryKey, currentPrincipalId]);
+
   return (
+    <MediaGalleryProvider items={galleryItems}>
     <ol aria-label="Messages" className="thread">
       {messages.map((message, index) => (
         <Fragment key={message.messageId}>
@@ -236,6 +285,7 @@ export function MessageList({
         />
       ))}
     </ol>
+    </MediaGalleryProvider>
   );
 }
 
@@ -493,6 +543,23 @@ function MessageRow({
         message.body.trim() === '' &&
         (message.attachments ?? []).some((file) => mediaKindOf(file) !== undefined)
           ? ' media-only'
+          : ''
+      }${
+        /*
+           A picture WITH something written under it, which is a different shape again.
+
+           `media-only` covers the caption-less case and got the layout right there. With a
+           caption the bubble stayed a wrapping flex ROW, so the words landed BESIDE the
+           picture and the bubble grew to hold both — measured at 543x176 around a 302px
+           video, a quarter of a screen of empty bubble beside a caption of four words.
+
+           A caption belongs under the thing it captions. The bubble is a column here, and
+           this class is what says so; the stylesheet cannot work it out, for the same
+           reason `media-only` is decided in the component.
+        */
+        message.body.trim() !== '' &&
+        (message.attachments ?? []).some((file) => mediaKindOf(file) !== undefined)
+          ? ' media-caption'
           : ''
       }`}
       /* The anchor the pinned bar scrolls to. An id attribute rather than a ref map: the

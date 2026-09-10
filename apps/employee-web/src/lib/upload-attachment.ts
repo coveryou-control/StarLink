@@ -3,6 +3,7 @@
 import type { Dispatch, SetStateAction } from 'react';
 
 import { api, ApiError } from './api-client';
+import { rememberLocalMedia } from './local-media';
 
 /**
  * A file the composer is holding, and how far along it is.
@@ -16,6 +17,18 @@ export interface StagedAttachment {
   readonly filename: string;
   /** Carried so the optimistic message can render the file without a re-read. */
   readonly declaredBytes: number;
+  /**
+   * What the browser said the file was when it was chosen.
+   *
+   * Carried so the OPTIMISTIC row can be drawn correctly. Its absence was half of why a
+   * sent picture appeared as a file card: the optimistic attachment was built from this
+   * shape, `mediaKindOf` decides from a content type, and there was none to decide on.
+   *
+   * It is the DECLARED type and it is used for exactly one thing — deciding how to draw
+   * bytes this browser already has. Nothing downstream trusts it: the server sniffs the
+   * real type, and every attachment anybody else can see is drawn from that.
+   */
+  readonly contentType: string;
   /**
    * UPLOADING — bytes in flight. SCANNING — uploaded, awaiting the verdict; NOT sendable.
    * READY — CLEAN, and §28.1 will bind it. FAILED — it never will, and `problem` says why.
@@ -69,12 +82,18 @@ export async function uploadAttachment(
     });
     attachmentId = grant.attachmentId;
 
+    /* The bytes are already here. Keeping them against the id is what lets the thread draw
+       your own picture the instant it is sent, rather than after a round trip for a
+       download grant on a file this browser just uploaded — see `local-media.ts`. */
+    rememberLocalMedia(grant.attachmentId, file);
+
     onStagedChange((current) => [
       ...current,
       {
         attachmentId: grant.attachmentId,
         filename: file.name,
         declaredBytes: file.size,
+        contentType: file.type || 'application/octet-stream',
         state: 'UPLOADING',
         ...(durationMs !== undefined ? { durationMs } : {}),
       },
@@ -151,6 +170,7 @@ export async function uploadAttachment(
           attachmentId: `failed:${file.name}:${Date.now()}`,
           filename: file.name,
           declaredBytes: file.size,
+          contentType: file.type || 'application/octet-stream',
           state: 'FAILED',
           problem,
         },

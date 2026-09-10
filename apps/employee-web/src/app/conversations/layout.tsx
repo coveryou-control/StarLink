@@ -503,6 +503,58 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                   {onPhone ? <BrandMark size={30} /> : null}
                   {panelName}
                 </h2>
+
+                {/*
+                  Archive, at the top of the list rather than in the rail.
+
+                  It used to be the sixth row of the sidebar's chat destinations, which gave
+                  a list you visit rarely and deliberately the same weight as the ones you
+                  live in — and put it in the way of Unread. Here it is a toggle over the
+                  list it filters: press it to see what you have put away, press it again to
+                  come back. `aria-pressed` rather than a second button, because there is one
+                  state with two settings and a person needs to be able to see which they
+                  are in without reading the masthead.
+
+                  The box it returns to is All, not "whatever was open before". Coming back
+                  from the archive to Favourites — because that happened to be the last
+                  slice — would be the control undoing more than it did.
+                */}
+                <button
+                  type="button"
+                  className="panel-head-icon panel-head-archive"
+                  aria-pressed={chatView === 'archive'}
+                  aria-label={chatView === 'archive' ? 'Back to all chats' : 'Archived chats'}
+                  title={chatView === 'archive' ? 'Back to all chats' : 'Archived'}
+                  onClick={() => setChatView(chatView === 'archive' ? 'all' : 'archive')}
+                >
+                  {/* The same box the rail drew, so the thing did not change shape when it
+                      changed places. */}
+                  <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
+                    <rect
+                      x="3.5"
+                      y="5"
+                      width="17"
+                      height="4"
+                      rx="1.2"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                    />
+                    <path
+                      d="M5.2 9v9.2c0 .7.6 1.3 1.3 1.3h11c.7 0 1.3-.6 1.3-1.3V9"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                    />
+                    <path
+                      d="M10 13h4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
                 {/*
                   Compose, in the masthead. Screen 02 puts a + here; screen 08 puts one here
                   AND a floating one at the foot of the list. Same element, and the

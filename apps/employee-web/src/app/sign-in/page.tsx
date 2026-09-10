@@ -120,21 +120,24 @@ export default function SignInPage(): ReactNode {
         <header className="signin-masthead">
           <BrandMark size={40} />
           <h1>Welcome back</h1>
-          <p>Sign in to your CoverYou work account to continue to StarLink.</p>
         </header>
 
         <form onSubmit={(event) => void submit(event)} className="signin-form">
           {/*
-            "Work email", as the directory will label it — and it is already true.
+            The field names all three things it accepts, and accepts all three.
 
-            It said "Username", because that is what `SL_ADAPTER_IAM=local` authenticates
-            against and an address would simply not have matched. The adapter takes the
-            LOCAL PART of an address now (see `verifyCredential`), so both forms sign the
-            same person in: the label matches what HRMS will take when it lands, and
-            matches what the box accepts today.
+            It said "Username" first, because that is what `SL_ADAPTER_IAM=local`
+            authenticates against; then "Work email", once the adapter learned to take the
+            local part of an address. Both were narrower than the truth. People know
+            themselves by whichever of the three their last system asked for — the
+            directory lists an employee code, the mail system an address — and guessing
+            wrong on the one screen nobody can get past is a support call.
+
+            `verifyCredential` matches a username, an address's local part, or an employee
+            code, case-insensitively. The label was widened only after that was true.
           */}
           <label className="signin-field">
-            <span className="signin-label">Work email</span>
+            <span className="signin-label">Work ID or email</span>
             {/*
               Wrapped like the password field rather than left bare, and that symmetry is
               load-bearing as well as visual.
@@ -184,7 +187,7 @@ export default function SignInPage(): ReactNode {
                 autoComplete="username"
                 aria-invalid={error !== undefined}
                 required
-                placeholder="name@coveryou.co.in"
+                placeholder="Employee code, user ID or email"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
               />
@@ -263,12 +266,49 @@ export default function SignInPage(): ReactNode {
               */}
               <button
                 type="button"
-                className="signin-quiet"
+                className="signin-eye"
                 aria-pressed={showPassword}
                 aria-controls="signin-password"
+                /*
+                   The word is gone from the button and kept for the screen reader.
+
+                   "Show" was a five-letter control sitting where every other product on
+                   the machine puts an eye, and it took the width of a word inside a field
+                   that has none to spare. `aria-label` says what the glyph means, and it
+                   names the ACTION rather than the state - "Show password" when hidden,
+                   "Hide password" when shown - because a button labelled with the state it
+                   is currently in is the classic way to make a toggle unreadable.
+                */
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                title={showPassword ? 'Hide password' : 'Show password'}
                 onClick={() => setShowPassword((was) => !was)}
               >
-                {showPassword ? 'Hide' : 'Show'}
+                {showPassword ? (
+                  /* Struck through, which is the convention for "it is showing, hide it".
+                     The slash is drawn on the same 24-grid so the two states are the same
+                     glyph with one line added rather than two different drawings. */
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                    <path
+                      d="M3.3 12S6.9 5.9 12 5.9c1.5 0 2.8.5 4 1.2M20.7 12s-1.2 2-3.2 3.6M9.6 9.7A3.2 3.2 0 0 0 12 15.2c.9 0 1.7-.4 2.3-1"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                    />
+                    <path d="m4.5 4.5 15 15" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+                  </svg>
+                ) : (
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                    <path
+                      d="M3.3 12S6.9 5.9 12 5.9 20.7 12 20.7 12 17.1 18.1 12 18.1 3.3 12 3.3 12Z"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinejoin="round"
+                    />
+                    <circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" strokeWidth="1.7" />
+                  </svg>
+                )}
               </button>
             </div>
           </div>
@@ -338,17 +378,15 @@ export default function SignInPage(): ReactNode {
         </div>
 
         {/*
-          Outside the panel, deliberately.
+          The footnote is gone, and so is the subtitle above the form.
 
-          Inside it, this paragraph was a third of the panel's height and turned a compact
-          object into a tall one with its weight at the bottom. It is also not part of the
-          form: it is a note about who may use the product, which belongs to the page
-          rather than to the thing you fill in. Out here it reads as a footnote.
+          Both said true things that nobody signing in needs: that access is limited to
+          active employees (which the refusal will say, to the only person it applies to),
+          that single sign-on is coming (a roadmap note on a login box), and that this
+          screen signs you in to StarLink (which the screen is). Two fields and a button
+          need no narration, and the page reads as one object now rather than as a form
+          with paragraphs stacked around it.
         */}
-        <p className="signin-foot">
-          Access is limited to active employees. Single sign-on becomes available once
-          StarLink is connected to the company directory.
-        </p>
         </div>
       </div>
 

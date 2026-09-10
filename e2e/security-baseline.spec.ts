@@ -98,7 +98,7 @@ test('the employee session cookie is HttpOnly, scoped, and lives its full length
 }) => {
   await page.goto(`${ORIGINS.employeeWeb}/sign-in`);
   await page.getByLabel('Work email').fill(CREDENTIALS.agent.username);
-  await page.getByLabel('Password').fill(CREDENTIALS.agent.password);
+  await page.getByLabel('Password', { exact: true }).fill(CREDENTIALS.agent.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/conversations/);
 

@@ -1146,6 +1146,23 @@ input[type='search']::-webkit-search-cancel-button {
   color: var(--text);
 }
 
+/*
+   The archive toggle, showing which of its two settings it is in.
+
+   A toggle whose only feedback is the list changing underneath it is one people press
+   twice to find out what it does. Pressed takes the accent — the same treatment the
+   sidebar's current destination has, because it is the same fact: this is the list you
+   are looking at.
+
+   `aria-pressed`, not a hover rule, so `hover-highlighting.test.ts` is untroubled: a
+   state may paint a ground; hovering may not.
+*/
+.panel-head-archive[aria-pressed='true'] {
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 34%, transparent);
+  color: var(--accent-ink, var(--accent));
+}
+
 .panel-head-badge {
   position: absolute;
   top: -4px;
@@ -7300,6 +7317,45 @@ input.signin-control {
 }
 
 /*
+   The eye, where the word "Show" used to be.
+
+   A square rather than a run of text: it sits inside the password field, and a five-letter
+   word there takes width from the one thing the field is for. The glyph is what every
+   other product on the machine puts in that corner, so it needs no label to be understood
+   - and it carries one anyway, for the people who cannot see it.
+
+   36px so the tap target clears the 24px minimum with room, and centred on the field's
+   own height rather than floated - the field is 44px and an eye a pixel off centre inside
+   it is the same defect the composer's emoji control had.
+*/
+.signin-eye {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-right: -6px;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--si-subtle);
+  transition: color 130ms var(--ease);
+}
+
+.signin-eye:hover,
+.signin-eye:focus-visible {
+  color: var(--si-ink);
+}
+
+/* Pressed means the password is on screen, which is a state worth seeing at a glance -
+   it is the one control here whose current setting has a consequence if forgotten. */
+.signin-eye[aria-pressed='true'] {
+  color: var(--si-ink);
+}
+
+/*
    "Forgot password?" no longer carries the action's hue.
 
    It did, on the reasoning that it is the only other thing on the card somebody might be
@@ -10313,6 +10369,67 @@ input.signin-control {
   color: #fff;
 }
 
+/*
+   A picture with a caption: the picture on top, the words underneath.
+
+   The bubble is a wrapping flex ROW, which is right for text and a timestamp and wrong for
+   this. Measured before: a 302px video inside a 543px bubble with "clip from the site
+   visit" sitting to its LEFT and 241px of empty bubble to its right — the caption reading
+   as a label beside a thumbnail rather than as a line under a picture.
+
+   A column, and the media is ordered first regardless of where it sits in the markup: the
+   body comes before the attachment list in the DOM, because that is the order the two are
+   read in when there is no picture.
+
+   The bubble also stops being wider than what it holds. `width: min-content` would collapse
+   a long caption onto one word per line, so the media sets the width instead — `--media-w`
+   is not available in CSS, so `align-items: stretch` plus a media element that does not
+   grow is what keeps the two the same width.
+*/
+.message-row.media-caption .message-main {
+  flex-direction: column;
+  align-items: stretch;
+  flex-wrap: nowrap;
+  /* The picture takes the bubble's own top corners, as it does in `media-only`; only the
+     caption needs the padding. */
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--media-frame);
+}
+
+.message-row.media-caption .message-main .attachments {
+  order: 0;
+  margin: 0;
+}
+
+.message-row.media-caption .message-main .attachment-media,
+.message-row.media-caption .message-main .attachment-media img,
+.message-row.media-caption .message-main .attachment-media video {
+  display: block;
+  width: 100%;
+  border-radius: 0;
+  /* Not doubled: the bubble above is already drawing the frame. */
+  border: 0;
+}
+
+/*
+   The caption, and the row it shares with the stamp.
+
+   Padded here rather than on the bubble, because the picture above must reach the edges
+   and the words must not. The stamp joins this line instead of floating over the picture:
+   there is somewhere for it to go now, which is the whole difference from `media-only`.
+*/
+.message-row.media-caption .message-main .message-body {
+  order: 1;
+  padding: 7px var(--space-3) 0;
+}
+
+.message-row.media-caption .message-main .bubble-meta {
+  order: 2;
+  align-self: flex-end;
+  padding: 2px var(--space-3) 7px;
+}
+
 /* ------------------------------------------------------- the picture, before it is sent ---
 
    A full-window panel, and the reason it is not a small popover over the composer is the
@@ -12775,7 +12892,16 @@ input.signin-control {
   border: 0;
   border-radius: inherit;
   background: none;
-  cursor: zoom-in;
+  /*
+     A pointer, not a magnifying glass.
+
+     `cursor: zoom-in` put the browser's own zoom glyph over every photograph in the
+     thread, which promised a zoom this does not do - pressing the picture opens the
+     viewer, which fits it to the window. A cursor that names the wrong action is worse
+     than no cursor, and the plain hand is what says "this is pressable" everywhere else
+     in the product.
+  */
+  cursor: pointer;
   overflow: hidden;
 }
 
@@ -12822,19 +12948,73 @@ input.signin-control {
   color: rgb(255 255 255 / 92%);
 }
 
-.media-viewer-name {
+/*
+   Who sent it, and when - where the filename used to be.
+
+   The bar led with `Screenshot (7).png`, which identifies nothing. The person and the
+   moment are what somebody wants when they are looking at a picture away from the message
+   it arrived in, and they are two short lines rather than one long one so the name of a
+   colleague is not competing with a timestamp for the same reading position.
+*/
+.media-viewer-who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--text-md);
-  font-weight: 500;
+  margin-right: auto;
 }
 
-.media-viewer-size {
+.media-viewer-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
   flex: none;
-  margin-right: auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  /* The identity tint, the same one this person wears in the thread behind. `overflow` is
+     what keeps a photograph inside the circle - see the avatar sweep. */
+  background: var(--identity-tint, rgb(255 255 255 / 14%));
+  color: var(--identity-ink, #fff);
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.media-viewer-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-viewer-who-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.25;
+}
+
+.media-viewer-who-text strong {
+  overflow: hidden;
+  font-size: var(--text-md);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-viewer-who-text span {
   font-size: var(--text-base);
+  color: rgb(255 255 255 / 62%);
+}
+
+/* Where you are in the conversation's media. Tabular, so paging does not shuffle the
+   digits sideways. */
+.media-viewer-count {
+  flex: none;
+  font-size: var(--text-base);
+  font-variant-numeric: tabular-nums;
   color: rgb(255 255 255 / 62%);
 }
 
@@ -12869,7 +13049,126 @@ input.signin-control {
   padding: 0;
 }
 
+/*
+   Previous and next, over the picture rather than beside it.
+
+   In the margin they would move every time the picture's width changed - a portrait and a
+   panorama put them in two different places, and a control that relocates between items
+   is one you have to find again each time. Pinned to the stage's own edges they are always
+   in the same place.
+*/
+.media-viewer-step {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  /* Its own scrim rather than a token: these sit over arbitrary photographs, and a
+     surface colour that reads on one is invisible on the next. */
+  background: rgb(20 20 26 / 62%);
+  color: #fff;
+  transition: color var(--dur) var(--ease);
+}
+
+.media-viewer-step:hover {
+  color: #fff;
+}
+
+.media-viewer-step.is-back {
+  left: var(--space-3);
+}
+
+.media-viewer-step.is-next {
+  right: var(--space-3);
+}
+
+.media-viewer-waiting {
+  margin: 0;
+  color: rgb(255 255 255 / 62%);
+  font-size: var(--text-md);
+}
+
+/*
+   The strip: every picture in the conversation, in order.
+
+   It is what turns one photograph into a place in a sequence. Horizontal scroll rather
+   than a wrapping grid, because a grid of forty thumbnails is a second screen and this is
+   a ribbon under the one you are looking at.
+*/
+.media-viewer-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.media-viewer-thumb {
+  position: relative;
+  flex: none;
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: rgb(255 255 255 / 10%);
+  overflow: hidden;
+  opacity: 0.55;
+  transition: opacity var(--dur) var(--ease);
+}
+
+.media-viewer-thumb img,
+.media-viewer-thumb video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-viewer-thumb:hover {
+  opacity: 0.85;
+}
+
+/*
+   The one you are on, and it is marked by a RING rather than by being the only bright one.
+
+   Opacity alone fails the moment two adjacent pictures are both dark: "which is selected"
+   becomes a judgement about brightness. The ring is drawn inside the frame with an inset
+   shadow so it cannot change the thumbnail's size and shuffle the strip as you page.
+*/
+.media-viewer-thumb.is-active {
+  opacity: 1;
+  box-shadow: inset 0 0 0 2px #fff;
+}
+
+.media-viewer-thumb-blank {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: rgb(255 255 255 / 8%);
+}
+
+.media-viewer-thumb-play {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 50%;
+  background: rgb(16 16 20 / 70%);
+  color: #fff;
+}
+
 .media-viewer-stage {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
