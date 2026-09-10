@@ -4,7 +4,13 @@ import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { AppRail, RAIL_SECTIONS, type RailSection, type ChatView } from '../../components/app-rail';
+import {
+  AppRail,
+  CHAT_VIEWS,
+  RAIL_SECTIONS,
+  type RailSection,
+  type ChatView,
+} from '../../components/app-rail';
 import { useMediaQuery } from '../../lib/use-media-query';
 import { AnnouncementsPanel } from '../../components/announcements-panel';
 import { ChannelsPanel } from '../../components/channels-panel';
@@ -389,6 +395,19 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
     return <AppBoot />;
   }
 
+  /**
+   * What the chats column is currently a list OF.
+   *
+   * "All" would be a poor masthead — a column headed "All" says nothing about what it is
+   * all of — so the default slice keeps the section's own name and the other five take
+   * theirs from the rail. One table, so a slice added to `CHAT_VIEWS` cannot arrive with
+   * a masthead that still says "Chats".
+   */
+  const panelName =
+    chatView === 'all'
+      ? 'Chats'
+      : (CHAT_VIEWS.find((view) => view.id === chatView)?.label ?? 'Chats');
+
   return (
     <PresenceProvider online={online} statuses={declaredStatuses}>
       <AvatarStampProvider stamps={avatarStamps}>
@@ -460,21 +479,29 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
       <div className="app-body" data-conversation-open={params.id !== undefined ? 'true' : 'false'}>
         <aside className="sidebar">
           {section === 'chats' ? (
-            <section className="panel" aria-label="Chats">
+            <section className="panel" aria-label={panelName}>
               <header className="panel-head">
                 {/*
-                  "Chats", at 20/600 — the reference's own masthead.
+                  The column says what the column holds — and until now it said "Chats"
+                  whichever of the six it held.
 
                   It said "Starlink" for a while, on the reasoning that a masthead is where
                   a product's name goes. The design disagrees and it is the source of truth:
                   the name lives on the rail's mark, which is on screen beside this at every
-                  width that has a rail, and the column says what the column holds. On a
-                  phone, where there is no rail, the mark comes back beside it — see the
-                  mobile masthead below.
+                  width that has a rail. On a phone, where there is no rail, the mark comes
+                  back beside it — see the mobile masthead below.
+
+                  What the design does NOT say is that six different lists share one word.
+                  Measured on all six: heading "Chats", `aria-label` "Chats", for All,
+                  Unread, Favourites, Groups, 1:1 and Archive alike — so the masthead of a
+                  list of starred MESSAGES read "Chats", and the only thing on screen
+                  saying which list you were looking at was a highlight in the rail. Both
+                  the visible word and the label a screen reader announces follow the slice
+                  now, because both were wrong in the same way.
                 */}
                 <h2 className="panel-title">
                   {onPhone ? <BrandMark size={30} /> : null}
-                  Chats
+                  {panelName}
                 </h2>
                 {/*
                   Compose, in the masthead. Screen 02 puts a + here; screen 08 puts one here

@@ -62,18 +62,39 @@ export function FavouritesPanel({
     };
   }, []);
 
+  /*
+     A LIST's empty state, not the reading pane's.
+
+     All three of these were wrapped in `.thread-empty`, which is `place-items: center` on
+     a full-height grid — right for the conversation pane, which is a wide blank canvas
+     with one thing to say in the middle of it, and wrong for a 360px column of rows.
+     Measured: "Nothing starred yet" rendered 323px down an 823px column, floating in the
+     middle of a list, while every other panel's empty state sits at the top where the
+     first row would be. `.panel-empty` is that position, and the words did not need to
+     change - only where they were standing.
+  */
   if (loading) {
     return (
-      <div className="thread-empty">
-        <p className="state-note">Loading…</p>
+      <div className="panel-empty">
+        {/* Shapes rather than the word, which is what every other list here shows while
+            it waits - see the announcements board and the conversation list. */}
+        <ul className="favourites" aria-hidden="true">
+          {[86, 64, 74].map((width) => (
+            <li key={width}>
+              <span className="favourite-row" aria-hidden="true">
+                <span className="skeleton-line" style={{ width: `${width}%` }} />
+              </span>
+            </li>
+          ))}
+        </ul>
       </div>
     );
   }
 
   if (failed) {
     return (
-      <div className="thread-empty">
-        <p className="state-note">
+      <div className="panel-empty">
+        <p className="state-note" role="alert">
           <strong>Could not load your favourites</strong>
           The list is still there — this is a problem reading it, not a problem with it.
         </p>
@@ -83,7 +104,7 @@ export function FavouritesPanel({
 
   if (items.length === 0) {
     return (
-      <div className="thread-empty">
+      <div className="panel-empty">
         <p className="state-note">
           <strong>Nothing starred yet</strong>
           Star a message from its menu and it will wait for you here, whichever conversation
