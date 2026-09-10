@@ -717,25 +717,18 @@ function DesktopSidebar({
       <p className="sidenav-label">Company</p>
       <ul className="sidenav-items">
         {/*
-          "Connect" rather than "People" — the reference's word, and the better one: this is
-          where you go to find a colleague you have not spoken to yet, which is an act
-          rather than a noun.
+          Connect is no longer a row here, and the DIRECTORY has not gone anywhere.
+
+          It was where you went to find a colleague you had not spoken to yet. New chat now
+          opens on a field that searches the whole company by name, department or handle —
+          the same question, asked at the moment somebody is actually asking it, rather
+          than from a destination they have to think of first. Two doors onto one search is
+          one more than it needs.
+
+          The panel itself still exists and is still reached from the empty pane's "Browse
+          directory". This removes a row from the sidebar; it removes no capability, and
+          `RAIL_SECTIONS` still admits `people` so nothing that opens it breaks.
         */}
-        <li>
-          <button
-            type="button"
-            className="sidenav-item"
-            aria-current={active === 'people' ? 'page' : undefined}
-            onClick={() => onSelect('people')}
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <circle cx="9.5" cy="8.5" r="3.2" {...stroke} />
-              <path d="M3.5 19.5c0-3.2 2.7-5.2 6-5.2s6 2 6 5.2" {...stroke} strokeLinecap="round" />
-              <path d="M17 8.5h4M19 6.5v4" {...stroke} strokeLinecap="round" />
-            </svg>
-            <span>Connect</span>
-          </button>
-        </li>
         {/*
           Channels.
 
