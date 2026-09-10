@@ -8,7 +8,10 @@ import { useEnterToSend } from '../lib/preferences';
 import { VoiceComposer } from './voice-composer';
 import type { Recording } from '../lib/use-voice-recorder';
 import { declaredMimeFor, nameForRecording } from '../lib/voice-recording';
-import { AttachmentPicker } from './attachment-picker';
+import { AttachmentPicker, formatBytes } from './attachment-picker';
+import { createPortal } from 'react-dom';
+
+import { MediaPreviewOverlay, type MediaPreview } from './media-preview';
 import {
   nameForPastedImage,
   uploadAttachment,
@@ -97,6 +100,51 @@ export function Composer({
   const [staged, setStaged] = useState<readonly StagedAttachment[]>([]);
   /** A file is being dragged over the composer. Drives the drop target's own styling. */
   const [dragging, setDragging] = useState(false);
+  /**
+   * The picture or video currently being looked at before it is sent.
+   *
+   * Held here rather than in the picker because the caption is this component's `body` and
+   * the send is this component's `send()`. A preview that owned either would be a second
+   * composer, and the two would drift on exactly the things that matter — drafts, mention
+   * pruning, what happens to an attachment the server declines to bind.
+   */
+  const [preview, setPreview] = useState<MediaPreview | undefined>(undefined);
+
+  /**
+   * A chosen file becomes a preview, but only if looking at it would tell you anything.
+   *
+   * A document is its filename — the chip already says everything a preview could. A
+   * photograph is not: `IMG_20260910_113402.jpg` describes nothing, and "is this the right
+   * picture" is a question a chip cannot answer.
+   *
+   * The URL is created here and revoked here, in one place, because an object URL that
+   * outlives its preview is a leak that nothing reports.
+   */
+  const previewFile = useCallback((file: File): void => {
+    const kind = file.type.startsWith('image/')
+      ? 'image'
+      : file.type.startsWith('video/')
+        ? 'video'
+        : undefined;
+    if (kind === undefined) return;
+    setPreview((current) => {
+      if (current !== undefined) URL.revokeObjectURL(current.url);
+      return {
+        url: URL.createObjectURL(file),
+        kind,
+        filename: file.name,
+        bytes: file.size,
+        ready: false,
+      };
+    });
+  }, []);
+
+  const closePreview = useCallback((): void => {
+    setPreview((current) => {
+      if (current !== undefined) URL.revokeObjectURL(current.url);
+      return undefined;
+    });
+  }, []);
 
   /**
    * Files arriving by drag-and-drop or by paste.
@@ -119,10 +167,15 @@ export function Composer({
           file.type.startsWith('image/') && (file.name === '' || file.name === 'image.png')
             ? new File([file], nameForPastedImage(file), { type: file.type })
             : file;
+        /* One dropped picture gets the same look-before-you-send as one chosen from the
+           paperclip: it is the same act reached by a different gesture, and the preview
+           is modal so only the first of a batch could have one. Several at once stay
+           chips, which is the honest answer - a preview can show one file. */
+        if (files.length === 1) previewFile(named);
         void uploadAttachment(conversationId, named, setStaged);
       }
     },
-    [conversationId],
+    [conversationId, previewFile],
   );
   /**
    * A finished recording, staged exactly like a dropped file.
@@ -145,6 +198,45 @@ export function Composer({
     },
     [conversationId],
   );
+
+  /*
+     The preview follows its file through the pipeline.
+
+     Matched on name AND size rather than on an id, because the id does not exist yet when
+     the preview opens — the grant is the first round trip and the picture is on screen
+     before it returns. Only one preview can be up at a time (it is modal), so there is no
+     second file for this to confuse it with.
+
+     Three transitions matter: the grant arrives and the chip can be cancelled by id; the
+     scan clears and send arms; the file is refused and the panel says why. The fourth —
+     the chip disappearing entirely — is what a successful send looks like from here.
+  */
+  useEffect(() => {
+    if (preview === undefined) return;
+    const match = staged.find(
+      (file) => file.filename === preview.filename && file.declaredBytes === preview.bytes,
+    );
+    if (match === undefined) {
+      /* It was there and now it is not: bound to a message, so the send worked. Until the
+         grant returns there is nothing to match, which is why this waits for an id. */
+      if (preview.attachmentId !== undefined) closePreview();
+      return;
+    }
+    const ready = match.state === 'READY';
+    if (
+      match.attachmentId === preview.attachmentId &&
+      ready === preview.ready &&
+      match.problem === preview.problem
+    ) {
+      return;
+    }
+    setPreview({
+      ...preview,
+      attachmentId: match.attachmentId,
+      ready,
+      ...(match.problem !== undefined ? { problem: match.problem } : {}),
+    });
+  }, [staged, preview, closePreview]);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -802,6 +894,41 @@ export function Composer({
         control an icon-sized button on the action row.
       */}
       {/*
+        The picture, before it is sent - portalled to the body.
+
+        It is a child of the composer in the React tree because its caption is this
+        component's `body` and its send is this component's `send()`. It must not be one in
+        the DOM: the composer is a 60px strip at the foot of the window and this covers the
+        window, so a `position: fixed` element inside it would be at the mercy of any
+        `transform`, `filter` or `contain` on an ancestor - each of which silently makes a
+        fixed child position against THAT box instead of the viewport. A portal removes the
+        question rather than answering it for today's stylesheet.
+      */}
+      {preview !== undefined
+        ? createPortal(
+            <MediaPreviewOverlay
+              preview={preview}
+              caption={body}
+              onCaptionChange={handleChange}
+              onSend={() => void send()}
+              onCancel={() => {
+                /* The staged file goes with the panel. Leaving it behind would put a chip
+                   in the composer for a picture the person just decided against, and the
+                   next message would carry it. */
+                const id = preview.attachmentId;
+                if (id !== undefined) {
+                  setStaged((current) => current.filter((file) => file.attachmentId !== id));
+                }
+                closePreview();
+              }}
+              sending={sending}
+              humanBytes={formatBytes}
+            />,
+            document.body,
+          )
+        : null}
+
+      {/*
         The member list, above the composer rather than below it: the composer is already
         at the bottom of the screen, and a list opening downward would be off it.
       */}
@@ -834,6 +961,7 @@ export function Composer({
             conversationId={conversationId}
             staged={staged}
             onStagedChange={setStaged}
+            onPicked={previewFile}
           />
         )}
 

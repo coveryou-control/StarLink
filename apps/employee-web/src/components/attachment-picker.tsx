@@ -171,6 +171,7 @@ export function AttachmentPicker({
   conversationId,
   staged,
   onStagedChange,
+  onPicked,
 }: {
   readonly conversationId: string;
   readonly staged: readonly StagedAttachment[];
@@ -184,6 +185,15 @@ export function AttachmentPicker({
    * attachments, and the functional form is what makes it unrepresentable.
    */
   readonly onStagedChange: Dispatch<SetStateAction<readonly StagedAttachment[]>>;
+  /**
+   * Told about the file the moment it is chosen, before a single byte has moved.
+   *
+   * Only the composer acts on this, and only for a picture or a video: those get shown
+   * before they are sent, because a filename does not describe one. It is deliberately not
+   * "onImagePicked" — this component has no business deciding which kinds are worth
+   * previewing, and the composer is where that list already lives.
+   */
+  readonly onPicked?: (file: File) => void;
 }): React.JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -244,6 +254,9 @@ export function AttachmentPicker({
      its own copy of the pipeline.
   */
   const attach = async (file: File): Promise<void> => {
+    /* Before the upload, not after: the preview's whole point is that it is on screen
+       while the bytes are moving, rather than being one more thing to wait for. */
+    onPicked?.(file);
     setBusy(true);
     try {
       await uploadAttachment(conversationId, file, onStagedChange);
