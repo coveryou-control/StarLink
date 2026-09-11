@@ -1181,7 +1181,7 @@ export const api = {
        already lit up. Absent means always deliver. */
     quiet?: { from: string; to: string; timeZone: string },
   ) =>
-    request<{ registered: boolean }>(employeeRoutes.devices, {
+    request<{ registered: boolean; wasKnown: boolean }>(employeeRoutes.devices, {
       method: 'POST',
       body: JSON.stringify({ token, platform, ...(quiet !== undefined ? { quiet } : {}) }),
     }),

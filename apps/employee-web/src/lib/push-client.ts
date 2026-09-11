@@ -123,18 +123,61 @@ export async function registerForPush(): Promise<PushOutcome> {
        window rather than leave yesterday's in place.
     */
     const device = readDeviceNotifications();
-    await api.registerDevice(
-      token,
-      'WEB',
-      device.quietHours
-        ? {
-            from: device.quietFrom,
-            to: device.quietTo,
-            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-          }
-        : undefined,
-    );
+    const quiet = device.quietHours
+      ? {
+          from: device.quietFrom,
+          to: device.quietTo,
+          timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        }
+      : undefined;
+
+    /* What this browser thought it was registered as, BEFORE this attempt. Read here
+       because `remember` below overwrites it, and the comparison needs the old value. */
+    const previous = remembered();
+
+    const first = await api.registerDevice(token, 'WEB', quiet);
     remember(token);
+
+    /*
+       A token this browser remembered, that the server did not have, is a DEAD token.
+
+       FCM invalidates a registration on its own schedule — a reinstall, cleared site
+       data, a long absence. The transport is told `UNREGISTERED` and deletes the row;
+       the browser goes on presenting the same token from the SDK's own cache, for ever.
+       Client and server then disagree in silence and this device never receives another
+       push. It happened twice during setup, and the only thing that fixed it was wiping
+       the browser profile, which is not something a person can be asked to do.
+
+       `wasKnown: false` on a token we had already stored is exactly that signature —
+       the server is telling us it had to insert what we thought was already there. The
+       remedy is the one Firebase documents: delete the cached token so `getToken` is
+       forced to mint a new one, then register that.
+
+       Only when `previous` matches what we just sent. A FIRST registration is also
+       unknown to the server, and re-minting then would churn a token that is perfectly
+       good on every new device.
+    */
+    if (first.wasKnown === false && previous === token) {
+      const { deleteToken } = await import('firebase/messaging');
+      await deleteToken(getMessaging(app)).catch(() => undefined);
+      const minted = await getToken(getMessaging(app), {
+        vapidKey: config.vapidKey,
+        serviceWorkerRegistration: registration,
+      });
+      /* A re-mint that returns the same string means FCM still considers it live and
+         the disagreement is not staleness. Registering it again would loop. */
+      if (minted !== '' && minted !== token) {
+        await api.registerDevice(minted, 'WEB', quiet);
+        remember(minted);
+        /* Retire the dead one. The POST above re-inserted it a moment ago — that is how
+           we learned it was dead — and leaving it would have the server push to a token
+           FCM has already rejected, once, until the transport is told `UNREGISTERED`
+           again and deletes it. Harmless but pointless, and it leaves this device
+           looking like two devices in the meantime. */
+        await api.forgetDevice(token).catch(() => undefined);
+      }
+    }
+
     return 'REGISTERED';
   } catch {
     /* A Firebase failure must not break the settings panel. The switch stays where the

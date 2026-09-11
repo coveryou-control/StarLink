@@ -31,6 +31,7 @@ import { api, ApiError, type ConversationSummary,
 import { customerWorkspaceEnabled } from '../../lib/runtime-origins';
 import { watchSystemTheme } from '../../lib/theme';
 import { onShellAction } from '../../lib/shell-actions';
+import { registerForPush } from '../../lib/push-client';
 import { useNotifications } from '../../lib/use-notifications';
 import { usePresence } from '../../lib/use-presence';
 import { useDeclaredStatuses } from '../../lib/use-declared-status';
@@ -199,6 +200,29 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
      withdrawn, which a bare `router.replace` does not.
   */
   useNotifications(signedInId, onUnauthenticated, mutedUntil);
+
+  /*
+     Register this device for push on every start-up, not only from the Settings panel.
+
+     `registerForPush` was called from `notification-settings.tsx` and NOWHERE else, so a
+     device registered the first time somebody opened that panel and at no other moment.
+     Grant permission once, never go back to Settings, and after FCM next rotates your
+     token you receive nothing — with no signal that anything changed. Its own docblock
+     has always said it is safe to call on every start-up; nothing did.
+
+     It cannot prompt: the function returns early unless permission is ALREADY granted,
+     because a permission dialog raised by page load is one nobody grants. So for anybody
+     who has not turned notifications on this is a no-op, and for everybody who has it is
+     the thing that keeps their registration alive.
+
+     Deliberately not awaited and deliberately silent — a device that cannot register is
+     a device that does not receive push, which the Settings panel reports. Failing the
+     whole workspace over it would be absurd.
+  */
+  useEffect(() => {
+    if (state.status !== 'SIGNED_IN') return;
+    void registerForPush().catch(() => undefined);
+  }, [state.status]);
 
   /**
    * Presence for everybody currently on screen, asked once for the whole surface.

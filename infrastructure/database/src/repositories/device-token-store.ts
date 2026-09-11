@@ -25,11 +25,11 @@ export class PgDeviceTokenStore {
     token: string,
     platform = 'WEB',
     quiet?: QuietWindow,
-  ): Promise<void> {
+  ): Promise<{ inserted: boolean }> {
     /* Written on every registration, including as NULL. A device that turns quiet hours
        off must clear them, and an upsert that only ever set them would leave yesterday's
        window silencing a device whose owner had just switched it off. */
-    await this.pool.query(
+    const result = await this.pool.query(
       `INSERT INTO identity.device_tokens
          (token, principal_id, platform, quiet_from, quiet_to, quiet_zone)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -39,9 +39,24 @@ export class PgDeviceTokenStore {
              quiet_from = EXCLUDED.quiet_from,
              quiet_to = EXCLUDED.quiet_to,
              quiet_zone = EXCLUDED.quiet_zone,
-             last_seen_at = now()`,
+             last_seen_at = now()
+       RETURNING (xmax = 0) AS inserted`,
       [token, principalId, platform, quiet?.from ?? null, quiet?.to ?? null, quiet?.timeZone ?? null],
     );
+    /*
+       Whether this row is NEW, which is how a client learns its token died.
+
+       `xmax = 0` is true only when the INSERT branch ran — Postgres sets `xmax` on a row
+       the upsert updated. It matters because of one specific sequence: FCM invalidates a
+       token, the transport is told `UNREGISTERED` and deletes the row, and the browser
+       goes on presenting the same dead token from its own cache for ever. Client and
+       server then disagree silently and that device never receives another push.
+
+       A client that REMEMBERED a token and is told the server had to insert it has
+       exactly that disagreement, and can mint a fresh one. A first registration also
+       inserts, which is why the client only acts on this when it had a token already.
+    */
+    return { inserted: result.rows[0]?.inserted === true };
   }
 
   /**

@@ -68,13 +68,23 @@ export class DevicesController {
        to buzz this device. Absent means always deliver — and it is sent on EVERY
        registration, including as absent, so switching quiet hours off actually clears
        them rather than leaving yesterday's window in place. */
-    await this.devices.register(
+    const { inserted } = await this.devices.register(
       request.session!.principalId,
       parsed.data.token,
       parsed.data.platform,
       parsed.data.quiet,
     );
-    return { registered: true };
+    /*
+       `wasKnown` is how a browser discovers its token has been reaped.
+
+       FCM invalidates a token, the transport is told `UNREGISTERED` and deletes the row,
+       and the browser keeps presenting the same dead token from its own cache — client
+       and server disagree silently and that device never receives another push. A client
+       that REMEMBERED a token and is told the server did not have it can mint a fresh
+       one. Nothing here is an error: a first registration is not known either, and the
+       client only acts on this when it had a token already.
+    */
+    return { registered: true, wasKnown: !inserted };
   }
 
   /**
