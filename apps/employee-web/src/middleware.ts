@@ -35,14 +35,28 @@ import { NextResponse, type NextRequest } from 'next/server';
  * traffic. Read per request, same as everything else about them.
  */
 
-/** Falls back to the same defaults the browser config uses, so dev needs no new setting. */
-const API_ORIGIN = process.env.SL_API_ORIGIN ?? 'http://localhost:3011';
-const REALTIME_ORIGIN = process.env.SL_REALTIME_ORIGIN ?? 'http://localhost:3100';
+/**
+ * Read INSIDE the request, never at module scope.
+ *
+ * This was `const API_ORIGIN = process.env.SL_API_ORIGIN ?? …` at the top of the file,
+ * and Next evaluates module-scope `process.env` in middleware at BUILD time. So the
+ * policy was baked with whichever origin the build machine happened to have, and any
+ * deployment with a different one had `connect-src` naming the wrong host — every API
+ * call blocked, the app rendering and never hydrating.
+ *
+ * The browser suite found it: sixteen specs failed on `locator.click` timeouts because
+ * the API runs on its own port there. That is exactly the defect `runtime-origins.ts`
+ * exists to prevent, in a file whose own header cites it.
+ */
+const apiOrigin = (): string => process.env.SL_API_ORIGIN ?? 'http://localhost:3011';
+const realtimeOrigin = (): string => process.env.SL_REALTIME_ORIGIN ?? 'http://localhost:3100';
 
 /** `http://x` also needs `ws://x`; `https://x` needs `wss://x`. */
 const socketOrigin = (origin: string): string => origin.replace(/^http/, 'ws');
 
 export function middleware(request: NextRequest): NextResponse {
+  const API_ORIGIN = apiOrigin();
+  const REALTIME_ORIGIN = realtimeOrigin();
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
 
   const policy = [

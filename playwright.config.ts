@@ -87,6 +87,19 @@ export default defineConfig({
         ...serverEnv,
         SL_API_PORT: String(PORTS.api),
         SL_DB_MAX_CONNECTIONS: '8',
+        /*
+           The customer surface has to be on for the API TOO, not only for the web app.
+
+           Since 2026-09-11 the API mounts the three customer controllers only when this
+           says so — before that they were registered unconditionally and the flag hid
+           the interface alone. The employee-web block below has always set it; the API
+           did not need it and now does. Without this the suite drives a customer journey
+           against routes that 404, and every such spec fails on a click timeout.
+
+           Same switch as the web app's, so the two surfaces cannot disagree about which
+           stage is being exercised.
+        */
+        SL_CUSTOMER_WORKSPACE_ENABLED: process.env.SL_E2E_CUSTOMER_WORKSPACE ?? 'true',
         /**
          * No `SL_ADAPTER_*` overrides here, deliberately.
          *
