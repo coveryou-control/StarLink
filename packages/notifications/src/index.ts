@@ -21,3 +21,4 @@ export {
   type NotificationState,
   type RetryPolicy,
 } from './delivery.js';
+export { inQuietWindow, type QuietWindow } from './quiet-hours.js';

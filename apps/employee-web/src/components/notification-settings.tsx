@@ -98,6 +98,26 @@ export function NotificationSettings(): ReactNode {
     const next = { ...settings, ...patch };
     setSettings(next);
     writeDeviceNotifications(next);
+
+    /*
+       A changed quiet window has to reach the SERVER, not just this browser.
+
+       Push is decided in the API, so a window that lives only in `localStorage` governs
+       nothing once the tab is closed — which is exactly when push matters. Registering
+       again is how the new window travels: the token is unchanged, so this upserts the
+       same row rather than creating a second device.
+
+       Only for the three fields that make up the window. Re-registering on every tap of
+       the sound switch would be a request per keystroke in the time inputs.
+    */
+    if (
+      (patch.quietHours !== undefined ||
+        patch.quietFrom !== undefined ||
+        patch.quietTo !== undefined) &&
+      push === 'REGISTERED'
+    ) {
+      void registerForPush().then(setPush);
+    }
   };
 
   /**
@@ -207,7 +227,7 @@ export function NotificationSettings(): ReactNode {
       ) : null}
 
       {toggle('direct', 'Direct messages', 'Notify me for every message sent only to me.')}
-      {toggle('groups', 'Groups and channels', 'Only when I am mentioned or replied to.')}
+      {toggle('groups', 'Groups and channels', 'Notify me for messages in groups and channels I am in.')}
       {toggle('sound', 'Sound', 'Play a short tone as well as showing the notification.')}
 
       <div className="settings-row-block">

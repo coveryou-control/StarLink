@@ -1172,10 +1172,18 @@ export const api = {
     request<{ removed: boolean }>(employeeRoutes.auth.avatar, { method: 'DELETE' }),
 
   /** Tell the server this browser can receive a push. Idempotent; see the controller. */
-  registerDevice: (token: string, platform: 'WEB' | 'ANDROID' | 'IOS' = 'WEB') =>
+  registerDevice: (
+    token: string,
+    platform: 'WEB' | 'ANDROID' | 'IOS' = 'WEB',
+    /* This device's quiet window, so the SERVER can decide whether to buzz it. It was
+       applied only in the browser, which works for an in-app notification and not at
+       all for a push: by the time this tab could consult a preference the phone has
+       already lit up. Absent means always deliver. */
+    quiet?: { from: string; to: string; timeZone: string },
+  ) =>
     request<{ registered: boolean }>(employeeRoutes.devices, {
       method: 'POST',
-      body: JSON.stringify({ token, platform }),
+      body: JSON.stringify({ token, platform, ...(quiet !== undefined ? { quiet } : {}) }),
     }),
 
   /** Stop sending push to this browser. */

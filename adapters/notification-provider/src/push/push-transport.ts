@@ -82,6 +82,19 @@ export class PushNotificationTransport implements NotificationTransport {
     }
 
     const registered = await tokens.tokensFor(payload.recipientPrincipalId);
+    /*
+       Nowhere to send is DONE, not failed — and since 2026-09-11 it means two things.
+
+       Either this person has registered no device, or every device they have is inside
+       its quiet hours; `tokensFor` applies the window and returns what may be buzzed
+       right now. Both settle the row rather than retrying it.
+
+       Deliberately DROPPED and not deferred to the end of the window. A buzz at 07:00
+       about a message from 23:40 is an interruption about something already read — and
+       the notification itself is not lost: the in-app row was written before this
+       transport was ever reached, so the unread count and the bolded conversation are
+       both waiting (§29.6). Quiet hours suppress the interruption, never the fact.
+    */
     if (registered.length === 0) return ok('DELIVERED');
 
     const url =

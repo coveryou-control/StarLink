@@ -34,6 +34,24 @@ import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/sessi
 const registerSchema = z.object({
   token: z.string().min(20).max(4096),
   platform: z.enum(['WEB', 'ANDROID', 'IOS']).default('WEB'),
+  /**
+   * When this DEVICE should stay silent.
+   *
+   * Optional, and absent means always deliver. Validated to the same shapes the database
+   * CHECK admits, so a malformed window is refused at the edge rather than becoming a
+   * constraint violation five layers down — and because a half-written window is the
+   * state that would mute somebody's phone for ever.
+   *
+   * The zone is an IANA name from the browser's own `Intl`, not an offset: an offset is
+   * silently wrong twice a year and fails in the direction that wakes people.
+   */
+  quiet: z
+    .object({
+      from: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      to: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+      timeZone: z.string().min(1).max(64),
+    })
+    .optional(),
 });
 
 @Controller('v1/employee/devices')
@@ -46,10 +64,15 @@ export class DevicesController {
     const parsed = registerSchema.safeParse(body ?? {});
     if (!parsed.success) return refuse();
 
+    /* The quiet window travels with the registration, so the server can decide whether
+       to buzz this device. Absent means always deliver — and it is sent on EVERY
+       registration, including as absent, so switching quiet hours off actually clears
+       them rather than leaving yesterday's window in place. */
     await this.devices.register(
       request.session!.principalId,
       parsed.data.token,
       parsed.data.platform,
+      parsed.data.quiet,
     );
     return { registered: true };
   }

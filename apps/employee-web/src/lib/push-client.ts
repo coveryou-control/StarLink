@@ -26,6 +26,7 @@
  * permission rule exists to prevent.
  */
 import { api } from './api-client';
+import { readDeviceNotifications } from './device-notifications';
 import { pushConfig } from './runtime-origins';
 
 /** Where the last registered token is remembered, so it can be unregistered later. */
@@ -112,7 +113,27 @@ export async function registerForPush(): Promise<PushOutcome> {
     });
     if (token === '') return 'FAILED';
 
-    await api.registerDevice(token);
+    /*
+       The quiet window goes UP with the token.
+
+       Read from this device's own settings, and the zone from this browser's `Intl`, so
+       the server can evaluate "is it 23:40 where that phone is" without storing an
+       offset that would be wrong twice a year. Sent on every registration including
+       when quiet hours are off, because switching them off has to clear the stored
+       window rather than leave yesterday's in place.
+    */
+    const device = readDeviceNotifications();
+    await api.registerDevice(
+      token,
+      'WEB',
+      device.quietHours
+        ? {
+            from: device.quietFrom,
+            to: device.quietTo,
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          }
+        : undefined,
+    );
     remember(token);
     return 'REGISTERED';
   } catch {
