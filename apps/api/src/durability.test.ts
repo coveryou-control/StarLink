@@ -191,6 +191,42 @@ describe('message durability across an API kill (Phase 2 exit criterion)', () =>
     const { messageId } = (await sent.json()) as { messageId: string };
     expect(messageId).toBeTruthy();
 
+    /**
+     * Reserve this conversation's outbox rows before anything else can claim them.
+     *
+     * ## Why this is here
+     *
+     * This test was intermittently failing on `the event must be pending, not silently
+     * dropped: expected 0 to be greater than 0`, and it was read as a flaky race in the
+     * product. It is not. The realtime gateway runs the system's ONLY `OutboxRelay`
+     * (`apps/realtime-gateway/src/main.ts`), on a timer, against this same database —
+     * so when the dev stack is up, that relay publishes this test's event during the
+     * seconds this test spends killing the API, and the row is `PUBLISHED` by the time
+     * the assertion below reads it. Nothing was dropped; something else delivered it.
+     *
+     * The evidence is visible in any dev database: `conversation.outbox` holds tens of
+     * thousands of rows and zero `PENDING` ones, because the relay keeps it at zero.
+     *
+     * ## Why a lock rather than a looser assertion
+     *
+     * "The event is still waiting" is half of what rule 1 means here, so weakening it to
+     * "the event exists in some state" would remove the thing being tested. Instead the
+     * test claims its own rows the same way the relay claims work — the relay selects
+     * `FOR UPDATE SKIP LOCKED`, so a row this transaction holds is one it will skip.
+     * That is the mechanism working as designed, not a trick.
+     *
+     * The window is not zero: another relay could still claim the row between the send
+     * committing and this lock. It is now the round-trip of one already-returned HTTP
+     * response rather than the several seconds a SIGKILL and its exit wait take, and the
+     * check below names the cause if it ever loses that race.
+     */
+    const reserved = await pool!.connect();
+    await reserved.query('BEGIN');
+    await reserved.query(
+      `SELECT outbox_id FROM conversation.outbox WHERE aggregate_id = $1 FOR UPDATE`,
+      [conversationId],
+    );
+
     // --- kill the API the instant it has acknowledged -------------------------------
     // SIGKILL, not SIGTERM: SIGKILL cannot be trapped, so no shutdown hook, no flush,
     // no `finally`. Whatever is true after this line was true in the DATABASE before it.
@@ -215,12 +251,44 @@ describe('message durability across an API kill (Phase 2 exit criterion)', () =>
     expect(stored.rows[0].body).toBe('This message must outlive the process that accepted it.');
 
     // ...and its event is still WAITING, not lost and not yet delivered.
-    const pending = await pool!.query(
+    /* Read through the connection holding the lock: another relay cannot have moved
+       these rows, so what this sees is what SIGKILL left behind. */
+    const pending = await reserved.query(
       `SELECT outbox_id, state FROM conversation.outbox
         WHERE aggregate_id = $1 AND state = 'PENDING'`,
       [conversationId],
     );
+
+    if (pending.rowCount === 0) {
+      /**
+       * Say WHICH of the two possible failures this is, rather than leaving the next
+       * person to conclude that rule 1 is broken.
+       *
+       * A row that is PUBLISHED was delivered by somebody else — the dev realtime
+       * gateway's relay, almost certainly — and the invariant held. A row that is
+       * missing entirely is the real defect this test exists to catch.
+       */
+      const any = await reserved.query(
+        `SELECT state, count(*)::int AS n FROM conversation.outbox
+          WHERE aggregate_id = $1 GROUP BY state`,
+        [conversationId],
+      );
+      const states = any.rows.map((r) => `${r.state}=${r.n}`).join(', ') || 'no rows at all';
+      expect.fail(
+        `the event was not PENDING after the kill (${states}). If it is PUBLISHED, ` +
+          `another OutboxRelay drained it — the realtime gateway runs one against this ` +
+          `same database — and this is an isolation problem in the test environment, ` +
+          `not a durability failure. If there are no rows, the event really was lost ` +
+          `and rule 1 is broken.`,
+      );
+    }
     expect(pending.rowCount, 'the event must be pending, not silently dropped').toBeGreaterThan(0);
+
+    /* Released before half 2: the relay below must be able to claim these very rows,
+       and a lock this test is still holding would make it skip them — which would turn
+       the isolation fix into a different false failure. */
+    await reserved.query('ROLLBACK');
+    reserved.release();
 
     // --- half 2: a DIFFERENT process heals delivery ----------------------------------
     const publisher = new MockEventPublisher();
