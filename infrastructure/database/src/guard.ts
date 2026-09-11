@@ -36,6 +36,37 @@ export type AllowedSchema = (typeof ALLOWED_SCHEMAS)[number];
  */
 const DATABASE_NAME_PATTERN = /^starlink(_[a-z0-9_]+)?$/;
 
+/**
+ * A database somewhere other than this machine.
+ *
+ * The signal that a process is not a laptop, taken from a fact rather than from a
+ * declaration. `SL_DATABASE_URL` has to be right for the process to work at all, so it
+ * cannot be quietly wrong the way `SL_ENV` can — which is the whole point: see
+ * `validateStartupConfiguration` for what was relying on `SL_ENV` alone and why that was
+ * not safe.
+ *
+ * Deliberately NOT `requiresTls` from `client.ts`, though it looks like the same
+ * question. That one honours `sslmode=disable`, because a caller may have a considered
+ * reason to skip TLS; this one must not be switchable off by a query parameter, or the
+ * escape hatch is one URL edit wide.
+ *
+ * An unparseable URL counts as remote. It will fail moments later anyway, and the safe
+ * reading of "I cannot tell where this database is" is not "it is on your laptop".
+ */
+export function isRemoteDatabase(connectionUrl: string | undefined): boolean {
+  if (connectionUrl === undefined || connectionUrl === '') return false;
+  try {
+    /* `URL.hostname` keeps the brackets on an IPv6 literal — `[::1]`, not `::1` — so a
+       bare `'::1'` in the list below never matches and IPv6 loopback reads as remote.
+       `requiresTls` in `client.ts` compares against the same unbracketed list and has
+       the same blind spot; there it means demanding TLS of a local socket. */
+    const host = new URL(connectionUrl).hostname.replace(/^\[|\]$/g, '');
+    return !['localhost', '127.0.0.1', '::1', ''].includes(host);
+  } catch {
+    return true;
+  }
+}
+
 /** Development defaults shipped in .env.example. Production must never start on one. */
 const SHIPPED_DEV_SECRETS: readonly string[] = Object.freeze([
   'dev-only-session-secret-change-me-32chars',
@@ -112,14 +143,54 @@ export interface StartupEnvironment {
 }
 
 /**
+ * Whether the secret rules apply — the safety question, asked without trusting `SL_ENV`.
+ *
+ * ## What this replaced, and why
+ *
+ * It was `SL_ENV === 'production'`, exactly. Two consequences, both found by review
+ * rather than by anything failing:
+ *
+ *   * **`staging` was exempt.** A staging deployment accepted
+ *     `dev-only-session-secret-change-me-32chars` — and the session cookie is an HMAC
+ *     over `{principalId, kind, surface, sessionVersion, expiresAt}` with that secret, so
+ *     anyone holding the repository could mint a valid cookie for any employee. The
+ *     realtime gateway is the process that verifies those cookies for sockets, and it
+ *     calls this function; nothing else there would have caught it.
+ *   * **`dev` is the escape hatch that gets used.** There is currently no `SL_ENV` value
+ *     that both boots and is production-safe (the object-storage and IAM adapters refuse
+ *     `staging`/`production`). So the failure mode is not hypothetical: an operator whose
+ *     process exits on `production` sets `dev`, sees a healthy boot, and ships.
+ *
+ * So the rules now apply unless the environment is EXPLICITLY dev or test — deny by
+ * default, rule 4's posture — and additionally whenever the database is not on this
+ * machine, whatever `SL_ENV` says. A process talking to a remote database is not a
+ * laptop, and that is a fact about the deployment rather than a claim about it.
+ *
+ * ## The cost, stated
+ *
+ * A developer using the Neon dev database (CLAUDE.md, "Running the database") must set
+ * their own two secrets instead of the shipped ones. That is a one-line change to `.env`
+ * and it is correct: a shared remote dev database reachable by the whole team is exactly
+ * where a shipped HMAC secret lets any of them forge any other's session. The refusal
+ * message says so and says what to do.
+ */
+export function secretRulesApply(env: StartupEnvironment): boolean {
+  const declared = (env.SL_ENV ?? 'dev').toLowerCase();
+  if (declared !== 'dev' && declared !== 'test') return true;
+  return isRemoteDatabase(env.SL_DATABASE_URL);
+}
+
+/**
  * Validates startup configuration, reporting EVERY problem at once.
  *
- * Production additionally refuses a shipped development secret, a secret below the
- * minimum length, and a database outside the namespace (doc §35.3).
+ * A deployed environment additionally refuses a shipped development secret, a secret
+ * below the minimum length, and a database outside the namespace (doc §35.3). What
+ * counts as deployed is `secretRulesApply` above, which does not take `SL_ENV`'s word
+ * for it.
  */
 export function validateStartupConfiguration(env: StartupEnvironment): void {
   const problems: string[] = [];
-  const isProduction = (env.SL_ENV ?? 'dev').toLowerCase() === 'production';
+  const deployed = secretRulesApply(env);
 
   const databaseUrl = env.SL_DATABASE_URL;
   if (databaseUrl === undefined || databaseUrl === '') {
@@ -140,9 +211,13 @@ export function validateStartupConfiguration(env: StartupEnvironment): void {
       problems.push(`${key} is not set`);
       continue;
     }
-    if (!isProduction) continue;
+    if (!deployed) continue;
     if (SHIPPED_DEV_SECRETS.includes(value)) {
-      problems.push(`${key} is a shipped development default and must not be used in production`);
+      problems.push(
+        `${key} is a shipped development default and must not be used outside a local ` +
+          `development database. Generate one with \`openssl rand -base64 36\` and set it ` +
+          `in this environment.`,
+      );
     }
     if (value.length < MINIMUM_SECRET_LENGTH) {
       problems.push(`${key} is shorter than the ${MINIMUM_SECRET_LENGTH}-character minimum`);
@@ -150,7 +225,7 @@ export function validateStartupConfiguration(env: StartupEnvironment): void {
   }
 
   if (
-    isProduction &&
+    deployed &&
     env.SL_SESSION_SECRET !== undefined &&
     env.SL_SESSION_SECRET === env.SL_CURSOR_SECRET
   ) {

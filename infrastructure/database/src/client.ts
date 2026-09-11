@@ -62,7 +62,11 @@ export function requiresTls(connectionString: string): boolean {
   try {
     const url = new URL(connectionString);
     if (url.searchParams.get('sslmode') === 'disable') return false;
-    return !['localhost', '127.0.0.1', '::1', ''].includes(url.hostname);
+    /* Brackets stripped first: `URL.hostname` reports an IPv6 literal as `[::1]`, so the
+       bare `'::1'` below never matched and a loopback IPv6 database was told to negotiate
+       TLS — against a local socket that does not offer it. Found while giving
+       `isRemoteDatabase` in `guard.ts` the same test. */
+    return !['localhost', '127.0.0.1', '::1', ''].includes(url.hostname.replace(/^\[|\]$/g, ''));
   } catch {
     return true;
   }

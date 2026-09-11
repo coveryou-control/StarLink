@@ -7,7 +7,7 @@
  * up misconfigured.
  */
 import { z } from 'zod';
-import { validateStartupConfiguration } from '@starlink/database';
+import { secretRulesApply, validateStartupConfiguration } from '@starlink/database';
 
 const adapterMode = z.enum(['mock', 'local', 'remote']);
 
@@ -419,5 +419,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     );
   }
 
-  return { ...parsed.data, tls: parsed.data.SL_ENV === 'production' || parsed.data.SL_ENV === 'staging' };
+  /**
+   * `tls` decides the `Secure` flag on the session cookie, so it must not be a claim.
+   *
+   * It was `SL_ENV === 'production' || SL_ENV === 'staging'`, which is right until
+   * somebody deploys with `SL_ENV=dev` — and since no value currently both boots and is
+   * production-safe, that is the likely thing to happen rather than an unlikely one. A
+   * session cookie without `Secure` travels over plain http, which is the whole attack.
+   *
+   * `secretRulesApply` asks the same question the secret ban now asks, from the same
+   * evidence: not dev/test, or a database that is not on this machine. One predicate for
+   * both, so the two cannot drift into disagreeing about whether this is a deployment.
+   *
+   * Local development over `http://localhost` is unaffected: loopback database, declared
+   * dev, no `Secure` flag, cookies work.
+   */
+  const tls = secretRulesApply({
+    SL_ENV: parsed.data.SL_ENV,
+    SL_DATABASE_URL: parsed.data.SL_DATABASE_URL,
+  });
+
+  return { ...parsed.data, tls };
 }

@@ -319,6 +319,20 @@ export async function sendMessage(
 
     const message = await tx.insertMessage(insert);
 
+    /*
+       A conversation that receives a message is no longer archived, for everyone but the
+       sender.
+
+       Archive had no way back: nothing cleared `archived_at`, and the list partitions on
+       it, so a colleague who archived a quiet thread never saw another word of it — no
+       row, no unread count, and no notification, because an ordinary message raises
+       none. Both people believed they were in touch.
+
+       Here rather than after the commit: atomic with the message itself (rule 1), so
+       there is no window in which the message is durable and invisible.
+    */
+    await tx.unarchiveForOthers(command.conversationId, command.actor.principalId);
+
     // Same transaction. A committed message whose event never existed is the drift
     // the outbox pattern is here to make impossible (brief §17).
     await tx.appendOutbox({

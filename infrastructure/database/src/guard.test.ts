@@ -12,7 +12,9 @@ import {
   assertDatabaseAllowed,
   assertSchemaAllowed,
   isDatabaseNameAllowed,
+  isRemoteDatabase,
   parseDatabaseName,
+  secretRulesApply,
   validateStartupConfiguration,
 } from './guard.js';
 
@@ -77,6 +79,75 @@ describe('startup configuration validation (§35.3)', () => {
   it('accepts development defaults in development', () => {
     // A clean checkout must start (doc §15.11), so dev tolerates the shipped values.
     expect(() => validateStartupConfiguration(validDev)).not.toThrow();
+  });
+
+  it('refuses a shipped development secret on STAGING, which used to be exempt', () => {
+    /**
+     * The gap this closes. The check was `SL_ENV === 'production'` exactly, so a staging
+     * deployment accepted `dev-only-session-secret-change-me-32chars`. The session cookie
+     * is an HMAC over the principal with that secret, so anybody holding the repository
+     * could mint a valid cookie for any employee — and the realtime gateway, which is
+     * what verifies those cookies for sockets, has no environment refusal of its own and
+     * relies entirely on this function.
+     */
+    expect(() => validateStartupConfiguration({ ...validDev, SL_ENV: 'staging' })).toThrow(
+      ConfigurationRefusedError,
+    );
+  });
+
+  it('refuses a shipped secret against a REMOTE database even when SL_ENV says dev', () => {
+    /**
+     * The other half, and the one that matters most in practice. No `SL_ENV` value
+     * currently both boots and is production-safe, so "set it to dev and see it start"
+     * is the likely response to a failing deployment rather than an unlikely one. The
+     * database host is a fact about where this process is; `SL_ENV` is a claim.
+     */
+    expect(() =>
+      validateStartupConfiguration({
+        ...validDev,
+        SL_DATABASE_URL: 'postgres://user:pw@ep-cool-name.ap-south-1.aws.neon.tech:5432/starlink',
+      }),
+    ).toThrow(/shipped development default/);
+  });
+
+  it('still accepts the shipped defaults against a LOCAL database in dev', () => {
+    // The workflow that must not break: a clean checkout against local Postgres starts
+    // (§15.11). Both signals have to say "laptop" for the rules to stay off.
+    /* `[::1]` bracketed, because that is the only form `new URL` accepts for an IPv6
+       literal — and the form whose `hostname` keeps the brackets, which is what made the
+       first version of this check call local IPv6 remote. */
+    for (const host of ['localhost', '127.0.0.1', '[::1]']) {
+      expect(() =>
+        validateStartupConfiguration({
+          ...validDev,
+          SL_DATABASE_URL: `postgres://user:pw@${host}:5432/starlink`,
+        }),
+      ).not.toThrow();
+    }
+  });
+
+  it('cannot be talked out of the remote verdict with sslmode=disable', () => {
+    // `requiresTls` in client.ts honours that parameter because a caller may have a
+    // considered reason to skip TLS. This must not, or the exemption is one URL edit wide.
+    expect(isRemoteDatabase('postgres://u:p@db.example.com:5432/starlink?sslmode=disable')).toBe(true);
+  });
+
+  it('treats an unreadable database URL as remote', () => {
+    // "I cannot tell where this database is" does not safely read as "on your laptop".
+    expect(isRemoteDatabase('not a url at all')).toBe(true);
+  });
+
+  it('agrees with itself about what counts as deployed', () => {
+    // `config.ts` uses `secretRulesApply` for the Secure cookie flag and this function
+    // uses it for the secret ban. One predicate, so the two cannot drift into
+    // disagreeing about whether this is a deployment.
+    expect(secretRulesApply({ SL_ENV: 'dev', SL_DATABASE_URL: url('starlink') })).toBe(false);
+    expect(secretRulesApply({ SL_ENV: 'test', SL_DATABASE_URL: url('starlink') })).toBe(false);
+    expect(secretRulesApply({ SL_ENV: 'staging', SL_DATABASE_URL: url('starlink') })).toBe(true);
+    expect(secretRulesApply({ SL_ENV: 'production', SL_DATABASE_URL: url('starlink') })).toBe(true);
+    expect(
+      secretRulesApply({ SL_ENV: 'dev', SL_DATABASE_URL: 'postgres://u:p@db.example.com/starlink' }),
+    ).toBe(true);
   });
 
   it('refuses a shipped development secret in production', () => {

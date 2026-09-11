@@ -85,6 +85,11 @@ First-time Neon setup, in this order:
    session-level advisory locks and `LISTEN/NOTIFY`, both of which the Phase 3 outbox
    relay uses.
 3. Set `SL_DATABASE_URL`, then `pnpm --filter @starlink/database migrate`.
+4. **Set your own `SL_SESSION_SECRET` and `SL_CURSOR_SECRET`** — the shipped
+   `dev-only-…-change-me-…` values are refused against any database that is not on this
+   machine, whatever `SL_ENV` says. Neon is shared, and the session cookie is an HMAC
+   over the principal with that secret, so a shipped one lets anybody on the team forge
+   anybody else's session. `openssl rand -base64 36` twice; they must differ (§27.14).
 
 TLS is inferred from the host — any non-loopback host gets a verified TLS connection
 automatically, so there is no flag to forget.

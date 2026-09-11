@@ -236,6 +236,30 @@ class PgWriteTransaction implements MessageWriteTransaction {
     );
   }
 
+  /**
+   * Clears `archived_at` for every live participant except the sender.
+   *
+   * See the port for why this exists. The predicate is deliberately narrow — only rows
+   * that ARE archived are touched, so the common case where nobody has archived anything
+   * updates nothing and costs one indexed lookup.
+   *
+   * `participants_unarchived_idx` (migration 0028) is partial on `archived_at IS NULL`,
+   * so it cannot serve this; the conversation_id lookup is what carries it, and the row
+   * count here is bounded by the participant count.
+   */
+  async unarchiveForOthers(conversationId: UUID, senderPrincipalId: UUID): Promise<number> {
+    const result = await this.client.query(
+      `UPDATE conversation.participants
+          SET archived_at = NULL
+        WHERE conversation_id = $1
+          AND principal_id <> $2
+          AND effective_to IS NULL
+          AND archived_at IS NOT NULL`,
+      [conversationId, senderPrincipalId],
+    );
+    return result.rowCount ?? 0;
+  }
+
   /** Live participants only: `effective_to IS NULL` is what makes participation current. */
   async listParticipantIds(conversationId: UUID): Promise<readonly UUID[]> {
     const result = await this.client.query(

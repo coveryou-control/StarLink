@@ -175,6 +175,25 @@ export interface MessageWriteTransaction {
   /** Allocates the next per-conversation sequence. Monotonic, gap-free within a thread. */
   nextSequence(conversationId: UUID): Promise<number>;
   insertMessage(message: InsertMessage & { seq: number }): Promise<MessageRecord>;
+  /**
+   * Brings a conversation back out of everyone's archive except the sender's.
+   *
+   * Archive was a one-way door. `archived_at` was written by the archive endpoint and
+   * cleared by nothing, and the conversation list partitions hard on it — so every later
+   * message from that colleague was invisible: no row, no unread badge, and no
+   * notification either, since an ordinary direct message raises none. The person who
+   * archived a thread stopped receiving from it permanently, and the person still
+   * writing into it had no way to know.
+   *
+   * Not the sender: archiving your own thread and then writing in it is a deliberate act
+   * that should not undo itself. Everyone else's archive is a statement about a
+   * conversation that had gone quiet, and it has just stopped being quiet.
+   *
+   * In the send transaction, so it is atomic with durability (rule 1). Doing it after
+   * the commit would mean a crash in between leaves the message durable and invisible,
+   * which is the bug rather than a smaller version of it.
+   */
+  unarchiveForOthers(conversationId: UUID, senderPrincipalId: UUID): Promise<number>;
   /** Written in the SAME transaction as the message; this is what forbids drift. */
   appendOutbox(row: OutboxRow): Promise<void>;
   touchConversation(conversationId: UUID, lastActivityAt: Timestamp, preview: string): Promise<void>;

@@ -404,16 +404,35 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
     if (nextCursor === undefined || loadingMore) return;
     setLoadingMore(true);
     try {
-      const page = await api.conversations({ cursor: nextCursor });
+      /*
+         The SAME filter the first page was fetched with.
+
+         `refresh` sends `{ archived: true }` in the Archive view; this sent neither flag,
+         so "Load more" inside Archive appended LIVE conversations to the archived list,
+         indistinguishable from archived ones once they were on screen. Archiving one of
+         them then archived something the person had never chosen to archive — and
+         archiving used to be a one-way door.
+
+         Built from `chatView` exactly as `refresh` does rather than remembered from the
+         last request, so the two cannot answer the question differently.
+      */
+      const page = await api.conversations({
+        cursor: nextCursor,
+        ...(chatView === 'archive' ? { archived: true } : {}),
+      });
       setConversations((current) => {
         const seen = new Set(current.map((c) => c.conversationId));
         return [...current, ...page.conversations.filter((c) => !seen.has(c.conversationId))];
       });
       setNextCursor(page.nextCursor);
+    } catch (cause) {
+      /* Same reasoning as `refresh`: a 401 here is a session that has ended, and
+         swallowing it leaves somebody pressing a button that will never work again. */
+      if (cause instanceof ApiError && cause.isUnauthenticated) onUnauthenticated();
     } finally {
       setLoadingMore(false);
     }
-  }, [nextCursor, loadingMore]);
+  }, [nextCursor, loadingMore, chatView, onUnauthenticated]);
   refreshRef.current = refresh;
 
   useEffect(() => {

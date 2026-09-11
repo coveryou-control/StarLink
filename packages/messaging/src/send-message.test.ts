@@ -33,6 +33,8 @@ interface StoreState {
   previews: string[];
   /** Owner ids for which §21.4's `assigned → active` was attempted. */
   activations: string[];
+  /** Conversations the send brought back out of other people's archive. */
+  unarchived: { conversationId: UUID; exceptSender: UUID }[];
   committed: boolean;
 }
 
@@ -53,6 +55,7 @@ function createStore(over: Partial<ConversationRecord> = {}): { store: MessageSt
     outbox: [],
     previews: [],
     activations: [],
+    unarchived: [],
     committed: false,
   };
 
@@ -64,6 +67,9 @@ function createStore(over: Partial<ConversationRecord> = {}): { store: MessageSt
       const stagedOutbox: OutboxRow[] = [];
       const stagedPreviews: string[] = [];
       const stagedActivations: string[] = [];
+      /* What the send asked to bring back out of the archive, so a test can assert it
+         happened INSIDE the transaction rather than merely that a method exists. */
+      const stagedUnarchives: { conversationId: UUID; exceptSender: UUID }[] = [];
       let seq = state.conversation?.lastSeq ?? 0;
 
       const tx: MessageWriteTransaction = {
@@ -88,6 +94,10 @@ function createStore(over: Partial<ConversationRecord> = {}): { store: MessageSt
         async nextSequence() {
           seq += 1;
           return seq;
+        },
+        async unarchiveForOthers(conversationId: UUID, senderPrincipalId: UUID) {
+          stagedUnarchives.push({ conversationId, exceptSender: senderPrincipalId });
+          return 0;
         },
         async insertMessage(message: InsertMessage & { seq: number }) {
           const record = {
@@ -134,6 +144,10 @@ function createStore(over: Partial<ConversationRecord> = {}): { store: MessageSt
       state.outbox.push(...stagedOutbox);
       state.previews.push(...stagedPreviews);
       state.activations.push(...stagedActivations);
+      /* Applied on COMMIT with everything else, so a test that reads `state.unarchived`
+         is reading something that survived the transaction rather than something the
+         body merely attempted. */
+      state.unarchived.push(...stagedUnarchives);
       state.committed = true;
       if (state.conversation !== undefined) {
         state.conversation = { ...state.conversation, lastSeq: seq };
@@ -536,6 +550,56 @@ describe('§21.4 assigned → active — the arrival half of the lifecycle', () 
  * back for the caller to notify, and that a refusal stops the write rather than storing a
  * mention nobody checked.
  */
+describe('a message ends the archive for every recipient', () => {
+  /**
+   * Archive was a one-way door, and that is the whole finding.
+   *
+   * `archived_at` was written by the archive endpoint and cleared by NOTHING, while the
+   * conversation list partitions hard on it. So a colleague who archived a thread that
+   * had gone quiet never saw another word of it: no list row, no unread badge, and no
+   * notification either, because an ordinary direct message raises none. Both people
+   * believed they were in touch. For a claims team that is an escalation everyone
+   * thinks was communicated.
+   */
+  it('asks to unarchive, for everyone except the sender, inside the transaction', async () => {
+    const { store, state } = createStore();
+
+    const result = await send(store);
+
+    expect(result.ok).toBe(true);
+    // Read from committed state, so this is not satisfied by an attempt that rolled back.
+    expect(state.committed).toBe(true);
+    expect(state.unarchived).toEqual([
+      { conversationId: CONVERSATION_ID, exceptSender: OWNER_ID },
+    ]);
+  });
+
+  it('never unarchives the sender', async () => {
+    /**
+     * Archiving your own thread and then writing in it is deliberate, and undoing it
+     * would be the product overruling a choice somebody just made. Everyone else's
+     * archive is a statement that the conversation had gone quiet — which has just
+     * stopped being true.
+     */
+    const { store, state } = createStore();
+
+    await send(store);
+
+    expect(state.unarchived.every((row) => row.exceptSender === OWNER_ID)).toBe(true);
+  });
+
+  it('happens on an internal note too', async () => {
+    // The reason is reachability, not visibility: a colleague who archived the thread
+    // must still see internal traffic they are a participant of. Unlike §21.4's
+    // activation, which deliberately does NOT fire for a note, this one does.
+    const { store, state } = createStore();
+
+    await send(store, { visibility: 'INTERNAL' as MessageVisibility });
+
+    expect(state.unarchived).toHaveLength(1);
+  });
+});
+
 describe('mentions', () => {
   const COLLEAGUE_ID = '018f2c5a-4444-7000-8000-0000000000cc';
   const participant = (principalId: string, over: { replyAuthority?: boolean } = {}) => ({
