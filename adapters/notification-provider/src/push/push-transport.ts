@@ -95,7 +95,12 @@ export class PushNotificationTransport implements NotificationTransport {
     for (const token of registered) {
       const outcome = await sender.send(token, {
         title: payload.subject ?? 'StarLink',
-        body: payload.body,
+        /* NOT `payload.body`. That is the email — it repeats the subject, prints the
+           link as text, and ends with "Replies are not read", all three of which are
+           wrong on a lock screen; the first push StarLink delivered carried the lot.
+           The subject is already the title, so the body carries only what the subject
+           does not say, which is usually nothing. */
+        body: payload.detail ?? '',
         ...(url !== undefined ? { url } : {}),
         /* One notification per thing, per device. Two mentions in the same conversation
            replace each other rather than stacking. */
