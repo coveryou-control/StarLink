@@ -153,6 +153,30 @@ describe('S3ObjectStorage', () => {
     expect(result.value.url).toContain('X-Amz-Signature');
   });
 
+  it('serves a download as an opaque attachment, whatever the uploader stored', async () => {
+    /**
+     * The uploader picks the stored `Content-Type` — `issueUploadGrant` presigns a PUT
+     * with none — so the download must override it. Without these two parameters an
+     * employee attaches a file declaring `text/html` and the colleague who opens it has
+     * it RENDERED, which is stored XSS on the bucket's origin.
+     *
+     * `packages/attachments/policy.ts` states this behaviour twice as the reason images,
+     * audio and video are safe to accept at all. It was true of the dev driver and false
+     * of this one, so the policy's argument held only where it did not matter.
+     *
+     * Asserted on the signed URL because both parameters are part of what is SIGNED:
+     * an attacker who edits them out invalidates the signature.
+     */
+    const result = await storage(signingClient()).issueDownloadGrant(`${CLEAN_PREFIX}abc`, 60);
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const url = new URL(result.value.url);
+    expect(url.searchParams.get('response-content-type')).toBe('application/octet-stream');
+    expect(url.searchParams.get('response-content-disposition')).toBe('attachment');
+    expect(url.searchParams.get('X-Amz-SignedHeaders')).not.toBeNull();
+  });
+
   it('degrades rather than fails hard, on every error path', async () => {
     /**
      * §34.4 and brief §43 invariant 9: a storage failure costs the FILE, never the

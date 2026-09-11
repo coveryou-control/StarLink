@@ -60,6 +60,28 @@ COPY --from=build /app/adapters       ./adapters
 COPY --from=build /app/infrastructure ./infrastructure
 RUN pnpm install --frozen-lockfile --prod
 
+# One writable directory, OUTSIDE the application tree.
+#
+# The local object driver mkdirs its root at construction — `LocalObjectStorage` holds
+# `new DiskObjects()` as a field initializer — and that root defaults to
+# `process.cwd()/.starlink-objects`, which is `/app`. Every layer above is built as root,
+# so `USER node` then met a directory it could not write and the container died at boot
+# with EACCES. `SL_ADAPTER_OBJECT_STORAGE` defaults to `local`, so this was the DEFAULT
+# command of the only release artefact, and nothing caught it because no gate builds this
+# image.
+#
+# `chown -R /app` would have fixed it and broken the reason `USER node` is here at all —
+# see the header: "a container that can write its own application directory is one
+# exploit away from persisting a change to it". So the writable path is a single
+# directory elsewhere, owned by `node`, and the application tree stays read-only to the
+# process.
+#
+# This makes the image BOOT. It does not make the local driver deployable: `loadConfig`
+# still refuses it on staging and production, where `remote` and a real bucket are
+# required. The contents here are ephemeral and vanish with the container.
+RUN mkdir -p /var/lib/starlink/objects && chown -R node:node /var/lib/starlink
+ENV SL_STORAGE_LOCAL_DIR=/var/lib/starlink/objects
+
 # Non-root. `node` exists in the base image already.
 USER node
 

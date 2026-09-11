@@ -770,6 +770,45 @@ const providers: Provider[] = [
   SweepHost,
 ];
 
+/**
+ * Whether the Stage-2 customer surface is mounted at all.
+ *
+ * ## The flag meant two different things on the two surfaces
+ *
+ * `employee-web` already reads `SL_CUSTOMER_WORKSPACE_ENABLED` and hides the customer
+ * workspace unless it is exactly `'true'`. The API read it nowhere: all three customer
+ * controllers were registered unconditionally, so a Stage 1 deployment — one whose whole
+ * premise is that customer work is not happening — served the entire customer tree. The
+ * flag meant "hide the interface", which is precisely the posture the channels work
+ * rejected: hiding a control is not disabling a feature.
+ *
+ * ## Why it matters more than an unused route usually would
+ *
+ * `POST /v1/customer/auth/session` is `@Public()` by necessity — it is the door — and its
+ * own comment says the per-IP limit "belongs at the edge (§27.5) and is not pretended at
+ * here". There is no edge in this repository. Unauthenticated and unthrottled, each call
+ * writes a row to `identity.principals`, issues a cookie, and records to the audit
+ * ledger, which rule 8 makes APPEND-ONLY — so the one table nothing is allowed to clean
+ * up could be inflated without limit by anyone who could reach the port.
+ *
+ * Nothing is deleted: the controllers, their tests and Stage 2 are untouched, and one
+ * setting mounts them. Off by default because Stage 1 is what ships, and because the
+ * customer surface has never been security-reviewed.
+ *
+ * Read from `process.env` rather than the validated config because `@Module` is evaluated
+ * at class-decoration time, before any provider exists. Compared against the exact string
+ * for the reason stated on the web side: `Boolean('false')` is `true`, and a flag that
+ * turns itself on when somebody writes "false" is worse than no flag.
+ */
+export const customerSurfaceEnabled = (
+  env: NodeJS.ProcessEnv = process.env,
+): boolean => env.SL_CUSTOMER_WORKSPACE_ENABLED === 'true';
+
+/** The Stage-2 controllers, mounted only when the surface is switched on. */
+export const CUSTOMER_CONTROLLERS = customerSurfaceEnabled()
+  ? [CustomerAuthController, CustomerConversationsController, CustomerAttachmentsController]
+  : [];
+
 @Module({
   controllers: [
     HealthController,
@@ -789,9 +828,8 @@ const providers: Provider[] = [
     EmployeeRoutingController,
     EmployeeLifecycleController,
     EmployeeAttachmentsController,
-    CustomerAuthController,
-    CustomerConversationsController,
-    CustomerAttachmentsController,
+    // Stage 2, and absent unless switched on — see `customerSurfaceEnabled` above.
+    ...CUSTOMER_CONTROLLERS,
     // Dev-only, and it refuses to work outside SL_ENV=dev|test. Real uploads go direct
     // to object storage and never touch the API (ADR-012) — see the file header.
     DevUploadController,

@@ -8849,9 +8849,19 @@ input.signin-control {
     gap: var(--space-1);
   }
 
+  /*
+     Tighter against the edge, but STILL above the bottom nav.
+
+     This block exists to reclaim horizontal padding on a 360px screen, and it took the
+     `bottom` with it — from `calc(76px + …)`, which clears the 76px nav, down to 12px,
+     which is inside it. The FAB landed on the rightmost tab, so on the narrowest phones
+     tapping "You" opened New chat and Settings was unreachable by touch. Nothing looked
+     wrong; the wrong thing simply happened.
+
+     Only the horizontal inset was ever the point, so only the horizontal inset changes.
+  */
   .fab-new {
     right: var(--space-3);
-    bottom: var(--space-3);
   }
 }
 

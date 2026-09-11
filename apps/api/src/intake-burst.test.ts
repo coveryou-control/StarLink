@@ -95,6 +95,10 @@ beforeAll(async () => {
       SL_API_PORT: String(PORT),
       SL_DATABASE_URL: CONNECTION,
       SL_SESSION_SECRET: SESSION_SECRET,
+      /* Stage 2 is off by default now (see `customerSurfaceEnabled` in app.module.ts):
+         the customer controllers are not mounted unless this says so. This suite drives
+         the customer surface, so it turns it on explicitly. */
+      SL_CUSTOMER_WORKSPACE_ENABLED: 'true',
       SL_CURSOR_SECRET: 'burst-cursor-secret-0123456789abcdefghi',
       // Deliberately modest: the point is that intake does not need a large pool to
       // absorb a burst, because it does no downstream work.

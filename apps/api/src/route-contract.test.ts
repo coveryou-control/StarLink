@@ -56,6 +56,11 @@ beforeAll(async () => {
       SL_SESSION_SECRET: 'route-contract-session-secret-0123456789ab',
       SL_CURSOR_SECRET: 'route-contract-cursor-secret-0123456789abc',
       SL_DB_MAX_CONNECTIONS: '3',
+      /* The customer surface is now OFF unless switched on, and this suite's whole
+         subject is that its routes exist and are guarded. Switched on explicitly so the
+         contract below still has something to assert — the absence of the tree when the
+         flag is unset is pinned separately, in `app.module.test.ts`. */
+      SL_CUSTOMER_WORKSPACE_ENABLED: 'true',
     },
     stdio: 'ignore',
   });

@@ -43,7 +43,7 @@ import { ActiveConversationProvider } from '../../components/active-conversation
 import { AppBoot } from '../../components/app-boot';
 
 export default function WorkspaceLayout({ children }: { children: ReactNode }): ReactNode {
-  const { state, signOut } = useSession();
+  const { state, signOut, onUnauthenticated } = useSession();
   const router = useRouter();
   const params = useParams<{ id?: string }>();
 
@@ -180,7 +180,25 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
     [mutedKey],
   );
 
-  useNotifications(signedInId, undefined, mutedUntil);
+  /*
+     The 401 escalation, CONNECTED.
+
+     `useNotifications` has always taken an `onUnauthenticated` callback, and its own
+     docblock describes exactly what happens without one: "an expired session left the
+     bell polling into the void behind a workspace the person could no longer use". This
+     call site passed `undefined`, so the mechanism was written, documented, and never
+     reached — the poll swallowed the 401 and returned every fifteen seconds to a session
+     that had ended.
+
+     The bell is the RIGHT place to notice. It polls on a timer, so it is the only thing
+     still talking to the server when somebody has left a tab open and gone to lunch;
+     every other request waits for a click that may never come.
+
+     `onUnauthenticated` from the session provider rather than a local redirect: it drops
+     the shell to signed-out AND wipes the drafts of the person whose access was just
+     withdrawn, which a bare `router.replace` does not.
+  */
+  useNotifications(signedInId, onUnauthenticated, mutedUntil);
 
   /**
    * Presence for everybody currently on screen, asked once for the whole surface.
@@ -355,8 +373,14 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
       setLoadError(undefined);
     } catch (cause) {
       if (cause instanceof ApiError && cause.isUnauthenticated) {
-        // The session has gone. Sign-in is the honest destination, not an empty list.
-        router.replace('/sign-in');
+        /* The session has gone. Sign-in is the honest destination, not an empty list.
+
+           Through the session provider rather than a bare `router.replace`, which is what
+           this did: the redirect alone leaves the shell believing it is signed in and
+           leaves the drafts of a possibly-revoked employee in this browser's IndexedDB.
+           `onUnauthenticated` drops the state and wipes them. The effect above sends the
+           person to sign-in once the state changes, so the navigation still happens. */
+        onUnauthenticated();
         return;
       }
       setLoadError('Your conversations could not be loaded. This is not the same as having none.');
@@ -369,7 +393,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
        would close over the view it was created with and switching to Archive would
        re-request the live list.
     */
-  }, [router, showCustomerWorkspace, chatView]);
+  }, [onUnauthenticated, showCustomerWorkspace, chatView]);
 
   /**
    * Appends the next page. Deduplicated by id because a conversation can move to the

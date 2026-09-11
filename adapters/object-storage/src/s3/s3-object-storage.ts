@@ -208,10 +208,32 @@ export class S3ObjectStorage implements ObjectStorageProvider {
   }
 
   /**
-   * A short-lived presigned GET.
+   * A short-lived presigned GET, served as an opaque download.
    *
    * Authorization happened before this was called — the URL itself is a bearer capability,
    * which is why the TTL is the caller's and deliberately small (§28.5).
+   *
+   * ## Why the response type is overridden
+   *
+   * `issueUploadGrant` presigns a PUT with no `ContentType`, so the UPLOADER chooses the
+   * `Content-Type` S3 stores and later serves. Without the overrides below, an employee
+   * could attach a file declaring `text/html`, and the colleague who opened it would have
+   * it rendered as a document by their browser rather than downloaded — stored XSS on the
+   * bucket's origin, reached through an ordinary attachment.
+   *
+   * This is not a hypothetical gap in a document nobody reads. `packages/attachments/policy.ts`
+   * gives it twice as the REASON the accepted-type list can safely include images, audio
+   * and video: "the download path serves everything as `application/octet-stream` with
+   * `Content-Disposition: attachment`, so nothing here is ever interpreted as script by a
+   * browser". That was true of the development driver
+   * (`dev-upload.controller.ts` sets exactly those headers) and false here — so the
+   * argument the policy rests on held only in the environment that does not ship.
+   *
+   * `ResponseContentType` and `ResponseContentDisposition` are signed into the URL, so
+   * they cannot be stripped by editing it: changing either invalidates the signature.
+   * Inline rendering is unaffected — `<img>` and `<video>` sniff the bytes and ignore
+   * `Content-Disposition` on a subresource, which is why the dev driver has served these
+   * same headers all along while pictures rendered in the thread.
    */
   async issueDownloadGrant(cleanKey: string, ttlSeconds: number): Promise<Result<{ url: string }>> {
     if (!cleanKey.startsWith(CLEAN_PREFIX)) {
@@ -221,7 +243,12 @@ export class S3ObjectStorage implements ObjectStorageProvider {
     try {
       const url = await getSignedUrl(
         this.client,
-        new GetObjectCommand({ Bucket: this.bucket, Key: cleanKey }),
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: cleanKey,
+          ResponseContentType: 'application/octet-stream',
+          ResponseContentDisposition: 'attachment',
+        }),
         { expiresIn: ttlSeconds },
       );
       return ok({ url });
