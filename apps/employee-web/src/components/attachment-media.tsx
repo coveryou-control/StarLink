@@ -29,6 +29,7 @@ import type { ReactNode } from 'react';
 import { api, ApiError, type AttachmentView } from '../lib/api-client';
 import { useGallery } from './media-gallery';
 import { localMediaFor } from '../lib/local-media';
+import { safeMediaSrc } from '../lib/media-src';
 
 /** What may be drawn rather than listed. Narrow on purpose — anything else is a file. */
 export function mediaKindOf(file: AttachmentView): 'image' | 'video' | undefined {
@@ -143,7 +144,12 @@ export function AttachmentMedia({
   }
 
   /* The local copy wins where there is one; otherwise the granted URL. */
-  const shown = local ?? url;
+  /* …and whichever it is passes a scheme check before it reaches an element. Neither
+     source is attacker-controlled today and a media `src` does not execute a
+     `javascript:` URL, so this closes no open hole — it makes the property true by
+     CONSTRUCTION rather than by tracing the data flow, which is what a reader, and
+     CodeQL reporting `js/xss-through-dom` at both sinks below, actually needs. */
+  const shown = safeMediaSrc(local ?? url);
 
   return (
     <div className="attachment-media" ref={holder} data-kind={kind}>
