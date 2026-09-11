@@ -149,7 +149,7 @@ const VALUE_PATTERNS: readonly RegExp[] = Object.freeze([
      through with the password still attached. Listed first so the whole URI is
      replaced rather than the part of it that happens to look like an address.
   */
-  /(?:^|[\s'\"(<])[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@\S+/gi,
+  /(?:^|[\s'"(<])[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@\S+/gi,
   /\b[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, // email
   // Phone with an international prefix. A plain \b will not do the job here: `+` is
   // not a word character, so \b never matches before it and `+919876543210` slips
