@@ -229,158 +229,164 @@ because it is the property the whole outbox design exists to protect.
 
 ---
 
-# Part B — Firebase push (a build, not a setup)
+# Part B — Firebase push
 
-## B0. What the browser side ALREADY has
+**The build is done** (2026-09-10). This part was a list of work to do; it is now a list
+of buttons to press. What exists:
 
-Correcting an earlier draft of this guide, which said there was no service worker and no
-device layer. Both exist:
-
-| File | What it does |
+| Piece | Where |
 | --- | --- |
-| `apps/employee-web/src/lib/device-notifications.ts` | Per-device preferences — direct, groups, sound, quiet hours — in `localStorage`. Raises a system notification through `notify()` |
-| `apps/employee-web/public/sw.js` | A real service worker. Registered, `skipWaiting`/`clients.claim`, and a `notificationclick` handler that focuses or opens the right conversation |
-| `apps/employee-web/src/lib/use-notifications.ts` | Reads the preferences and calls `notify()` when something arrives |
+| FCM HTTP v1 sender, RS256 JWT signed with Node `crypto` — no Admin SDK | `adapters/notification-provider/src/push/fcm-sender.ts` |
+| The transport, `channel = 'PUSH'` | `adapters/notification-provider/src/push/push-transport.ts` |
+| Registered behind `SL_NOTIFY_TRANSPORTS` | `apps/api/src/app.module.ts` |
+| Device token table | `infrastructure/database/migrations/0033_device_tokens.sql`, applied |
+| Register / deregister endpoints | `apps/api/src/notifications/devices.controller.ts` |
+| Browser token acquisition, reusing the EXISTING worker | `apps/employee-web/src/lib/push-client.ts` |
+| `push` listener | `apps/employee-web/public/sw.js` |
+| The switch, and `Notification.requestPermission()` | `apps/employee-web/src/components/notification-settings.tsx` |
 
-The service worker exists because Chrome on Android **refuses** `new Notification(...)`
-from a page — `ServiceWorkerRegistration.showNotification` is the only supported path
-there. Its header is explicit that it has no `fetch` handler on purpose (rule 9:
-recovery is re-fetch, and a stale cached response would show somebody a conversation as
-it was ten minutes ago) and that it **does not receive push**.
+## B0. Read this before you start, or you will conclude it is broken
 
-So the gap to Firebase is narrower than "build a client": add a `push` listener to a
-service worker that already exists, and a subscription to store.
+**No event routes to `PUSH`.** `channelsFor()` in `packages/notifications/src/matrix.ts`
+returns only `INAPP` and `EMAIL`; there is no rule with a push channel on it. That is
+N-22's deliberate dormant state, not an oversight — *"The `PUSH` channel stays in the
+`NotificationChannel` union with no §29.2 rule pointing at it, which is the correct
+dormant state."*
 
-### A confirmed defect sitting in the middle of this
+So when the configuration below is complete, **sending a message will still not push
+anything**. The chain is connected end to end and has nothing feeding it. Verifying it
+therefore means driving the transport directly (B4), which proves the plumbing; routing
+an event to it is a separate, business-owned decision (N-56 asks exactly this for
+mentions).
 
-`Notification.requestPermission()` is called **nowhere** — grep across `apps`, `packages`
-and `adapters` returns nothing. `notify()` correctly refuses to ask (a permission prompt
-raised by an incoming message is a prompt nobody grants) and returns early unless
-permission is already `granted`.
+**Push needs a secure context.** `https://`, or `localhost`. A LAN address
+(`http://192.168.x.x:3010`) has no service worker and no push — which is the obvious way
+to test on a phone and the one that cannot work. Test on the laptop at `localhost` first.
 
-Its docblock says permission "is asked for on the settings screen at the moment somebody
-turns a switch on". **There is no such screen**: `quietHours` and
-`DEVICE_NOTIFICATION_DEFAULTS` appear in no `.tsx` file. The switches are not rendered
-anywhere.
+## B1. Create the project
 
-The consequence is that **desktop notifications cannot currently fire at all**, however
-the preferences are set — the permission is never requested, so `Notification.permission`
-never becomes `granted`. This is worth fixing before any Firebase work, because it is
-cheap, it is on the path anyway, and it makes the existing layer work:
+1. <https://console.firebase.google.com> → **Create a project**.
+2. Name it (`starlink-coveryou`). Firebase may append a suffix to make the *id* unique —
+   the id is what you need later, not the display name.
+3. **Google Analytics: off.** Nothing here uses it, and it adds a consent question about
+   a third-party processor that this project does not otherwise need to answer.
 
-1. Render the device switches in Settings (the preferences and defaults already exist).
-2. Call `Notification.requestPermission()` when somebody turns one on — never on load.
-3. Handle `denied` honestly: say the browser is blocking it and where to change that.
+## B2. Register a web app — four of the seven values
 
-That alone gives notifications while the tab is open or backgrounded, which the comment
-above notes "on a phone is a backgrounded PWA and is the common case". Firebase is only
-needed for the application being fully closed.
+1. Project Overview → the **`</>`** (Web) icon.
+2. Nickname: `StarLink employee web`. **Do not** tick Firebase Hosting — StarLink hosts
+   itself, and the option sets up a deploy target nobody will use.
+3. **Register app.** The `firebaseConfig` block it shows is the payload:
 
-## B1. The shape the transport has to take
-
-This section is what has to be true, not a list of buttons.
-
-`PUSH` is already a valid `NotificationChannel`. What is missing is a
-`NotificationTransport` implementation for it, which means the work is bounded and lands
-in the same place everything else does:
-
-```
-adapters/notification-provider/src/push/
-  fcm-sender.ts        # talks to Firebase Admin
-  push-transport.ts    # implements NotificationTransport, channel = 'PUSH'
-```
-
-Plus three things outside the adapter:
-
-- **Device token storage.** A table of `(principal_id, token, platform, last_seen_at)`,
-  in the `identity` schema. Tokens expire and are reissued; a token that FCM reports as
-  `UNREGISTERED` must be deleted, or the backlog fills with permanent failures.
-- **A `push` listener in the existing service worker.** `public/sw.js` is already
-  registered and already handles `notificationclick`; what it does not have is a `push`
-  event handler. This is an addition to a working file, not a new one.
-- **A permission request** — see B0. It is missing today and blocks the existing device
-  layer as well as this.
-
-Register the transport in `app.module.ts` beside the email one, gated the same way:
-
-```ts
-if (enabled.has('PUSH')) entries.push(pushTransport);
-```
-
-…so `SL_NOTIFY_TRANSPORTS=inapp,email,push` is what turns it on, and an absent
-configuration produces no transport rather than a pretending one.
-
-## B2. Settings to add
-
-Following rule 13. Service-account credentials are a secret and belong in the secret
-store, never in `.env`:
-
-| Variable | Notes |
+| Console field | Setting |
 | --- | --- |
-| `SL_NOTIFY_PUSH_PROJECT_ID` | Firebase project id |
-| `SL_NOTIFY_PUSH_CLIENT_EMAIL` | From the service-account JSON |
-| `SL_NOTIFY_PUSH_PRIVATE_KEY` | From the service-account JSON. Newlines need unescaping |
-| `SL_NOTIFY_PUSH_VAPID_KEY` | Web push certificate, needed by the browser client |
+| `apiKey` | `SL_NOTIFY_PUSH_WEB_API_KEY` |
+| `appId` | `SL_NOTIFY_PUSH_WEB_APP_ID` |
+| `projectId` | `SL_NOTIFY_PUSH_PROJECT_ID` |
+| `messagingSenderId` | `SL_NOTIFY_PUSH_SENDER_ID` |
 
-The client also needs the Firebase **web** config (apiKey, appId, messagingSenderId).
-Those are not secrets — they identify the project — but they still get `SL_` names and
-still travel through `runtime-origins-script.tsx`, which is how this application already hands
-server-known values to the browser.
+`authDomain` and `storageBucket` are not used — StarLink uses neither Firebase Auth nor
+Firebase Storage, and it should stay that way (rule 11: no second user authority).
 
-## B3. Two constraints that will shape the payload
+These four are **not secrets**. They identify the project to Google and are designed to
+sit in client source; they still travel through `runtime-origins-script.tsx` rather than
+being inlined at build time, because a build baked with one project's ids cannot be
+deployed against another.
+
+## B3. The VAPID key and the service account — the other three
+
+**Web Push certificate** (gear ⚙ → **Project settings** → **Cloud Messaging** tab →
+*Web configuration* → **Web Push certificates** → **Generate key pair**):
+
+| Console field | Setting |
+| --- | --- |
+| Key pair (starts `B`, ~87 chars) | `SL_NOTIFY_PUSH_VAPID_KEY` |
+
+While on that tab, confirm **Firebase Cloud Messaging API (V1)** reads **Enabled**. The
+sender speaks v1 only. *Cloud Messaging API (Legacy)* can stay disabled — it is
+deprecated and nothing here uses it.
+
+**Service account** (Project settings → **Service accounts** → **Generate new private
+key** → downloads a JSON file):
+
+| JSON field | Setting |
+| --- | --- |
+| `client_email` | `SL_NOTIFY_PUSH_CLIENT_EMAIL` |
+| `private_key` | `SL_NOTIFY_PUSH_PRIVATE_KEY` |
+
+**That file is a credential that can send to every device in the project.** It does not
+go in the repository, in a commit, or in a chat message. Locally it belongs in `.local/`,
+which is gitignored; in deployment it belongs in the secret store (rule 13).
+
+The private key is multi-line PEM. In an environment variable its newlines are written
+`\n` and `config.ts` unescapes them — so paste it exactly as the JSON has it, quotes and
+all, and do not hand-wrap it.
+
+## B4. Proving it works
+
+Order matters: each step fails in a way the next one would hide.
+
+1. **The web app offers the switch.** Settings → Notifications. Absent means the browser
+   never received the web config — check `window.__SL_RUNTIME_ORIGINS__.push` in the
+   console. All five fields must be non-empty.
+2. **Turning it on grants permission and stores a token.** The browser prompts; accept.
+   Then `select count(*) from identity.device_tokens` must be 1. Zero with the switch on
+   means `getToken` failed — almost always a VAPID key mismatch or a non-secure origin.
+3. **A push arrives with the tab open.** Drive the transport directly (see B0 — no event
+   routes to push, so nothing in the product will do this for you).
+4. **A push arrives with the browser FULLY CLOSED.** This is the whole point and the step
+   most likely to be quietly broken. A push that only works with the tab open is the
+   service worker not being woken, and it proves nothing that the in-app path did not
+   already prove.
+5. **A stale token is deleted.** Sending to a token FCM reports `UNREGISTERED` must
+   remove the row. Without it the outbox fills with permanent failures and
+   `starlink_notification_outbox_depth` never returns to zero — the same always-red-alert
+   failure §32.4 exists to prevent.
+
+`SL_NOTIFY_TRANSPORTS=inapp,email,push` is what admits the transport at all. Absent
+credentials produce no sender rather than one that fails every send, so a half-configured
+project looks undelivered rather than broken — deliberately, and the same posture email
+takes.
+
+## B5. Two constraints on the payload, which no configuration can relax
 
 **A push may not carry message content.** `NotificationRequest.payload` is documented as
-"structured, and never message content" — §29 notifications tell somebody there is
-something to look at; the thing itself stays behind the authorization that guards it. A
-push notification is delivered by Google to a device that may be locked, shared, or
-mirrored to a watch, so this is not a formality:
+"structured, and never message content" — §29 notifications say there is something to
+look at; the thing itself stays behind the authorization that guards it. A push is
+delivered by Google to a device that may be locked, shared, or mirrored to a watch:
 
-- Good: *"Rahul mentioned you in #Technology"* with a deep link.
+- Good: *"Rahul mentioned you in #Technology"*, with a deep link.
 - Refused: the text of what Rahul wrote.
 
-This also means the service worker must fetch the real content **after** the person opens
-the notification, through the ordinary authenticated API, where `decide()` runs. A push
-that carried the message would be a second read path with no authorization on it — rule 2.
+The worker therefore fetches the real content **after** the tap, through the ordinary
+authenticated API where `decide()` runs. A push carrying the message would be a second
+read path with no authorization on it — rule 2.
 
-**Device tokens are personal data about employees.** They identify a person's device.
-IRDAI's residency rules (CLAUDE.md, "Running the database") bite on policy and claims
-records rather than on a push token, so this is not automatically a blocker — but the
-token table is in your database, in your region, and only the token goes to Google. Keep
-it that way, and get it confirmed rather than assumed.
-
-## B4. Order of work
-
-0. **The permission request and the Settings switches** (B0). Do this first whatever else
-   happens — it is small, it unblocks the notification layer that is already built, and
-   every later step depends on permission having been granted.
-1. Token table and migration.
-2. Token registration, from the same Settings control.
-3. A `push` listener added to `public/sw.js`, and confirm a push arrives with the browser
-   **fully closed** — the whole point, and the step most likely to be quietly broken.
-4. `PushNotificationTransport`, registered in `app.module.ts`.
-5. `SL_NOTIFY_TRANSPORTS=inapp,email,push`.
-6. Token cleanup on `UNREGISTERED`.
-
-Steps 0–3 are the client half and can be built and tested before any server work: a
-service worker that receives a push sent by hand from the Firebase console proves the
-hard part.
+**Device tokens are personal data about employees.** IRDAI's residency rules (CLAUDE.md,
+"Running the database") bite on policy and claims records rather than on a push token, so
+this is not automatically a blocker — but the token table is in your database, in your
+region, and only the opaque token goes to Google. Keep it that way, and get it confirmed
+rather than assumed.
 
 ---
 
 ## Summary
 
-| | Effort | Blocked on |
+| | State | Blocked on |
 | --- | --- | --- |
-| **In-app (unread, badges)** | Done | — |
-| **Device notifications** | Built but **cannot fire** | The permission request and the Settings switches (B0) |
-| **Email** | Configuration | Relay credentials, sending domain, SPF/DKIM |
-| **Push (app fully closed)** | A feature | B0 first, then a Firebase project and the build in B4 |
+| **In-app (unread, badges)** | Working | — |
+| **Device notifications** | Working — the switch and the permission request landed 2026-09-10 | — |
+| **Email** | Code complete, proven against a local sink | A relay host, a sending domain, SPF/DKIM |
+| **Push (browser fully closed)** | Code complete | A Firebase project (B1–B3) |
+| **Anything reaching you when the tab is shut** | **Not built** | An event routed to an external channel — a business decision, N-56 |
 
-If the immediate need is "people should know when they are mentioned", the cheapest real
-progress is **B0 then email**, in that order — B0 is a few hours and switches on a layer
-that is already written, and email is an afternoon of which most is waiting on the relay
-owner. Firebase is worth doing when "the browser is closed" is the case that matters, and
-it is smaller after B0 than before it.
+The last row is the one that matters for going live, and no amount of Firebase
+configuration addresses it. Today a direct message, a group message, a channel post and
+an announcement all notify **nobody**: only `MENTIONED` raises a notification at all, and
+it is in-app only. Separately, `isAway()` always returns `false` until presence is
+readable across processes (Part IV §52, Redis), so every "in-app + external if away" rule
+resolves to in-app only — meaning even a configured email transport can currently be
+triggered by exactly one thing in internal chat, a role grant or revoke.
 
-They stack: none of these makes the next any harder, because every one of them is a
-transport behind the same port.
+They stack, and none makes the next harder, because every one is a transport behind the
+same port.
