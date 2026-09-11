@@ -718,6 +718,16 @@ export default function ThreadPage(): ReactNode {
    * owns the lifecycle, including the failed case, and two writers to one list is how a
    * retry loses its text.
    */
+  /*
+     The composer's retry, held so the thread can offer it on a failed bubble.
+
+     `MessageList` renders the Retry button only when it is given an `onRetry`, and
+     nothing ever gave it one — so the button existed in the code and in no state of the
+     running product. A ref rather than state because receiving it must not re-render
+     the thread, and the composer republishes it whenever its own `send` changes.
+  */
+  const retrySend = useRef<((localId: string) => void) | undefined>(undefined);
+
   const confirmedClientIds = new Set(
     messages.map((message) => message.clientMessageId).filter((id): id is string => id !== undefined),
   );
@@ -1089,6 +1099,7 @@ export default function ThreadPage(): ReactNode {
               onReply={setReplyingTo}
               messages={messages}
               pending={stillPending}
+              onRetry={(localId) => retrySend.current?.(localId)}
               currentPrincipalId={state.me.principalId}
               /* Positive test, so an unresolved kind keeps the note marking. */
               conversationIsInternal={conversationType?.startsWith('INTERNAL') === true}
@@ -1336,6 +1347,9 @@ export default function ThreadPage(): ReactNode {
           canReplyToCustomer={conversationType !== undefined && !conversationType.startsWith('INTERNAL')}
           {...(addressedPlaceholder !== undefined ? { placeholder: addressedPlaceholder } : {})}
           onSent={onSent}
+          onRetryReady={(retry) => {
+            retrySend.current = retry;
+          }}
           onPendingChange={(next) => {
             /*
                Sending returns you to the bottom, wherever you were reading.

@@ -556,3 +556,123 @@ describe('customer subscribes', () => {
     }
   });
 });
+
+describe('a revalidation sweep resolves each principal once, not once per channel', () => {
+  /**
+   * The cost this is about. `authorizeJoin` re-read the session version, the resource
+   * AND the actor for every channel, and `actorFor` is `resolvePrincipal` — a principal
+   * SELECT plus teams, roles, delegations and a manager chain walked one level at a
+   * time. With a sidebar of thirty channels that is the same person resolved from
+   * scratch thirty times, strictly serially, inside a sixty-second timer that had no
+   * guard against the previous pass still running. At a few hundred employees a pass
+   * cannot finish inside its own interval, and then the revocation the pass exists to
+   * perform quietly stops happening.
+   */
+  const withCounters = (): {
+    manager: ConnectionManager;
+    counts: { actor: number; session: number; resource: number };
+  } => {
+    const counts = { actor: 0, session: 0, resource: 0 };
+    const manager = new ConnectionManager({
+      authz: {
+        loadForAuthorization: async () => {
+          counts.resource += 1;
+          return resource();
+        },
+      },
+      actorFor: async (principalId) => {
+        counts.actor += 1;
+        return actor({ principalId });
+      },
+      sessionVersionFor: async () => {
+        counts.session += 1;
+        return 1;
+      },
+      teamFor: async (teamId) => ({ teamId, department: 'Service' }),
+    });
+    return { manager, counts };
+  };
+
+  /* `authorizeJoin` then `recordJoin` — the pair the gateway itself calls on a
+     subscribe. There is no single `join`. */
+  const joinMany = async (manager: ConnectionManager, connectionId: string, howMany: number) => {
+    manager.register(identity({ connectionId }));
+    for (let i = 0; i < howMany; i += 1) {
+      const conversationId = `018f2c5a-1111-7000-8000-${String(i).padStart(12, '0')}` as UUID;
+      const channel = { kind: 'CONVERSATION' as const, conversationId };
+      await manager.authorizeJoin(connectionId, channel);
+      manager.recordJoin(connectionId, `conversation:${conversationId}`, channel);
+    }
+  };
+
+  it('resolves the actor once for a whole pass, however many channels are joined', async () => {
+    const { manager, counts } = withCounters();
+    await joinMany(manager, 'conn-1', 10);
+
+    counts.actor = 0;
+    counts.session = 0;
+    await manager.revalidateAll();
+
+    // One principal on this pass, so one actor resolution and one session read —
+    // not ten of each.
+    expect(counts.actor, 'actorFor calls per pass').toBe(1);
+    expect(counts.session, 'sessionVersionFor calls per pass').toBe(1);
+  });
+
+  it('still reads the resource per conversation, because that is per conversation', async () => {
+    // The cache removes REPEATED work, not work. Ten distinct conversations are ten
+    // distinct authorization questions and must stay ten reads.
+    const { manager, counts } = withCounters();
+    await joinMany(manager, 'conn-1', 10);
+
+    counts.resource = 0;
+    await manager.revalidateAll();
+
+    expect(counts.resource).toBe(10);
+  });
+
+  it('does not memoise a LIVE join — that one must read fresh', async () => {
+    /**
+     * The distinction the whole design rests on. A sweep is one moment and may answer
+     * thirty channels from one read; a subscribe is a person asking for access right
+     * now, and the answer has to be current. Two joins in a row must each pay for
+     * themselves.
+     */
+    const { manager, counts } = withCounters();
+    manager.register(identity({ connectionId: 'conn-1' }));
+
+    await manager.authorizeJoin('conn-1', { kind: 'CONVERSATION', conversationId: CONVERSATION });
+    const afterFirst = counts.actor;
+    await manager.authorizeJoin('conn-1', { kind: 'CONVERSATION', conversationId: CONVERSATION });
+
+    expect(counts.actor).toBeGreaterThan(afterFirst);
+  });
+
+  it('carries a revocation decided mid-pass, rather than serving a stale cached answer', async () => {
+    /**
+     * The risk a cache introduces, tested rather than argued. If the session version
+     * read for the pass says revoked, every channel on that connection must go — the
+     * memoised value must be the one that revokes, not one that rescues.
+     */
+    const counts = { actor: 0 };
+    const versions = new Map<UUID, number>([[OWNER, 1]]);
+    const manager = new ConnectionManager({
+      authz: { loadForAuthorization: async () => resource() },
+      actorFor: async (principalId) => {
+        counts.actor += 1;
+        return actor({ principalId });
+      },
+      sessionVersionFor: async (principalId) => versions.get(principalId),
+      teamFor: async (teamId) => ({ teamId, department: 'Service' }),
+    });
+    manager.register(identity({ connectionId: 'conn-1' }));
+    const channel = { kind: 'CONVERSATION' as const, conversationId: CONVERSATION };
+    await manager.authorizeJoin('conn-1', channel);
+    manager.recordJoin('conn-1', `conversation:${CONVERSATION}`, channel);
+
+    versions.set(OWNER, 2);
+    const outcome = await manager.revalidateAll();
+
+    expect(outcome.doomed).toEqual(['conn-1']);
+  });
+});

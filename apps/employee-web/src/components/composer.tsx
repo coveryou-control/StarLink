@@ -48,6 +48,16 @@ interface ComposerProps {
   readonly onSent: (message: MessageView) => void;
   readonly onPendingChange: (pending: readonly PendingSend[]) => void;
   /**
+   * Hands the thread a way to retry one failed row.
+   *
+   * `MessageList` has always rendered a Retry button on a failed bubble and has always
+   * required an `onRetry` to show it — and nothing ever passed one, so the button was
+   * unreachable in every state of the product. The composer owns the send lifecycle
+   * (see the note in the thread about two writers to one list), so the retry has to come
+   * from here rather than being reimplemented there.
+   */
+  readonly onRetryReady?: ((retry: (localId: string) => void) => void) | undefined;
+  /**
    * SL-010. Announces that this person is composing, with the CURRENT mode.
    *
    * The visibility travels with it because §20.10 withholds an internal-note signal from
@@ -82,6 +92,7 @@ export function Composer({
   canReplyToCustomer,
   onSent,
   onPendingChange,
+  onRetryReady,
   onTyping,
   replyingTo,
   onCancelReply,
@@ -400,6 +411,7 @@ export function Composer({
     onPendingChange(pending);
   }, [pending, onPendingChange]);
 
+
   const handleChange = useCallback(
     (next: string) => {
       setBody(next);
@@ -442,7 +454,16 @@ export function Composer({
     [handleChange, labelFor],
   );
 
-  const send = useCallback(async () => {
+  /**
+   * `resumeLocalId` is a RETRY of a specific failed row, not a new send.
+   *
+   * Reusing the id matters twice. It is the `clientMessageId`, so the server dedupes if
+   * the first attempt actually committed and only the response was lost — a retry must
+   * never create a second message (P-05 / FR-MSG-3). And it is the row's identity, so
+   * the failed bubble becomes the sending bubble instead of a second bubble appearing
+   * beside it.
+   */
+  const send = useCallback(async (resumeLocalId?: string) => {
     const text = body.trim();
     /**
      * Guarded here as well as on the button, because the keyboard does not go through it.
@@ -458,7 +479,8 @@ export function Composer({
     // §19.4: an optimistic send is shown immediately, but it is shown as PENDING and it
     // is never silently dropped. A message that looks sent but never arrived is worse
     // than one that visibly failed.
-    const localId = `local-${principalId}-${conversationId}-${performance.now()}`;
+    const localId =
+      resumeLocalId ?? `local-${principalId}-${conversationId}-${performance.now()}`;
     /**
      * Pruned once against the text actually being sent, and reused for the optimistic row.
      *
@@ -483,7 +505,22 @@ export function Composer({
       state: 'SENDING',
     };
 
-    setPending((current) => [...current, optimistic]);
+    /*
+       A send SUPERSEDES any failed row, it does not stack on top of one.
+
+       Nothing ever cleared `state: 'FAILED'`. The text was restored to the composer, so
+       the obvious next action — press send again — produced a second optimistic row
+       while the first stayed on screen forever: the same message twice, with "Not sent"
+       underneath the one that worked. Dropping the failed rows here fixes both paths at
+       once, the Retry button and the ordinary resend, because both come through here.
+
+       Only FAILED rows. A row still SENDING is a real request in flight and removing it
+       would hide a message that is about to land.
+    */
+    setPending((current) => [
+      ...current.filter((item) => item.state !== 'FAILED' && item.localId !== localId),
+      optimistic,
+    ]);
     setBody('');
     autosaver.cancel();
     setError(undefined);
@@ -720,6 +757,15 @@ export function Composer({
     mentions,
     labelFor,
   ]);
+  /*
+     Publish the retry upward, once `send` exists.
+
+     Declared after `send` so it closes over the current one; re-published whenever that
+     identity changes, so the thread never holds a retry built against a stale `body`.
+  */
+  useEffect(() => {
+    onRetryReady?.((localId: string) => void send(localId));
+  }, [onRetryReady, send]);
 
   /**
    * Sends the parked recording the moment the server will bind it.
