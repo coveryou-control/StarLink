@@ -29,12 +29,25 @@ import { collectSourceFiles } from './source-scan.js';
 const BROWSER_ROOTS = ['apps/employee-web/src/', 'apps/customer-web/src/'] as const;
 
 /**
- * The one file per surface allowed to read the environment: a server component, whose
- * whole job is to read it at request time and hand the values to the document.
+ * The files under a browser root that DO run on the server, and may read the environment.
+ *
+ * Two shapes, both server-only by construction rather than by intention:
+ *
+ *   * the runtime-origins server component, whose whole job is to read the environment at
+ *     request time and hand the values to the document;
+ *   * `middleware.ts`, which Next runs per request before any of this reaches a browser.
+ *     It reads `SL_API_ORIGIN` and `SL_REALTIME_ORIGIN` to name them in `connect-src`,
+ *     and for exactly the reason this guard exists: a CSP baked at build time with one
+ *     environment's origins would silently block another's traffic.
+ *
+ * Listed by exact path, not by a pattern. A pattern would quietly admit the next file
+ * somebody names `middleware.ts` somewhere else, and the point of this guard is that
+ * every exemption is a decision somebody made on purpose.
  */
 const SERVER_INJECTORS = [
   'apps/employee-web/src/components/runtime-origins-script.tsx',
   'apps/customer-web/src/components/runtime-origins-script.tsx',
+  'apps/employee-web/src/middleware.ts',
 ] as const;
 
 const ENV_READ = /process\.env\b/;

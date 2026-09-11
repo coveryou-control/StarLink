@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { headers } from 'next/headers';
 import type { ReactNode } from 'react';
 
 import './globals.css';
@@ -46,11 +47,25 @@ export const viewport: Viewport = {
   themeColor: '#0b1b3a',
 };
 
-export default function RootLayout({ children }: { children: ReactNode }): ReactNode {
+export default async function RootLayout({ children }: { children: ReactNode }): Promise<ReactNode> {
+  /*
+     The nonce the middleware minted for THIS request.
+
+     Next applies it to its own inline scripts automatically once the CSP header names
+     one; the four this layout writes itself are not Next's, so they carry it by hand.
+     Without it they are exactly the scripts the policy is designed to refuse — and the
+     three boot scripts run before first paint, so the failure would be a white flash and
+     a wrong theme rather than an error anybody notices.
+
+     `headers()` is what makes this layout dynamic per request, which it already had to
+     be for the runtime origins.
+  */
+  const nonce = (await headers()).get('x-nonce') ?? undefined;
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <RuntimeOriginsScript />
+        <RuntimeOriginsScript nonce={nonce} />
         {/*
           The three brand families, fetched here rather than from CSS.
 
@@ -80,13 +95,13 @@ export default function RootLayout({ children }: { children: ReactNode }): React
           flash on every load for anybody using dark. `suppressHydrationWarning` because
           this script mutates `<html>` before React reaches it, which is the point.
         */}
-        <script dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeBootScript }} />
         {/* Same reason as the theme's: read from an effect, the first paint would be the
             default ground and the second the chosen one — a visible flash on the largest
             surface on the screen, every load. */}
-        <script dangerouslySetInnerHTML={{ __html: chatBackgroundBootScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: chatBackgroundBootScript }} />
         {/* Pointer-or-keyboard, before the first paint — see `input-modality.ts`. */}
-        <script dangerouslySetInnerHTML={{ __html: inputModalityBootScript }} />
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: inputModalityBootScript }} />
       </head>
       <body>
         <SessionProvider>{children}</SessionProvider>

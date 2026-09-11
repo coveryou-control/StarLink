@@ -181,7 +181,7 @@ everywhere it surfaces. **Nothing goes in front of a real customer on placeholde
 | SL-070 | Customer / internal data isolation | **Built** | Allow-list projection fuzzed over 1,000 rounds, plus live-API isolation tests |
 | SL-071 | Consent eligibility adapter | **Interim · blocked** | Mock behind the final interface, checked at send time and fails closed. Canonical consent is **N-01** |
 | SL-072 | Retention / legal hold hooks | **Blocked — D-06** | Three tables carry a retention intent and **nothing expires anything**. Needs the policy, not a number |
-| SL-073 | Security headers / CSRF / CSP | **Partial** | `X-Frame-Options: DENY` and a restrictive CSP are set. CSRF posture depends on the cookie/session model and has not been separately reviewed |
+| SL-073 | Security headers / CSRF / CSP | **Partial** | This row claimed a restrictive CSP was set when neither browser surface sent one — the API's `default-src 'none'` was being read as the product's. Corrected 2026-09-11: `employee-web` now sends a nonce-based CSP from middleware (no `unsafe-inline` on `script-src`, `strict-dynamic`, per-request nonce applied to Next's inline scripts and the four this app injects), plus HSTS on TLS requests only. Verified by driving the product under it — zero violations. `X-Frame-Options: DENY`, `nosniff` and `Referrer-Policy` unchanged. **Still partial:** `customer-web` has no CSP, and the CSRF posture depends on the cookie/session model and has not been separately reviewed |
 | SL-074 | Rate limiting & abuse | **Partial** | In-process limiter on search (30/min). **Not distributed** — per-instance limits are not limits once there are two instances (**N-03**) |
 
 ## 12. AI & Copilot

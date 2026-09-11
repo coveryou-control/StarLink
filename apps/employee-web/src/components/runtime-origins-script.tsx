@@ -12,7 +12,7 @@
  */
 import { RUNTIME_ORIGINS_KEY, FALLBACK_ORIGINS } from '../lib/runtime-origins';
 
-export function RuntimeOriginsScript(): React.JSX.Element {
+export function RuntimeOriginsScript({ nonce }: { nonce?: string | undefined }): React.JSX.Element {
   const origins = {
     api: process.env.SL_API_ORIGIN ?? FALLBACK_ORIGINS.api,
     realtime: process.env.SL_REALTIME_ORIGIN ?? FALLBACK_ORIGINS.realtime,
@@ -47,6 +47,10 @@ export function RuntimeOriginsScript(): React.JSX.Element {
   };
   return (
     <script
+      /* Carries this request's CSP nonce. Without it this is exactly the inline script
+         the policy exists to refuse: the browser drops it, the bundle finds no API
+         origin, and every request goes to the fallback. */
+      nonce={nonce}
       // The only way to seed a global before the bundle evaluates. The payload is JSON
       // built here from the server's own environment, never interpolated markup.
       dangerouslySetInnerHTML={{
