@@ -189,6 +189,21 @@ export class PgReactionStore {
    * anything. Returning `undefined` for an unknown message means the route refuses without
    * disclosing whether the id exists (§27.3).
    */
+  /**
+   * Who wrote this message, for the reaction notification.
+   *
+   * The id alone, never the row: a notification must not read message CONTENT, and a
+   * method that returned the message would invite exactly that (§30.4's objection to a
+   * search index, applied here). The caller has already established that this message
+   * belongs to a conversation it may act in.
+   */
+  async authorOf(messageId: UUID): Promise<UUID | undefined> {
+    const result = await this.pool.query(
+      `SELECT sender_principal_id FROM conversation.messages WHERE message_id = $1`,
+      [messageId],
+    );
+    return (result.rows[0]?.sender_principal_id as UUID | undefined) ?? undefined;
+  }
   async conversationOf(messageId: UUID): Promise<UUID | undefined> {
     const result = await this.pool.query(
       'SELECT conversation_id FROM conversation.messages WHERE message_id = $1',

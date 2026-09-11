@@ -46,6 +46,22 @@ import { LOGGER } from '../tokens.js';
 import { NotificationService } from './notification-service.js';
 import { NotificationRecipients } from './recipients.js';
 
+/**
+ * Which ordinary message event a conversation raises, by its own type.
+ *
+ * A lookup rather than a chain of ifs so an unknown type falls out as `undefined` and
+ * raises nothing. Adding a conversation type without deciding how it notifies then
+ * produces silence, which is the failure worth having — the alternative default would
+ * page everybody in it.
+ */
+const MESSAGE_EVENT_FOR: Readonly<Record<string, 'DIRECT_MESSAGE' | 'GROUP_MESSAGE' | 'CHANNEL_MESSAGE' | 'ANNOUNCEMENT_POSTED'>> =
+  Object.freeze({
+    INTERNAL_DIRECT: 'DIRECT_MESSAGE',
+    INTERNAL_GROUP: 'GROUP_MESSAGE',
+    INTERNAL_CHANNEL: 'CHANNEL_MESSAGE',
+    INTERNAL_ANNOUNCEMENT: 'ANNOUNCEMENT_POSTED',
+  });
+
 @Injectable()
 export class ConversationNotifier {
   constructor(
@@ -276,6 +292,123 @@ export class ConversationNotifier {
       } catch (error) {
         this.logFailure('mentioned', principalId, error);
       }
+    }
+  }
+
+  /**
+   * Everyone a new internal message should hear about, and at most ONE notification each.
+   *
+   * ## The suppression is the important part
+   *
+   * A message can qualify somebody for three events at once: they are a participant, they
+   * were mentioned in it, and it replies to something they wrote. Raising all three sends
+   * three notifications about one message — three phone buzzes, three rows in the bell —
+   * which is the noise §29.2's governing sentence exists to prevent, arriving by a
+   * mechanism that sentence never anticipated.
+   *
+   * So the events are ranked and each person gets the most specific one that applies:
+   *
+   *     mentioned  >  replied to  >  ordinary message in the conversation
+   *
+   * Mentions are raised by `mentioned()` on the same send, so they are subtracted here
+   * rather than raised again.
+   *
+   * ## Which ordinary event
+   *
+   * Chosen from the conversation's own TYPE rather than from anything a caller passes, so
+   * a direct message cannot be reported as a channel post by a surface that got the shape
+   * wrong. A type nothing has taught this about raises nothing at all — which fails
+   * closed, the right way round for something that interrupts people.
+   *
+   * Called after the send has COMMITTED (rule 1), and each recipient is wrapped so one
+   * failed lookup cannot cost the others theirs.
+   */
+  async messageArrived(input: {
+    readonly conversationId: UUID;
+    readonly conversationType: string;
+    readonly messageId: UUID;
+    readonly senderId: UUID;
+    readonly participants: readonly UUID[];
+    readonly mentioned?: readonly UUID[] | undefined;
+    readonly repliedToAuthor?: UUID | undefined;
+  }): Promise<void> {
+    const ordinary = MESSAGE_EVENT_FOR[input.conversationType];
+
+    // Already told by `mentioned()` on this same send.
+    const covered = new Set<UUID>(input.mentioned ?? []);
+    // Never yourself — §29.2's "Not notified" list names one's own actions.
+    covered.add(input.senderId);
+
+    const repliedTo = input.repliedToAuthor;
+    if (repliedTo !== undefined && !covered.has(repliedTo)) {
+      covered.add(repliedTo);
+      await this.tell('replied_to_you', input.conversationId, () =>
+        this.notifyEmployee('REPLIED_TO_YOU', repliedTo, input.conversationId, input.messageId),
+      );
+    }
+
+    if (ordinary === undefined) return;
+    for (const principalId of input.participants) {
+      if (covered.has(principalId)) continue;
+      await this.tell('message_arrived', input.conversationId, () =>
+        this.notifyEmployee(ordinary, principalId, input.conversationId, input.messageId),
+      );
+    }
+  }
+
+  /**
+   * Somebody reacted to a message you wrote.
+   *
+   * Reacting to your own message notifies nobody. `dedupeDiscriminator` is the message,
+   * so a flurry of reactions on one message coalesces into a single row rather than one
+   * per emoji — which is §29.5's "'3 new messages', not three notifications" applied to
+   * the thing most likely to arrive in bursts.
+   */
+  async reactedToYourMessage(input: {
+    readonly conversationId: UUID;
+    readonly messageId: UUID;
+    readonly messageAuthorId: UUID;
+    readonly reactorId: UUID;
+  }): Promise<void> {
+    if (input.messageAuthorId === input.reactorId) return;
+    await this.tell('reacted', input.conversationId, () =>
+      this.notifyEmployee(
+        'REACTED_TO_YOUR_MESSAGE',
+        input.messageAuthorId,
+        input.conversationId,
+        input.messageId,
+      ),
+    );
+  }
+
+  /**
+   * You were added to, or removed from, a conversation.
+   *
+   * Both are about the PERSON rather than about anything said, so each reaches only the
+   * one whose access changed and never the room. The actor is skipped: somebody who
+   * leaves a group does not need telling that they left.
+   *
+   * Removal is notified deliberately, and it is the one most easily argued away. A
+   * conversation that silently disappears from your list is indistinguishable from one
+   * you cannot find, and people go looking for messages they believe they have lost.
+   */
+  async participationChanged(input: {
+    readonly conversationId: UUID;
+    readonly actorId: UUID;
+    readonly added?: readonly UUID[] | undefined;
+    readonly removed?: readonly UUID[] | undefined;
+  }): Promise<void> {
+    for (const principalId of input.added ?? []) {
+      if (principalId === input.actorId) continue;
+      await this.tell('added_to_conversation', input.conversationId, () =>
+        this.notifyEmployee('ADDED_TO_CONVERSATION', principalId, input.conversationId),
+      );
+    }
+    for (const principalId of input.removed ?? []) {
+      if (principalId === input.actorId) continue;
+      await this.tell('removed_from_conversation', input.conversationId, () =>
+        this.notifyEmployee('REMOVED_FROM_CONVERSATION', principalId, input.conversationId),
+      );
     }
   }
 

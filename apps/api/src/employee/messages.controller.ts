@@ -67,7 +67,7 @@ import type {
 /** Structural, not the class: the controller needs the two methods, not the pool. */
 type ReactionStore = Pick<
   PgReactionStore,
-  'forMessages' | 'forMessage' | 'add' | 'remove' | 'conversationOf'
+  'forMessages' | 'forMessage' | 'add' | 'remove' | 'conversationOf' | 'authorOf'
 >;
 type StarStore = Pick<PgStarStore, 'add' | 'remove' | 'minedOn' | 'conversationOf'>;
 
@@ -320,6 +320,45 @@ export class EmployeeMessagesController {
           this.logger.warn('mention notification failed', {
             correlationId: request.correlationId,
             operation: 'message.mention.notify',
+            outcome: 'FAILED',
+            errorCode: error instanceof Error ? error.name : 'UNKNOWN',
+          });
+        });
+    }
+
+    /**
+     * Everyone else who should hear about this message.
+     *
+     * Raised with the mentions above and for the same reason: the send has committed,
+     * so a notification outage costs the notification and not the message (rule 1,
+     * invariant 9).
+     *
+     * The notifier does the suppression — somebody mentioned in this message gets the
+     * mention and NOT a second row for the message itself. It is handed the live
+     * participant set the send transaction saw rather than re-reading it here, because
+     * a set read now could have changed and would reach the wrong people.
+     *
+     * Skipped entirely for a duplicate: that is an idempotent retry of a send that
+     * already notified, and notifying again turns a network hiccup into a second
+     * interruption — the very thing `clientMessageId` exists to prevent, one layer up.
+     */
+    if (!result.duplicate && result.participants !== undefined) {
+      await this.notifier
+        .messageArrived({
+          conversationId: conversationId.data,
+          conversationType: result.conversationType ?? '',
+          messageId: result.message.messageId,
+          senderId: session.principalId as UUID,
+          participants: result.participants,
+          ...(result.mentioned !== undefined ? { mentioned: result.mentioned } : {}),
+          ...(result.repliedToAuthor !== undefined
+            ? { repliedToAuthor: result.repliedToAuthor }
+            : {}),
+        })
+        .catch((error: unknown) => {
+          this.logger.warn('message notification failed', {
+            correlationId: request.correlationId,
+            operation: 'message.arrived.notify',
             outcome: 'FAILED',
             errorCode: error instanceof Error ? error.name : 'UNKNOWN',
           });
@@ -1091,6 +1130,37 @@ export class EmployeeMessagesController {
          cannot be published to a conversation the message does not belong to. */
       target.conversationId,
     );
+
+    /*
+       Tell the author, but only when the reaction actually landed.
+
+       `changed` is false when the same person taps the same emoji twice — the second tap
+       removes it — and notifying on a removal would tell somebody their message was
+       reacted to at the moment it stopped being. The notifier drops a self-reaction.
+
+       After the write, like every other notification here: the reaction is durable
+       first (rule 1), and a notification failure must not report the reaction as failed.
+    */
+    if (changed) {
+      const author = await this.reactions.authorOf(target.messageId).catch(() => undefined);
+      if (author !== undefined) {
+        await this.notifier
+          .reactedToYourMessage({
+            conversationId: target.conversationId,
+            messageId: target.messageId,
+            messageAuthorId: author,
+            reactorId: request.session!.principalId as UUID,
+          })
+          .catch((error: unknown) => {
+            this.logger.warn('reaction notification failed', {
+              correlationId: request.correlationId,
+              operation: 'message.reaction.notify',
+              outcome: 'FAILED',
+              errorCode: error instanceof Error ? error.name : 'UNKNOWN',
+            });
+          });
+      }
+    }
     return { changed };
   }
 

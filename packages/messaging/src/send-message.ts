@@ -101,6 +101,33 @@ export type SendResult =
        * notification the additive part. Absent when nobody was mentioned.
        */
       readonly mentioned?: readonly UUID[];
+      /**
+       * Everyone in the conversation at send time, the sender included.
+       *
+       * The live set, captured inside the transaction, because it is the only correct
+       * audience for a notification: resolved afterwards it would reach somebody who has
+       * since left, or miss somebody who has just joined. The caller removes the sender
+       * and anyone already covered by a more specific event.
+       */
+      readonly participants?: readonly UUID[];
+      /**
+       * The conversation's own type, as the transaction loaded it.
+       *
+       * Returned so the caller can decide which notification a message raises from the
+       * conversation's actual shape rather than from anything a client sent. A surface
+       * that got the shape wrong would otherwise report a direct message as a channel
+       * post, and the conversation is already loaded here.
+       */
+      readonly conversationType?: string;
+      /**
+       * Who wrote the message this one replies to, when that is somebody else.
+       *
+       * Already loaded inside the transaction to validate the reply, so carrying it out
+       * costs nothing and saves the caller a second read of message content — which rule
+       * 2 would make the wrong shape anyway. Absent when this is not a reply, or when
+       * somebody is replying to themselves.
+       */
+      readonly repliedToAuthor?: UUID;
     }
   /**
    * `NOT_AUTHORIZED` and `CONVERSATION_NOT_FOUND` must render identically to the
@@ -262,15 +289,27 @@ export async function sendMessage(
         command.actor.principalId,
         command.clientMessageId,
       );
-      if (existing !== undefined) return { ok: true, message: existing, duplicate: true };
+      if (existing !== undefined) {
+        /* No `participants` and no `conversationType`, deliberately: a duplicate is a
+           RETRY of a send that already happened and already notified. Supplying them
+           would invite the caller to notify a second time, which is the duplicate the
+           idempotency key exists to prevent — arriving as a second phone buzz instead
+           of a second message. */
+        return { ok: true, message: existing, duplicate: true };
+      }
     }
 
+    let repliedToAuthor: UUID | undefined;
     if (command.replyToMessageId !== undefined) {
       // FR-MSG-7: a reply references another message in the SAME conversation only.
       // Without this, a reply could point at a thread the sender cannot read, and the
       // quoted context would travel with it.
       const target = await tx.findMessageInConversation(command.conversationId, command.replyToMessageId);
       if (target === undefined) return { ok: false, reason: 'REPLY_TARGET_NOT_IN_CONVERSATION' };
+      /* Captured here because it is already loaded. Reading the message again outside
+         this transaction would be a second read of content, and this copy has already
+         passed the authorization the reply itself required. */
+      repliedToAuthor = target.senderPrincipalId;
       // A customer-visible reply must not quote an internal note back to the customer.
       if (target.visibility === 'INTERNAL' && command.visibility === 'CUSTOMER_VISIBLE') {
         return { ok: false, reason: 'REPLY_TARGET_NOT_IN_CONVERSATION' };
@@ -436,7 +475,29 @@ export async function sendMessage(
       previewIsSafeToStore ? body.slice(0, PREVIEW_LENGTH) : '',
     );
 
-    return { ok: true, message, duplicate: false, ...(notify.length > 0 ? { mentioned: notify } : {}) };
+    /*
+       The facts a notification needs, carried out of the transaction that already has
+       them.
+
+       `participants` is the LIVE set at send time, which is the only correct audience:
+       resolving it afterwards would notify somebody who has since left, or miss somebody
+       who has just joined.
+
+       Returned rather than notified here, deliberately. Rule 1 — a message is durable
+       before it is delivered — means nothing may be sent from inside this transaction.
+       The caller raises them once it has committed, exactly as mentions already are.
+    */
+    return {
+      ok: true,
+      message,
+      duplicate: false,
+      participants: liveParticipants,
+      conversationType: conversation.conversationType,
+      ...(repliedToAuthor !== undefined && repliedToAuthor !== command.actor.principalId
+        ? { repliedToAuthor }
+        : {}),
+      ...(notify.length > 0 ? { mentioned: notify } : {}),
+    };
   });
 }
 

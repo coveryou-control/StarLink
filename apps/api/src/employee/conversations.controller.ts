@@ -55,6 +55,7 @@ import {
   STAR_STORE,
 } from '../tokens.js';
 import type { AuditWriter } from '../audit/audit-writer.js';
+import { ConversationNotifier } from '../notifications/conversation-notifier.js';
 import { recordDecision } from '../edge/authorization-metrics.js';
 import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
 
@@ -197,6 +198,9 @@ export class EmployeeConversationsController {
        and that ceiling is expressed in the statement itself. */
     @Inject(DATABASE) private readonly pool: pg.Pool,
     @Inject(PIN_STORE) private readonly pins: PgPinStore,
+    /* Participation changes are about the PERSON, so they notify the one whose access
+       changed rather than the room — see `participationChanged`. */
+    @Inject(ConversationNotifier) private readonly notifier: ConversationNotifier,
     @Inject(LOGGER) private readonly logger: Logger,
   ) {}
 
@@ -750,6 +754,16 @@ export class EmployeeConversationsController {
       correlationId: request.correlationId,
       detail: { addedPrincipal: parsed.data.principalId, messagesExposed: result.messagesExposed },
     });
+    /* Told after the change is durable and audited, never before: a notification that
+       a failed add had happened is worse than none. Failure is logged and swallowed —
+       the participation change succeeded and must not report otherwise. */
+    await this.notifier
+      .participationChanged({
+        conversationId: conversationId.data,
+        actorId: session.principalId as UUID,
+        added: [parsed.data.principalId as UUID],
+      })
+      .catch(() => undefined);
 
     return { messagesExposed: result.messagesExposed };
   }
@@ -898,6 +912,17 @@ export class EmployeeConversationsController {
       correlationId: request.correlationId,
       detail: { removedPrincipal: principalId.data },
     });
+
+    /* Removal is notified deliberately. A conversation that silently vanishes from
+       somebody's list is indistinguishable from one they cannot find, and they go
+       looking for messages they believe they have lost. */
+    await this.notifier
+      .participationChanged({
+        conversationId: conversationId.data,
+        actorId: session.principalId as UUID,
+        removed: [principalId.data as UUID],
+      })
+      .catch(() => undefined);
   }
 
   /**
