@@ -315,7 +315,29 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
         'placeholder',
         /^Message #? ?E2E /,
       );
-      await expect(employee.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
+      /*
+         An EMPTY internal composer offers a voice note; Send arrives with the words.
+
+         This asserted Send on an empty composer, which was true until voice notes landed.
+         `showSend` is now `!recordingVoice && (!iconSend || !empty)`, so the icon-style
+         composer an internal thread uses shows the microphone until there is something to
+         send — the same swap every messenger makes, and the reason the button was missing
+         rather than broken.
+
+         Asserting both halves is stronger than the original: it pins the swap itself, so a
+         regression that left the microphone showing over typed text would fail here too.
+      */
+      await expect(
+        employee.getByRole('button', { name: 'Record a voice note' }),
+        'an empty internal composer should offer a voice note',
+      ).toBeVisible();
+
+      await employee.getByLabel('Message', { exact: true }).fill('A word, so Send has something to do.');
+      await expect(
+        employee.getByRole('button', { name: 'Send', exact: true }),
+        'Send should appear once the composer has content',
+      ).toBeVisible();
+      await employee.getByLabel('Message', { exact: true }).fill('');
       /*
          Attachments stay available on an internal thread (SL-054).
 
