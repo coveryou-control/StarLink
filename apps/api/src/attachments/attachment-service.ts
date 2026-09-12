@@ -187,7 +187,14 @@ export class AttachmentService {
        QUARANTINED, the periodic sweep retries it, and the composer's existing poll picks up
        the verdict exactly as it did before. Degradation, not failure (§34).
     */
-    await this.scanNow(attachmentId);
+    /* Off the request path when configured so — see `SL_ATTACHMENT_SCAN_IN_ANNOUNCE`.
+       Skipping it leaves the file QUARANTINED for the periodic sweep, which is both a
+       real operational choice and the configuration in which §34's degradation path is
+       reachable: the composer shows the file as still being checked, and a send meanwhile
+       carries the message without it and says so. */
+    if (this.config.SL_ATTACHMENT_SCAN_IN_ANNOUNCE) {
+      await this.scanNow(attachmentId);
+    }
     const after = await this.store.byId(attachmentId);
     return after?.state ?? 'QUARANTINED';
   }

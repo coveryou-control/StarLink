@@ -100,6 +100,21 @@ export default defineConfig({
            stage is being exercised.
         */
         SL_CUSTOMER_WORKSPACE_ENABLED: process.env.SL_E2E_CUSTOMER_WORKSPACE ?? 'true',
+        /*
+           Scanning off the request path, so §34's degradation is reachable.
+
+           With the scan inside the announce it returns CLEAN in about 96ms, and the file
+           is sendable before anything can be clicked — `attachments.spec.ts` exists to
+           prove the OTHER case: a file still being checked, a send that carries the
+           message without it, and an interface that says so. Faking that from the browser
+           was tried and does not work; it makes the chip disagree with the server, so the
+           refusal correctly never comes.
+
+           This is a real configuration rather than a test switch: a deployment may well
+           want a slow scanner off the announce, and a scanner outage produces this path in
+           any configuration.
+        */
+        SL_ATTACHMENT_SCAN_IN_ANNOUNCE: 'false',
         /**
          * No `SL_ADAPTER_*` overrides here, deliberately.
          *
