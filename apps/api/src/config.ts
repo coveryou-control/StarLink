@@ -149,24 +149,6 @@ const schema = z.object({
    * (§28.6). An operational number: long enough for a person to pick a file and for the
    * scan to finish, short enough that abandoned uploads do not accumulate.
    */
-  /**
-   * Whether the scan runs INSIDE the announce, or is left to the periodic sweep.
-   *
-   * True is the shipped behaviour and the faster one: the verdict comes back with the
-   * announce, so a file is usually sendable in about 96ms instead of waiting a poll
-   * interval for a sweep that had already decided.
-   *
-   * False puts the scan back on the sweep, which is a real operational choice — it takes
-   * scanning off the request path, so a slow or busy scanner cannot lengthen the announce
-   * — and it is the configuration in which §34's degradation path is reachable: the file
-   * stays QUARANTINED, the composer shows it as still being checked, and sending meanwhile
-   * sends the message WITHOUT the file and says so.
-   *
-   * The browser suite runs with it false for exactly that reason. That path is real
-   * behaviour either way — a scanner outage produces it in any configuration — and it
-   * could not be exercised end to end while the announce always answered CLEAN first.
-   */
-  SL_ATTACHMENT_SCAN_IN_ANNOUNCE: booleanFlag(true),
   SL_ATTACHMENT_UNBOUND_TTL_SECONDS: z.coerce.number().int().positive().default(3600),
   /**
    * Download-grant lifetime. Short by design — ADR-012 permits a signed URL only if it is
