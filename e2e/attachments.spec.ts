@@ -90,11 +90,43 @@ test('an agent attaches a document to a customer reply, and it is downloadable (
       await expect(staged().getByText('assessor-report.pdf')).toBeVisible({ timeout: 30_000 });
     });
 
+    /* Held for the steps that need to observe the scanning state, released for the ones
+       that need it to finish. See the step below for why this is necessary at all. */
+    let scanHeld = true;
     await test.step('the file says it is still being checked, not that it is ready', async () => {
       /**
        * The state that did not exist. Between "the bytes arrived" and "§28.1 will bind
        * this" there is a scan, and the interface used to skip straight past it.
+       *
+       * ## Why the scan is HELD rather than waited for
+       *
+       * This step used to wait for the caption to appear on its own. That worked while a
+       * scan took seconds; commit 800fdd9 moved the check inside the announce and it now
+       * finishes in about 96ms, so the state is real but flashes past faster than any
+       * assertion can catch — the step became a race the product usually won, and this
+       * spec sat broken until an E2E run said so.
+       *
+       * Speeding the scan up was an improvement and is not being undone. Instead the
+       * status poll is held at SCANNING until this spec has finished looking at it, so
+       * every assertion below is about behaviour rather than about timing. The route is
+       * released before the step that needs the file to become clean.
        */
+      /* BOTH routes, because the state is decided by the announce and then confirmed by
+         the poll. `upload-attachment.ts` sets SCANNING when the announce comes back
+         anything other than CLEAN/BOUND, so holding only the poll changed nothing — the
+         chip had already gone READY. */
+      await employee.route(/\/attachments\/[^/]+\/(status|uploaded)$/, async (route) => {
+        if (scanHeld) {
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({ state: 'SCANNING' }),
+          });
+          return;
+        }
+        await route.fallback();
+      });
+
       await expect(staged().getByText('still being checked')).toBeVisible({ timeout: 30_000 });
       await expect(
         staged().getByText('ready to send'),
@@ -125,8 +157,17 @@ test('an agent attaches a document to a customer reply, and it is downloadable (
     });
 
     await test.step('once the scan finishes, the same file becomes genuinely ready', async () => {
-      // Waiting on the chip's own words, not on a timer.
-      await expect(staged().getByText('ready to send')).toBeVisible({ timeout: 60_000 });
+      /* Release the hold: from here the real scan state is served, and the file becomes
+         bindable on its own. */
+      scanHeld = false;
+
+      /* Asserted on the ABSENCE of the scanning caption rather than on a 'ready to send'
+         one, because the product deliberately stopped printing the latter — see the note
+         in `attachment-picker.tsx`: with the check finishing in milliseconds the pair no
+         longer form a sequence anybody watches, and the caption only narrated the normal
+         case. Readiness is proven for real by the send below, which asserts on the wire
+         that the server bound the file. */
+      await expect(staged().getByText('still being checked')).toHaveCount(0, { timeout: 60_000 });
     });
 
     await test.step('sending again attaches it, and it appears WITHOUT a reload', async () => {

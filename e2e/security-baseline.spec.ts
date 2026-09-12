@@ -97,7 +97,7 @@ test('the employee session cookie is HttpOnly, scoped, and lives its full length
   context,
 }) => {
   await page.goto(`${ORIGINS.employeeWeb}/sign-in`);
-  await page.getByLabel('Work email').fill(CREDENTIALS.agent.username);
+  await page.getByLabel('Work ID or email').fill(CREDENTIALS.agent.username);
   await page.getByLabel('Password', { exact: true }).fill(CREDENTIALS.agent.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/conversations/);
@@ -163,7 +163,7 @@ test('ticking "keep me signed in" lengthens the session, and only then (FR-AUTH-
   const page = await context.newPage();
 
   await page.goto(`${ORIGINS.employeeWeb}/sign-in`);
-  await page.getByLabel('Work email').fill(CREDENTIALS.agent.username);
+  await page.getByLabel('Work ID or email').fill(CREDENTIALS.agent.username);
   await page.getByLabel('Password', { exact: true }).fill(CREDENTIALS.agent.password);
 
   const remember = page.getByLabel('Keep me signed in on this device');

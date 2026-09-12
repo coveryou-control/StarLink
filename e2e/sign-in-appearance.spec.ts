@@ -21,12 +21,24 @@
  * input` is (0,2,1) — already above the design system's rule — so the field beside it stayed
  * white and the page looked half-correct rather than obviously broken.
  *
- * ## What this asserts
+ * ## What this asserts, and why it changed
  *
- * That both fields are light in dark mode, and that they MATCH each other. The second half
- * is what has teeth: a fix that darkens the panel to suit the black field would satisfy
- * "both light" by making both dark, and would still be the bug. Two controls that sit side
- * by side and are meant to be identical must actually be identical.
+ * It used to assert the fields were LIGHT in either theme. That was the right test while
+ * the screen had one palette; the screen has since been given a real dark mode, so
+ * "light" stopped describing correct behaviour and started describing the old design.
+ * A test that pins a design decision the product has deliberately moved past is not
+ * protecting anything.
+ *
+ * What the original defect actually was: a field somebody could not see they were typing
+ * into. That is CONTRAST between the field and its own text — a measurement that is
+ * equally true of a light field on a light panel and a dark field on a dark one, and one
+ * that still fails the exact bug this file was written for, where the box went near-black
+ * while its text stayed dark.
+ *
+ * The second assertion is unchanged and is the one with teeth: the two fields must MATCH
+ * each other. A fix that repainted the panel to suit a broken field would satisfy any
+ * single-field check and still be the bug. Two controls that sit side by side and are
+ * meant to be identical must actually be identical.
  */
 import { expect, test } from '@playwright/test';
 
@@ -44,7 +56,17 @@ function luminance(colour: string): number {
   return 0.2126 * channel(r!) + 0.7152 * channel(g!) + 0.0722 * channel(b!);
 }
 
-const backgroundOf = (colour: string): number => luminance(colour);
+/**
+ * WCAG contrast between two colours, so "can you see it" is a number.
+ *
+ * Replaces a bare lightness check. Lightness could only ever describe one theme; contrast
+ * describes the property that actually matters in both, and it is what the original
+ * defect violated — a near-black field still carrying dark text.
+ */
+function contrast(a: string, b: string): number {
+  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (hi! + 0.05) / (lo! + 0.05);
+}
 
 for (const scheme of ['light', 'dark'] as const) {
   // `test.use` rather than a hand-rolled `browser.newContext({ colorScheme })`, so the page
@@ -55,7 +77,7 @@ for (const scheme of ['light', 'dark'] as const) {
   test.describe(`in a ${scheme} OS theme`, () => {
     test.use({ colorScheme: scheme });
 
-    test('the sign-in fields stay light and identical', async ({ page }) => {
+    test('the sign-in fields stay readable and identical', async ({ page }) => {
       await page.goto(`${ORIGINS.employeeWeb}/sign-in`);
 
       /*
@@ -70,18 +92,33 @@ for (const scheme of ['light', 'dark'] as const) {
       const fields = page.locator('.signin-control');
       await expect(fields).toHaveCount(2);
 
-      const backgrounds = await fields.evaluateAll((els) =>
-        els.map((el) => getComputedStyle(el).backgroundColor),
+      /* The surface AND the ink on it, because the question is whether the two work
+         together — a light field is useless with light text, and the theme decides both. */
+      const painted = await fields.evaluateAll((els) =>
+        els.map((el) => {
+          const style = getComputedStyle(el);
+          /* The wrapper draws the surface; the ink is on the input inside it, and falls
+             back to the wrapper's own colour where the markup is flat. */
+          const input = el.querySelector('input');
+          return {
+            background: style.backgroundColor,
+            ink: input === null ? style.color : getComputedStyle(input).color,
+          };
+        }),
       );
 
-      // Light: a field somebody can see they are typing into. 0.7 is comfortably below
-      // white (1.0) and far above the near-black `--surface` (~0.01) this used to inherit.
-      for (const background of backgrounds) {
+      /* 4.5:1 is WCAG AA for body text. The defect this file exists for — a field that
+         went near-black while its text stayed dark — scores about 1.2 and fails here in
+         either theme, which is the whole point of measuring contrast rather than
+         lightness. */
+      for (const { background, ink } of painted) {
         expect(
-          backgroundOf(background),
-          `a field is not light in ${scheme}: ${background}`,
-        ).toBeGreaterThan(0.7);
+          contrast(background, ink),
+          `a field is not readable in ${scheme}: ${ink} on ${background}`,
+        ).toBeGreaterThan(4.5);
       }
+
+      const backgrounds = painted.map((field) => field.background);
 
       // And the same as each other — the half-correct state is the one that hid for so long.
       expect(new Set(backgrounds).size, `the fields disagree in ${scheme}: ${backgrounds.join(' vs ')}`).toBe(1);

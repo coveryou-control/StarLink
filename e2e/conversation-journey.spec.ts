@@ -79,15 +79,24 @@ test('a customer conversation is taken, discussed internally, answered and resol
       await employee.getByRole('button', { name: 'Save internal note' }).click();
 
       /**
-       * Excludes the optimistic bubble.
+       * Scoped to the THREAD, and excluding the optimistic bubble.
        *
-       * The composer renders a pending copy the instant Send is pressed and reconciles it
-       * away when the server confirms, so for a moment BOTH are on screen and a locator on
-       * the body text alone matches two elements. Playwright's strict mode then fails - and
-       * only sometimes, depending on which side of the reconcile the assertion lands on.
-       * Filtering out the pending marker pins this to the delivered message.
+       * Two different ways this matched more than one element, and both are the locator's
+       * fault rather than the product's:
+       *
+       *   * The composer renders a pending copy the instant Send is pressed and reconciles
+       *     it away when the server confirms, so for a moment both are on screen.
+       *     `hasNotText: 'Sending'` pins this to the delivered message.
+       *   * `getByRole('listitem')` matched the whole PAGE, and the conversation list in
+       *     the sidebar is a list of items too — so once the row's preview caught up with
+       *     the message just sent, the sidebar row matched the body text as well. Strict
+       *     mode then failed on two elements that were both correct.
+       *
+       * Scoping to the messages list says what this assertion actually means. A body-text
+       * locator across an entire application was always going to collide with a preview.
        */
-      const note = employee
+      const thread = employee.getByRole('list', { name: 'Messages' });
+      const note = thread
         .getByRole('listitem')
         .filter({ hasText: INTERNAL_NOTE })
         .filter({ hasNotText: 'Sending' });
@@ -104,7 +113,13 @@ test('a customer conversation is taken, discussed internally, answered and resol
       await employee.getByRole('button', { name: 'Send to customer' }).click();
 
       await expect(
-        employee.getByRole('listitem').filter({ hasText: CUSTOMER_REPLY }).filter({ hasNotText: 'Sending' }),
+        /* Scoped to the thread for the same reason as the note above: the sidebar
+           preview carries this text too once the list refreshes. */
+        employee
+          .getByRole('list', { name: 'Messages' })
+          .getByRole('listitem')
+          .filter({ hasText: CUSTOMER_REPLY })
+          .filter({ hasNotText: 'Sending' }),
       ).toBeVisible({ timeout: 20_000 });
     });
 
