@@ -10440,15 +10440,21 @@ input.signin-control {
 }
 
 /*
-   The masthead's compose button is desktop-only redundant now.
+   The masthead's compose button is redundant only where the SIDEBAR replaces it.
 
    The sidebar carries "New chat" as a labelled control, so the coral tile above the list
    was a second door to the same room, six inches away and unlabelled. It stays on a PHONE,
-   where there is no sidebar at all — the bottom bar has four destinations and none of them
-   is compose, so removing it there would take the action away entirely rather than
-   de-duplicate it.
+   where there is no sidebar at all - the bottom bar has four destinations and none of them
+   is compose, so removing it there would take the action away entirely.
+
+   ## Why 861 and not 641
+
+   This hid the tile from 641px. Between 641 and 860 the rail is the ICON-ONLY band, where
+   the labelled "New chat" does not render - so the tile was removed in the one range where
+   nothing replaced it, and a tablet had no way to start a conversation at all.
+   `responsive.spec.ts` caught it at 768px, which is exactly what that spec is for.
 */
-@media (min-width: 641px) {
+@media (min-width: 861px) {
   .fab-new {
     display: none;
   }

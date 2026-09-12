@@ -190,7 +190,11 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
          answers the commonest question, with "New group" as a row you press to go
          somewhere else. The region is named for the step it is on.
       */
-      await employee.getByRole('button', { name: 'New conversation' }).click();
+      /* "New chat" on a desktop viewport, which is what this suite runs at. The
+         masthead's "New conversation" tile is a PHONE control — it is hidden above 640px,
+         where the sidebar carries a labelled "New chat" instead. The name pattern covers
+         both so this step does not care which width it is driven at. */
+      await employee.getByRole('button', { name: /^New (chat|conversation)$/ }).first().click();
       const panel = employee.getByRole('region', { name: 'New chat' });
       await panel.getByPlaceholder(/name, department/i).fill('E2E Lead');
       await panel.getByRole('button', { name: /E2E Lead/ }).first().click();
