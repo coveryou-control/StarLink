@@ -25,19 +25,19 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.62.1",
+    "@playwright/test": "^1.63.0",
     "@starlink/database": "workspace:*",
     "@starlink/security": "workspace:*",
-    "@types/node": "^22.10.0",
+    "@types/node": "^22.20.2",
     "@types/pg": "^8.23.1",
     "dependency-cruiser": "^16.8.0",
     "emojibase": "^17.0.0",
     "emojibase-data": "^17.0.0",
-    "eslint": "^10.9.1",
+    "eslint": "^10.10.0",
     "pg": "^8.23.0",
     "turbo": "^2.10.12",
     "typescript": "^5.7.0",
-    "typescript-eslint": "^8.68.0",
+    "typescript-eslint": "^8.70.0",
     "vitest": "^2.1.8"
   },
   "pnpm": {

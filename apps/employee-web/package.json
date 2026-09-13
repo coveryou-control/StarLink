@@ -20,7 +20,7 @@
     "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.0",
+    "@types/node": "^22.20.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "fake-indexeddb": "^6.0.0",
