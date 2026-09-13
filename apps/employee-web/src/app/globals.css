@@ -11496,6 +11496,280 @@ input.signin-control {
   font-size: var(--text-base);
 }
 
+/* =============================================================== the picture editor ===
+   One level inside the send panel: crop, a quarter turn, and six colour presets.
+
+   It REPLACES the panel's body rather than opening over it. Two stacked modals above a
+   conversation is one more layer than anybody needs to hold in their head, and the two acts
+   are sequential — look at the picture, then decide it needs cropping — not simultaneous.
+   ===================================================================================== */
+.image-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.image-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--text);
+  font-size: var(--text-md);
+}
+
+.image-editor-back,
+.image-editor-reset,
+.image-editor-cancel {
+  border: 0;
+  background: none;
+  padding: 4px 6px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.image-editor-back:hover:not(:disabled),
+.image-editor-reset:hover:not(:disabled),
+.image-editor-cancel:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.image-editor-back:disabled,
+.image-editor-reset:disabled,
+.image-editor-cancel:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The picture, at its own proportions, with the rectangle on top of it.
+
+   `position: relative` on the frame and percentage geometry on the rectangle is what keeps
+   the two in step: the crop is stored in fractions, so a percentage is the same number
+   without a conversion, and a window resize moves both together with no JavaScript. */
+.image-editor-frame {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  flex: 1 1 auto;
+  touch-action: none;
+  overflow: hidden;
+}
+
+.image-editor-frame img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* The rectangle itself. The ground outside it is dimmed by a very large spread shadow
+   rather than by four panels or a clip-path: one element, no pointer target over the part
+   being dragged, and it follows the rectangle for free. */
+.image-editor-crop {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px solid rgb(255 255 255 / 92%);
+  box-shadow: 0 0 0 9999px rgb(0 0 0 / 52%);
+  cursor: move;
+}
+
+/* Thirds, because a crop tool without them makes people centre everything. Drawn with two
+   gradients on the pseudo-element rather than four child divs. */
+.image-editor-crop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(
+      to right,
+      transparent calc(33.33% - 0.5px),
+      rgb(255 255 255 / 30%) calc(33.33% - 0.5px) calc(33.33% + 0.5px),
+      transparent calc(33.33% + 0.5px) calc(66.66% - 0.5px),
+      rgb(255 255 255 / 30%) calc(66.66% - 0.5px) calc(66.66% + 0.5px),
+      transparent calc(66.66% + 0.5px)
+    ),
+    linear-gradient(
+      to bottom,
+      transparent calc(33.33% - 0.5px),
+      rgb(255 255 255 / 30%) calc(33.33% - 0.5px) calc(33.33% + 0.5px),
+      transparent calc(33.33% + 0.5px) calc(66.66% - 0.5px),
+      rgb(255 255 255 / 30%) calc(66.66% - 0.5px) calc(66.66% + 0.5px),
+      transparent calc(66.66% + 0.5px)
+    );
+}
+
+/* 22px, which is larger than the mark it draws: a corner handle sized to its own visual is
+   a target people miss, and this is dragged with a finger as often as a mouse. */
+.image-editor-handle {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  z-index: 1;
+}
+
+.image-editor-handle::before {
+  content: '';
+  position: absolute;
+  width: 15px;
+  height: 15px;
+  border: 2.5px solid #ffffff;
+}
+
+.image-editor-handle.is-nw {
+  top: -11px;
+  left: -11px;
+  cursor: nwse-resize;
+}
+
+.image-editor-handle.is-nw::before {
+  top: 8px;
+  left: 8px;
+  border-width: 2.5px 0 0 2.5px;
+}
+
+.image-editor-handle.is-ne {
+  top: -11px;
+  right: -11px;
+  cursor: nesw-resize;
+}
+
+.image-editor-handle.is-ne::before {
+  top: 8px;
+  right: 8px;
+  border-width: 2.5px 2.5px 0 0;
+}
+
+.image-editor-handle.is-sw {
+  bottom: -11px;
+  left: -11px;
+  cursor: nesw-resize;
+}
+
+.image-editor-handle.is-sw::before {
+  bottom: 8px;
+  left: 8px;
+  border-width: 0 0 2.5px 2.5px;
+}
+
+.image-editor-handle.is-se {
+  bottom: -11px;
+  right: -11px;
+  cursor: nwse-resize;
+}
+
+.image-editor-handle.is-se::before {
+  bottom: 8px;
+  right: 8px;
+  border-width: 0 2.5px 2.5px 0;
+}
+
+.image-editor-tools {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.image-editor-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.image-editor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  padding: 5px 11px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.image-editor-chip:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.image-editor-chip.is-on {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.image-editor-chip:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.image-editor-problem {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--text-sm);
+}
+
+.image-editor-foot {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.image-editor-apply {
+  border: 0;
+  border-radius: var(--radius-medium);
+  background: var(--accent);
+  padding: 8px 18px;
+  color: var(--accent-contrast);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* No hover background, by the rule in `hover-highlighting.test.ts` — and `.media-preview-send`
+   beside it does not have one either. A filled disc of the action colour is already the most
+   emphatic thing on the panel; darkening it on hover is the fifty-ninth such rule that made
+   the app feel "shaded on everything I touch". */
+
+.image-editor-apply:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* The Edit control, beside the caption in the send panel's footer. Same tile as the send
+   arrow it sits next to, in the quiet treatment — it is an option, not the action. */
+.media-preview-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.media-preview-edit:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.media-preview-edit:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
 .media-preview-foot {
   display: flex;
   align-items: center;

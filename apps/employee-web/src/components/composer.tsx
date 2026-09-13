@@ -174,6 +174,7 @@ export function Composer({
         kind,
         filename: file.name,
         bytes: file.size,
+        contentType: file.type,
         ready: false,
       };
     });
@@ -1146,6 +1147,27 @@ export function Composer({
                   setStaged((current) => current.filter((file) => file.attachmentId !== id));
                 }
                 closePreview();
+              }}
+              /*
+                 An edited picture REPLACES the one being uploaded.
+
+                 The original's bytes went up the moment the file was chosen, which is what
+                 makes the ordinary case feel instant, and cropping invalidates them. So the
+                 staged original is dropped and the result is uploaded in its place —
+                 throwing away an upload nobody is going to use, rather than making everybody
+                 who does not edit wait for a decision they were never going to make.
+
+                 `previewFile` is what swaps the panel over: it revokes the old object URL,
+                 creates one for the new file, and resets `ready` — so the send arms again
+                 only when the SERVER has cleared the new bytes, not the old ones.
+              */
+              onReplace={(file) => {
+                const id = preview.attachmentId;
+                if (id !== undefined) {
+                  setStaged((current) => current.filter((staged_) => staged_.attachmentId !== id));
+                }
+                previewFile(file);
+                void uploadAttachment(conversationId, file, setStaged);
               }}
               sending={sending}
               humanBytes={formatBytes}
