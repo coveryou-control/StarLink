@@ -5,14 +5,23 @@
  * what makes the value environment-injected rather than build-inlined. See
  * `lib/runtime-origins.ts` for why that distinction is load-bearing.
  *
- * `<` is escaped before the JSON reaches the document. These values come from the
+ * `<` is escaped before the JSON reaches the document, and for two years it was not.
+ *
+ * The replacement read `.replace(/</g, '\u003c')` — and in source that escape IS the
+ * character `<`, so it replaced `<` with `<` and did nothing at all. Found twice
+ * independently: by a review of the running code, and by CodeQL as
+ * `js/identity-replacement`. It needs the doubled backslash, so what reaches the
+ * document is the two-character sequence a JS parser turns back into `<` and an HTML
+ * parser never reads as a tag.
+ *
+ * These values come from the
  * operator's own environment rather than from a user, so this is not the usual injection
  * case — but an unescaped `</script>` in a hostname would end the block and silently
  * corrupt the page, and the escape costs nothing.
  */
 import { RUNTIME_ORIGINS_KEY, FALLBACK_ORIGINS } from '../lib/runtime-origins';
 
-export function RuntimeOriginsScript(): React.JSX.Element {
+export function RuntimeOriginsScript({ nonce }: { nonce?: string | undefined }): React.JSX.Element {
   const origins = {
     api: process.env.SL_API_ORIGIN ?? FALLBACK_ORIGINS.api,
     realtime: process.env.SL_REALTIME_ORIGIN ?? FALLBACK_ORIGINS.realtime,
@@ -24,13 +33,37 @@ export function RuntimeOriginsScript(): React.JSX.Element {
      * flag. Only the exact string `'true'` enables it.
      */
     customerWorkspace: process.env.SL_CUSTOMER_WORKSPACE_ENABLED === 'true',
+    /*
+       Firebase's WEB config, which is not a secret.
+
+       These four identify the project to Google and are designed to sit in client
+       source; the service account that can actually SEND stays on the server and is
+       never any of these. They still travel through the same server-injected channel as
+       the origins rather than being inlined at build time, because a build baked with
+       one project's ids cannot be deployed against another — which is exactly the
+       coupling `runtime-origins` exists to prevent.
+
+       Absent means push is simply not offered: `push-client.ts` reads the key and does
+       nothing without it.
+    */
+    push: {
+      apiKey: process.env.SL_NOTIFY_PUSH_WEB_API_KEY ?? '',
+      appId: process.env.SL_NOTIFY_PUSH_WEB_APP_ID ?? '',
+      projectId: process.env.SL_NOTIFY_PUSH_PROJECT_ID ?? '',
+      senderId: process.env.SL_NOTIFY_PUSH_SENDER_ID ?? '',
+      vapidKey: process.env.SL_NOTIFY_PUSH_VAPID_KEY ?? '',
+    },
   };
   return (
     <script
+      /* Carries this request's CSP nonce. Without it this is exactly the inline script
+         the policy exists to refuse: the browser drops it, the bundle finds no API
+         origin, and every request goes to the fallback. */
+      nonce={nonce}
       // The only way to seed a global before the bundle evaluates. The payload is JSON
       // built here from the server's own environment, never interpolated markup.
       dangerouslySetInnerHTML={{
-        __html: `window.${RUNTIME_ORIGINS_KEY}=${JSON.stringify(origins).replace(/</g, '\u003c')}`,
+        __html: `window.${RUNTIME_ORIGINS_KEY}=${JSON.stringify(origins).replace(/</g, '\\u003c')}`,
       }}
     />
   );

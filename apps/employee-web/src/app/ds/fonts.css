@@ -1,9 +1,24 @@
 /* CoverYou webfonts.
    The .fig references Poppins (brand/title face), Inter and Roboto (UI/Material
    building blocks). No binaries ship inside a .fig, so these load from Google
-   Fonts — the exact same families, not substitutes. Swap the @font-face srcs for
-   self-hosted files when licensed copies are available. */
-@import url('https://fonts.googleapis.com/css2?family=Poppins:ital,wght@0,300;0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=Inter:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap');
+   Fonts — the exact same families, not substitutes. Swap these for self-hosted
+   files when licensed copies are available.
+
+   ## The families are fetched by a <link> in the root layout, NOT from here
+
+   This file used to open with `@import url('https://fonts.googleapis.com/...')`, and
+   for as long as it did, not one of the three families ever loaded. `@import` is only
+   legal before any other rule IN THE WHOLE SHEET, and this file is pulled in at line 53
+   of `globals.css` — line 1 of which imports `emoji-font.css` and its ten `@font-face`
+   declarations. So by the time the browser reached the remote import it had already
+   parsed twelve rules, and it discarded it: no error, no warning, no network request.
+   The entire product rendered in the `system-ui` fallback while every token below
+   confidently named Poppins.
+
+   It is a `<link>` in `app/layout.tsx` now, which no amount of CSS reordering can
+   invalidate — and which fetches in parallel rather than serialised behind this
+   stylesheet, the other thing wrong with loading webfonts through `@import`.
+   `font-loading.test.ts` fails if a remote `@import` reappears in this folder. */
 :root {
   --font-family-brand: 'Poppins', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-family-ui: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;

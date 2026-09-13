@@ -28,7 +28,7 @@ const bound = (over: Partial<AttachmentForAccess> = {}): AttachmentForAccess => 
 });
 
 const ports = (over: Partial<AccessPorts> = {}): AccessPorts => ({
-  mayReadConversation: async () => true,
+  mayActOnConversation: async () => true,
   messageVisibility: async () => 'CUSTOMER_VISIBLE',
   ...over,
 });
@@ -52,7 +52,7 @@ describe('the ladder in order', () => {
     const decision = await decideAttachmentAccess(
       bound(),
       { principalId: EMPLOYEE, kind: 'EMPLOYEE' },
-      ports({ mayReadConversation: async () => false }),
+      ports({ mayActOnConversation: async () => false }),
     );
     expect(!decision.ok && decision.refusal).toBe('NOT_FOUND_OR_NOT_PERMITTED');
   });
@@ -67,7 +67,7 @@ describe('the ladder in order', () => {
     const decision = await decideAttachmentAccess(
       bound(),
       { principalId: CUSTOMER, kind: 'CUSTOMER' },
-      ports({ mayReadConversation: async () => true, messageVisibility: async () => 'INTERNAL' }),
+      ports({ mayActOnConversation: async () => true, messageVisibility: async () => 'INTERNAL' }),
     );
     expect(decision.ok).toBe(false);
     // Named distinctly, because a customer reaching for staff material is worth auditing
@@ -159,5 +159,44 @@ describe('the filename is metadata, never a path (§28.3)', () => {
       ports(),
     );
     expect(decision.ok && decision.filename).toBe('attachment');
+  });
+});
+
+describe('step 3 asks about the bytes, not about reading the conversation', () => {
+  /**
+   * `conversation.attachment.download` is granted by participation and ownership and by no
+   * role, so evaluating the action the operation actually IS refuses the bytes to somebody
+   * whose only claim is a standing scope grant — independently of every other rung.
+   *
+   * It used to ask `conversation.read` unconditionally, which meant this defence existed in
+   * the vocabulary and nowhere in the code. These cases are what make it real: the first
+   * fails if the action is hard-coded back to a read, and the second stops the port being
+   * "deny everything", which would pass the first while breaking every download.
+   */
+  it('asks for the DOWNLOAD action when handing over bytes', async () => {
+    const asked: string[] = [];
+    await decideAttachmentAccess(
+      bound(),
+      { principalId: EMPLOYEE, kind: 'EMPLOYEE' },
+      ports({
+        mayActOnConversation: async (_p, _c, action) => {
+          asked.push(action);
+          return true;
+        },
+      }),
+    );
+    expect(asked).toEqual(['conversation.attachment.download']);
+  });
+
+  it('refuses the bytes when only the download action is denied', async () => {
+    const decision = await decideAttachmentAccess(
+      bound(),
+      { principalId: EMPLOYEE, kind: 'EMPLOYEE' },
+      ports({
+        /* Reading the conversation is allowed; taking the file out of it is not. */
+        mayActOnConversation: async (_p, _c, action) => action !== 'conversation.attachment.download',
+      }),
+    );
+    expect(!decision.ok && decision.refusal).toBe('NOT_FOUND_OR_NOT_PERMITTED');
   });
 });

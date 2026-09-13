@@ -5,7 +5,18 @@ import type { ReactNode } from 'react';
 
 import { ApiError, api, type MessageView } from '../lib/api-client';
 import { useEnterToSend } from '../lib/preferences';
-import { AttachmentPicker, type StagedAttachment } from './attachment-picker';
+import { VoiceComposer } from './voice-composer';
+import type { Recording } from '../lib/use-voice-recorder';
+import { declaredMimeFor, nameForRecording } from '../lib/voice-recording';
+import { AttachmentPicker, formatBytes } from './attachment-picker';
+import { createPortal } from 'react-dom';
+
+import { MediaPreviewOverlay, type MediaPreview } from './media-preview';
+import {
+  nameForPastedImage,
+  uploadAttachment,
+  type StagedAttachment,
+} from '../lib/upload-attachment';
 import { EmojiPicker } from './emoji-picker';
 import { MentionPicker, useClampedIndex, type MentionCandidate } from './mention-picker';
 import { useActiveConversation } from './active-conversation';
@@ -36,6 +47,16 @@ interface ComposerProps {
   readonly canReplyToCustomer: boolean;
   readonly onSent: (message: MessageView) => void;
   readonly onPendingChange: (pending: readonly PendingSend[]) => void;
+  /**
+   * Hands the thread a way to retry one failed row.
+   *
+   * `MessageList` has always rendered a Retry button on a failed bubble and has always
+   * required an `onRetry` to show it — and nothing ever passed one, so the button was
+   * unreachable in every state of the product. The composer owns the send lifecycle
+   * (see the note in the thread about two writers to one list), so the retry has to come
+   * from here rather than being reimplemented there.
+   */
+  readonly onRetryReady?: ((retry: (localId: string) => void) => void) | undefined;
   /**
    * SL-010. Announces that this person is composing, with the CURRENT mode.
    *
@@ -71,6 +92,7 @@ export function Composer({
   canReplyToCustomer,
   onSent,
   onPendingChange,
+  onRetryReady,
   onTyping,
   replyingTo,
   onCancelReply,
@@ -81,10 +103,215 @@ export function Composer({
   );
   const [body, setBody] = useState('');
   const [pending, setPending] = useState<readonly PendingSend[]>([]);
+  /* The recording bar takes the whole row when it is up — see `voice-composer.tsx` for why
+     the field is removed rather than hidden. */
+  const [recordingVoice, setRecordingVoice] = useState(false);
   const [error, setError] = useState<string | undefined>(undefined);
   /** Files uploaded and waiting for a message to bind them to (§28.1). */
   const [staged, setStaged] = useState<readonly StagedAttachment[]>([]);
+  /** A file is being dragged over the composer. Drives the drop target's own styling. */
+  const [dragging, setDragging] = useState(false);
+  /**
+   * The picture or video currently being looked at before it is sent.
+   *
+   * Held here rather than in the picker because the caption is this component's `body` and
+   * the send is this component's `send()`. A preview that owned either would be a second
+   * composer, and the two would drift on exactly the things that matter — drafts, mention
+   * pruning, what happens to an attachment the server declines to bind.
+   */
+  const [preview, setPreview] = useState<MediaPreview | undefined>(undefined);
+
+  /**
+   * A chosen file becomes a preview, but only if looking at it would tell you anything.
+   *
+   * A document is its filename — the chip already says everything a preview could. A
+   * photograph is not: `IMG_20260910_113402.jpg` describes nothing, and "is this the right
+   * picture" is a question a chip cannot answer.
+   *
+   * The URL is created here and revoked here, in one place, because an object URL that
+   * outlives its preview is a leak that nothing reports.
+   */
+  const previewFile = useCallback((file: File): void => {
+    /*
+       Every attachment gets the panel now, not only the ones that can be drawn.
+
+       It opened for a picture and a video, on the reasoning that a document is its
+       filename and a chip already says everything a preview could. Half of that is still
+       true — there is no honest thumbnail for a PDF in a browser, and the panel says so
+       rather than inventing one. The other half was wrong: a document could not be
+       CAPTIONED. It went as a bare chip with the message text beside it, and "the signed
+       copy" had nowhere to attach itself to the file it describes.
+
+       A blob URL only for what will read one. A document's bytes are already going up
+       through the ordinary pipeline and nothing in the panel renders them, so creating
+       one would be a leak with no reader.
+    */
+    const kind = file.type.startsWith('image/')
+      ? 'image'
+      : file.type.startsWith('video/')
+        ? 'video'
+        : file.type.startsWith('audio/')
+          ? /* A voice note has its own review, with a scrubber and a waveform - a second
+               panel over it would be two surfaces asking the same question. */
+            undefined
+          : 'file';
+    if (kind === undefined) return;
+    setPreview((current) => {
+      if (current !== undefined && current.url !== '') URL.revokeObjectURL(current.url);
+      return {
+        url: kind === 'file' ? '' : URL.createObjectURL(file),
+        kind,
+        filename: file.name,
+        bytes: file.size,
+        ready: false,
+      };
+    });
+  }, []);
+
+  const closePreview = useCallback((): void => {
+    setPreview((current) => {
+      /* A document has no object URL to revoke — see `previewFile`. */
+      if (current !== undefined && current.url !== '') URL.revokeObjectURL(current.url);
+      return undefined;
+    });
+  }, []);
+
+  /**
+   * Files arriving by drag-and-drop or by paste.
+   *
+   * Both go through the same `uploadAttachment` the paperclip uses, so a dropped file is
+   * not a second, thinner path with its own idea of what a 503 means — it produces the same
+   * chip, the same scan poll and the same §28.1 binding at send.
+   *
+   * Several at once is allowed here even though the file input takes one: dropping three
+   * screenshots is one gesture, and refusing two of them would be an arbitrary limit
+   * imposed by the control rather than by the product.
+   */
+  const attachFiles = useCallback(
+    (files: readonly File[]): void => {
+      for (const file of files) {
+        /* A pasted image is a `File` called `image.png` on every platform, so several in
+           one message would be indistinguishable. `nameForPastedImage` gives it the only
+           distinguishing fact available at paste time. */
+        const named =
+          file.type.startsWith('image/') && (file.name === '' || file.name === 'image.png')
+            ? new File([file], nameForPastedImage(file), { type: file.type })
+            : file;
+        /* One dropped picture gets the same look-before-you-send as one chosen from the
+           paperclip: it is the same act reached by a different gesture, and the preview
+           is modal so only the first of a batch could have one. Several at once stay
+           chips, which is the honest answer - a preview can show one file. */
+        if (files.length === 1) previewFile(named);
+        void uploadAttachment(conversationId, named, setStaged);
+      }
+    },
+    [conversationId, previewFile],
+  );
+  /**
+   * A finished recording, staged exactly like a dropped file.
+   *
+   * The same `uploadAttachment` a PDF goes through, with a duration passed alongside. A
+   * voice note that took its own route to the server would be a second attachment pipeline
+   * with its own version of the scanning and binding rules — which is what §28 exists to
+   * prevent there being.
+   */
+  /**
+   * A recording waiting to be SENT the moment the server will bind it.
+   *
+   * The review's arrow used to stage the audio and stop, so sending a voice note was two
+   * presses on two different controls — arrow, then the composer's own send — with a chip
+   * in between that nobody asked for. Pressing the arrow means "send this".
+   *
+   * It cannot send immediately: §28.1 binds only a CLEAN attachment and the upload
+   * resolves when the audio reaches the SCANNER, not when the scan finishes. Sending on
+   * that promise would post a message with no audio attached, which is the exact defect
+   * `attachment-picker.tsx` documents at length. So the id is parked here and the effect
+   * below sends when the chip turns READY - which is the poll that already exists,
+   * observed rather than duplicated.
+   */
+  const sendWhenReady = useRef<string | undefined>(undefined);
+
+  const attachRecording = useCallback(
+    async (recording: Recording): Promise<boolean> => {
+      const declared = declaredMimeFor(recording.recordedAs);
+      const file = new File([recording.blob], nameForRecording(recording.recordedAs), {
+        type: declared,
+      });
+      /* Awaited, and the outcome returned: the recorder keeps its review open until this
+         says the audio is safely with the scanner. Fire-and-forget here would have the
+         review closing on a failed upload, taking the only copy of the recording with it. */
+      const attachmentId = await uploadAttachment(
+        conversationId,
+        file,
+        setStaged,
+        recording.durationMs,
+      );
+      if (attachmentId !== undefined) sendWhenReady.current = attachmentId;
+      return attachmentId !== undefined;
+    },
+    [conversationId],
+  );
+
+  /*
+     The preview follows its file through the pipeline.
+
+     Matched on name AND size rather than on an id, because the id does not exist yet when
+     the preview opens — the grant is the first round trip and the picture is on screen
+     before it returns. Only one preview can be up at a time (it is modal), so there is no
+     second file for this to confuse it with.
+
+     Three transitions matter: the grant arrives and the chip can be cancelled by id; the
+     scan clears and send arms; the file is refused and the panel says why. The fourth —
+     the chip disappearing entirely — is what a successful send looks like from here.
+  */
+  useEffect(() => {
+    if (preview === undefined) return;
+    const match = staged.find(
+      (file) => file.filename === preview.filename && file.declaredBytes === preview.bytes,
+    );
+    if (match === undefined) {
+      /* It was there and now it is not: bound to a message, so the send worked. Until the
+         grant returns there is nothing to match, which is why this waits for an id. */
+      if (preview.attachmentId !== undefined) closePreview();
+      return;
+    }
+    const ready = match.state === 'READY';
+    if (
+      match.attachmentId === preview.attachmentId &&
+      ready === preview.ready &&
+      match.problem === preview.problem
+    ) {
+      return;
+    }
+    setPreview({
+      ...preview,
+      attachmentId: match.attachmentId,
+      ready,
+      ...(match.problem !== undefined ? { problem: match.problem } : {}),
+    });
+  }, [staged, preview, closePreview]);
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  /**
+   * The caret comes back to the field when a file is staged.
+   *
+   * Enter already sends a file-only message - `send` treats "no words AND no ready file"
+   * as the empty case, so a staged document with no covering note goes. What stopped it
+   * was where the focus was: picking a file leaves it on the file input, and Enter there
+   * re-opens the file dialog. Pressing the arrow was the only way to send an attachment,
+   * which is not what anybody tries first.
+   *
+   * On a GROWING list only. Removing a chip must not yank the caret out of a sentence
+   * somebody is in the middle of typing, and neither must a chip changing state from
+   * SCANNING to READY - which is why this counts rather than watching the array.
+   */
+  const stagedCount = staged.length;
+  const stagedBefore = useRef(stagedCount);
+  useEffect(() => {
+    if (stagedCount > stagedBefore.current) textareaRef.current?.focus();
+    stagedBefore.current = stagedCount;
+  }, [stagedCount]);
 
   /**
    * Mentions the draft currently carries, and the `@query` the caret is inside.
@@ -184,6 +411,7 @@ export function Composer({
     onPendingChange(pending);
   }, [pending, onPendingChange]);
 
+
   const handleChange = useCallback(
     (next: string) => {
       setBody(next);
@@ -226,7 +454,16 @@ export function Composer({
     [handleChange, labelFor],
   );
 
-  const send = useCallback(async () => {
+  /**
+   * `resumeLocalId` is a RETRY of a specific failed row, not a new send.
+   *
+   * Reusing the id matters twice. It is the `clientMessageId`, so the server dedupes if
+   * the first attempt actually committed and only the response was lost — a retry must
+   * never create a second message (P-05 / FR-MSG-3). And it is the row's identity, so
+   * the failed bubble becomes the sending bubble instead of a second bubble appearing
+   * beside it.
+   */
+  const send = useCallback(async (resumeLocalId?: string) => {
     const text = body.trim();
     /**
      * Guarded here as well as on the button, because the keyboard does not go through it.
@@ -242,7 +479,8 @@ export function Composer({
     // §19.4: an optimistic send is shown immediately, but it is shown as PENDING and it
     // is never silently dropped. A message that looks sent but never arrived is worse
     // than one that visibly failed.
-    const localId = `local-${principalId}-${conversationId}-${performance.now()}`;
+    const localId =
+      resumeLocalId ?? `local-${principalId}-${conversationId}-${performance.now()}`;
     /**
      * Pruned once against the text actually being sent, and reused for the optimistic row.
      *
@@ -267,7 +505,22 @@ export function Composer({
       state: 'SENDING',
     };
 
-    setPending((current) => [...current, optimistic]);
+    /*
+       A send SUPERSEDES any failed row, it does not stack on top of one.
+
+       Nothing ever cleared `state: 'FAILED'`. The text was restored to the composer, so
+       the obvious next action — press send again — produced a second optimistic row
+       while the first stayed on screen forever: the same message twice, with "Not sent"
+       underneath the one that worked. Dropping the failed rows here fixes both paths at
+       once, the Retry button and the ordinary resend, because both come through here.
+
+       Only FAILED rows. A row still SENDING is a real request in flight and removing it
+       would hide a message that is about to land.
+    */
+    setPending((current) => [
+      ...current.filter((item) => item.state !== 'FAILED' && item.localId !== localId),
+      optimistic,
+    ]);
     setBody('');
     autosaver.cancel();
     setError(undefined);
@@ -425,6 +678,31 @@ export function Composer({
                   attachmentId: a.attachmentId,
                   filename: a.filename,
                   declaredBytes: a.declaredBytes,
+                  /*
+                     Without this the row you just sent is a FILE CARD.
+
+                     `mediaKindOf` decides from a content type and this shape had none, so
+                     a photograph arrived as `PNG photo.png 853 KB` — and stayed one,
+                     because nothing replaces an optimistic row until the thread is
+                     re-read. Measured at six seconds and still a card.
+
+                     It is the type the browser declared, used to draw bytes this browser
+                     already holds. The authoritative read that follows carries the SNIFFED
+                     type and replaces this, so nothing downstream is trusting a
+                     client-supplied value.
+                  */
+                  contentType: a.contentType,
+                  /*
+                     And the length, for the same reason.
+
+                     `isVoiceNote` is satisfied by the content type alone, so a recording
+                     is recognised as one without this — but `voice-note.tsx` draws its
+                     scrubber from `durationMs`, and the note of the whole component is
+                     that the row is complete BEFORE any grant is spent. Without it the
+                     recording you just made is a player that does not know how long it is
+                     until the server is asked.
+                  */
+                  ...(a.durationMs !== undefined ? { durationMs: a.durationMs } : {}),
                   state: 'BOUND',
                 })),
             }
@@ -479,6 +757,36 @@ export function Composer({
     mentions,
     labelFor,
   ]);
+  /*
+     Publish the retry upward, once `send` exists.
+
+     Declared after `send` so it closes over the current one; re-published whenever that
+     identity changes, so the thread never holds a retry built against a stale `body`.
+  */
+  useEffect(() => {
+    onRetryReady?.((localId: string) => void send(localId));
+  }, [onRetryReady, send]);
+
+  /**
+   * Sends the parked recording the moment the server will bind it.
+   *
+   * Watches the chip the picker's own scan poll maintains rather than polling again —
+   * there is one poll for this and it is `attachment-picker.tsx`'s. Three outcomes and
+   * each clears the parking slot: READY sends, FAILED gives up and leaves the chip to
+   * explain itself, and a chip that vanished was bound by something else.
+   */
+  useEffect(() => {
+    const waiting = sendWhenReady.current;
+    if (waiting === undefined) return;
+    const chip = staged.find((file) => file.attachmentId === waiting);
+    if (chip === undefined || chip.state === 'FAILED') {
+      sendWhenReady.current = undefined;
+      return;
+    }
+    if (chip.state !== 'READY') return;
+    sendWhenReady.current = undefined;
+    void send();
+  }, [staged, send]);
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -566,8 +874,69 @@ export function Composer({
   const readyFiles = staged.filter((file) => file.state === 'READY');
   const empty = body.trim() === '' && readyFiles.length === 0;
 
+  /**
+   * The microphone and the send button are the SAME control, in two states.
+   *
+   * Nothing to send, so the useful action is to record one; something to send, so it is to
+   * send it. Both present at once is two primary actions in one corner, and the one that is
+   * wrong at that moment is disabled — which is a control that exists to be refused.
+   *
+   * ## What counts as "something to send"
+   *
+   * `empty` already knows: text, or a bound attachment. So staging a document and typing
+   * nothing still shows send, which is right — the document is the message.
+   *
+   * ## Only on the icon variant
+   *
+   * A customer thread's send button carries WORDS ("Send to customer", "Save internal
+   * note"), and the words are doing work the swap would remove: which of two audiences this
+   * message is for is the single most consequential thing on that screen (ADR-021), and it
+   * must not be something that appears and disappears. There the named button stays put and
+   * the microphone stays beside it, exactly as before.
+   *
+   * ## While recording, neither rule applies
+   *
+   * The recorder takes the whole row, so `VoiceComposer` stays mounted regardless — pulling
+   * it out mid-recording would end the recording, which is the one thing §voice-note says
+   * must never happen silently.
+   */
+  const iconSend = !canReplyToCustomer;
+  const showMic = recordingVoice || !iconSend || empty;
+  const showSend = !recordingVoice && (!iconSend || !empty);
+
   return (
-    <div className={`composer${isCustomerNote ? ' internal' : ''}`}>
+    <div
+      className={`composer${isCustomerNote ? ' internal' : ''}${dragging ? ' dropping' : ''}`}
+      /*
+         The whole composer is the drop target, not a small zone inside it.
+
+         `dragenter`/`dragleave` fire for every child element crossed, so a naive
+         `onDragLeave={() => setDragging(false)}` flickers the moment the pointer passes
+         over the textarea. `relatedTarget` says where the pointer went; only a move to
+         somewhere outside this element is a real leave.
+      */
+      onDragOver={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(event) => {
+        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        setDragging(false);
+      }}
+      onDrop={(event) => {
+        const files = Array.from(event.dataTransfer.files);
+        if (files.length === 0) return;
+        event.preventDefault();
+        setDragging(false);
+        attachFiles(files);
+      }}
+    >
+      {dragging ? (
+        <div className="composer-drop-hint" aria-hidden="true">
+          Drop to attach
+        </div>
+      ) : null}
       {/*
         UC-E16. What is being replied to is shown while composing, because the reply is
         only meaningful relative to it - and because a reply aimed at the wrong message is
@@ -659,6 +1028,41 @@ export function Composer({
         control an icon-sized button on the action row.
       */}
       {/*
+        The picture, before it is sent - portalled to the body.
+
+        It is a child of the composer in the React tree because its caption is this
+        component's `body` and its send is this component's `send()`. It must not be one in
+        the DOM: the composer is a 60px strip at the foot of the window and this covers the
+        window, so a `position: fixed` element inside it would be at the mercy of any
+        `transform`, `filter` or `contain` on an ancestor - each of which silently makes a
+        fixed child position against THAT box instead of the viewport. A portal removes the
+        question rather than answering it for today's stylesheet.
+      */}
+      {preview !== undefined
+        ? createPortal(
+            <MediaPreviewOverlay
+              preview={preview}
+              caption={body}
+              onCaptionChange={handleChange}
+              onSend={() => void send()}
+              onCancel={() => {
+                /* The staged file goes with the panel. Leaving it behind would put a chip
+                   in the composer for a picture the person just decided against, and the
+                   next message would carry it. */
+                const id = preview.attachmentId;
+                if (id !== undefined) {
+                  setStaged((current) => current.filter((file) => file.attachmentId !== id));
+                }
+                closePreview();
+              }}
+              sending={sending}
+              humanBytes={formatBytes}
+            />,
+            document.body,
+          )
+        : null}
+
+      {/*
         The member list, above the composer rather than below it: the composer is already
         at the bottom of the screen, and a list opening downward would be off it.
       */}
@@ -686,12 +1090,30 @@ export function Composer({
           The picker also renders the staged-file list, which `display: contents` lifts onto
           its own grid row above.
         */}
-        <AttachmentPicker
-          conversationId={conversationId}
-          staged={staged}
-          onStagedChange={setStaged}
-        />
+        {recordingVoice ? null : (
+          <AttachmentPicker
+            conversationId={conversationId}
+            staged={staged}
+            onStagedChange={setStaged}
+            onPicked={previewFile}
+          />
+        )}
 
+        {/*
+          The microphone, and — once it is pressed — the recording bar that stands in for
+          the whole row. It is rendered here rather than after the field so that the bar it
+          becomes starts at the row's left edge, where the paperclip was.
+        */}
+        {showMic ? (
+          <VoiceComposer
+            disabled={sending}
+            sending={sending}
+            onActiveChange={setRecordingVoice}
+            onRecorded={attachRecording}
+          />
+        ) : null}
+
+        {recordingVoice ? null : (
         <div className="composer-field">
         <textarea
           ref={textareaRef}
@@ -714,6 +1136,23 @@ export function Composer({
             setQuery(undefined);
           }}
           onKeyDown={onKeyDown}
+          /*
+             Ctrl+V of a screenshot.
+
+             The clipboard carries both a file and, for a copied image, sometimes an HTML
+             fragment; taking `items` of kind `file` picks the bytes and ignores the rest.
+             `preventDefault` only when a file was actually found, so pasting TEXT is
+             untouched — intercepting that would break the commonest paste in the product.
+          */
+          onPaste={(event) => {
+            const files = Array.from(event.clipboardData.items)
+              .filter((item) => item.kind === 'file')
+              .map((item) => item.getAsFile())
+              .filter((file): file is File => file !== null);
+            if (files.length === 0) return;
+            event.preventDefault();
+            attachFiles(files);
+          }}
           rows={1}
           className="composer-input"
           aria-label={
@@ -773,6 +1212,7 @@ export function Composer({
 
 
         </div>
+        )}
 
         {/*
           A round icon button on a colleague thread; a named button in a customer
@@ -783,6 +1223,7 @@ export function Composer({
           there is one audience and nothing to distinguish. On an internal thread the
           accessible name is still "Send"; it is the visible label that becomes a glyph.
         */}
+        {showSend ? (
         <button
           type="button"
           className={`composer-send${canReplyToCustomer ? '' : ' icon'}`}
@@ -797,21 +1238,42 @@ export function Composer({
               'Send to customer'
             )
           ) : (
-            /* An arrow UP, as the reference draws it — not a paper plane. On a colleague
-               thread the button has no words, so the glyph is the whole label, and "up" is
-               the one every messaging application uses for send. */
+            /*
+               A paper plane pointing RIGHT.
+
+               It was an arrow up, on the reasoning that "up" is what every messaging
+               application uses for send. That was not right and the correction came from
+               use: the reference screens people actually compare this against send to the
+               right, and up is the gesture for a thread you are appending to on a PHONE,
+               where the composer sits under the messages. Here it sits beside them, and the
+               message travels along the row.
+
+               Drawn as a filled plane rather than a stroked chevron because the button is a
+               solid disc — a hairline glyph on a filled accent circle reads as a hole in it,
+               and at 20px the stroke was the thinnest thing on the screen.
+
+               The shape only. Nothing here borrows a colour: the disc stays StarLink's
+               accent, which is the coral this product uses for the one thing on a screen
+               that should be acted on.
+            */
             <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
               <path
-                d="M12 19.5V5m0 0-6.5 6.5M12 5l6.5 6.5"
+                d="M3.4 11.3 19.1 4.6a.7.7 0 0 1 .93.93L13.36 21.2a.7.7 0 0 1-1.3-.05l-2.2-6.06a.7.7 0 0 0-.42-.42l-6.06-2.2a.7.7 0 0 1-.05-1.3Z"
+                fill="currentColor"
+              />
+              {/* The fold. One line, and it is what makes the shape read as a plane rather
+                  than as a triangle with a notch in it. */}
+              <path
+                d="m10.1 14.2 3.6-3.6"
                 fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
+                stroke="var(--accent)"
+                strokeWidth="1.4"
                 strokeLinecap="round"
-                strokeLinejoin="round"
               />
             </svg>
           )}
         </button>
+        ) : null}
       </div>
 
       {/*

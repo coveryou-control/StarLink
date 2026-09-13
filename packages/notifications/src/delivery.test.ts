@@ -107,7 +107,22 @@ describe('§29.2 subjects are transcribed, not written', () => {
      * keeps this test a transcription check: a second undocumented row fails below
      * rather than being quietly absorbed by a loosened assertion.
      */
-    const notFromTheDocument = new Set(['MENTIONED']);
+    const notFromTheDocument = new Set([
+      'MENTIONED',
+      /* Stage 1 internal chat, decided with the business on 2026-09-11. §29.2 covers
+         customer conversations and has no row for a colleague messaging a colleague, so
+         none of these can be a transcription. Listed individually, and asserted below to
+         be EXACTLY the undocumented set, so a tenth still cannot appear quietly — which
+         is the whole point of this guard and the reason it was not simply loosened. */
+      'DIRECT_MESSAGE',
+      'GROUP_MESSAGE',
+      'CHANNEL_MESSAGE',
+      'REPLIED_TO_YOU',
+      'REACTED_TO_YOUR_MESSAGE',
+      'ADDED_TO_CONVERSATION',
+      'REMOVED_FROM_CONVERSATION',
+      'ANNOUNCEMENT_POSTED',
+    ]);
 
     for (const rule of NOTIFICATION_RULES) {
       if (notFromTheDocument.has(rule.event)) continue;
@@ -115,7 +130,7 @@ describe('§29.2 subjects are transcribed, not written', () => {
       expect(subjectFor(rule.event)).toBe(expected[rule.event]);
     }
 
-    // Exactly one row may be engineering's, and it must be the one named above.
+    // The undocumented rows must be EXACTLY the ones named above — no more, no fewer.
     const undocumented = NOTIFICATION_RULES.filter((r) => expected[r.event] === undefined);
     expect(
       undocumented.map((r) => r.event),
@@ -263,5 +278,82 @@ describe('§29.6 — retries, backoff and the dead letter', () => {
       expect(delay).toBeGreaterThanOrEqual(0);
       expect(delay).toBeLessThanOrEqual(120_000);
     }
+  });
+});
+
+describe('push — Stage 1 internal chat reaching a closed browser', () => {
+  /**
+   * `PUSH` sat in the `NotificationChannel` union with no rule pointing at it from the
+   * day the type was written (N-22's dormant state), and the whole delivery path —
+   * transport, FCM sender, device tokens, service worker — landed on 2026-09-10 and was
+   * proven end to end while STILL carrying nothing, because `channelsFor` could not
+   * return the channel. These tests are what make that impossible to regress into.
+   */
+  const STAGE_1 = [
+    'MENTIONED',
+    'DIRECT_MESSAGE',
+    'GROUP_MESSAGE',
+    'CHANNEL_MESSAGE',
+    'REPLIED_TO_YOU',
+    'REACTED_TO_YOUR_MESSAGE',
+    'ADDED_TO_CONVERSATION',
+    'REMOVED_FROM_CONVERSATION',
+    'ANNOUNCEMENT_POSTED',
+  ] as const;
+
+  it('pushes every Stage 1 event to staff', () => {
+    for (const event of STAGE_1) {
+      expect(channelsFor(event, staff()), event).toContain('PUSH');
+    }
+  });
+
+  it('pushes NONE of §29.2’s customer-conversation rows', () => {
+    /* Stage 2 is not running. Paging somebody about an assignment in a workflow that
+       does not happen is how a team learns to ignore the product before it has done
+       anything useful. */
+    for (const event of [
+      'CONVERSATION_ASSIGNED',
+      'WAITING_BEYOND_STANDARD',
+      'ESCALATED_TO_YOUR_FUNCTION',
+      'TRANSFERRED',
+      'COVER_NEEDED',
+      'CUSTOMER_REPLIED',
+      'ROLE_OR_ACCESS_CHANGED',
+      'NEW_IN_TEAM_QUEUE',
+    ] as const) {
+      expect(channelsFor(event, staff()), event).not.toContain('PUSH');
+    }
+  });
+
+  it('does not push to somebody who has switched push off', () => {
+    expect(channelsFor('DIRECT_MESSAGE', staff({ optedOutOf: ['PUSH'] }))).not.toContain('PUSH');
+  });
+
+  it('still reaches them IN-APP when push is off, because in-app is not a preference', () => {
+    // §29.6. Switching off the phone buzz must never switch off the unread count.
+    expect(channelsFor('DIRECT_MESSAGE', staff({ optedOutOf: ['PUSH'] }))).toContain('INAPP');
+  });
+
+  it('does not depend on `away`, which nothing can currently answer', () => {
+    /* Email waits on presence and therefore never fires (`isAway()` returns false until
+       presence crosses processes). Push must not inherit that dependency — FCM holds the
+       message and the device collects it whenever it next connects. */
+    expect(channelsFor('DIRECT_MESSAGE', staff({ away: false }))).toContain('PUSH');
+    expect(channelsFor('DIRECT_MESSAGE', staff({ away: true }))).toContain('PUSH');
+  });
+
+  it('sends no chat event by EMAIL', () => {
+    // Nobody asked for an inbox full of chat, and that is a separate decision from push.
+    for (const event of STAGE_1) {
+      expect(channelsFor(event, staff({ away: true })), event).not.toContain('EMAIL');
+    }
+  });
+
+  it('sends a customer no push at all', () => {
+    // The customer row still resolves to nothing until D-31 and N-07 land, and a
+    // customer has no device token in this system regardless.
+    expect(
+      channelsFor('DIRECT_MESSAGE', { principalKind: 'CUSTOMER', away: false, optedOutOf: [] }),
+    ).toEqual([]);
   });
 });

@@ -12,6 +12,14 @@
  * insert shares the caller's transaction rather than opening its own.
  */
 import type pg from 'pg';
+import type { ChannelFacts } from '@starlink/conversation-domain';
+
+import {
+  CHANNEL_POLICY_COLUMNS,
+  CHANNEL_POLICY_JOIN,
+  channelFactsFrom,
+  channelVisibilitySql,
+} from './channel-store.js';
 import type {
   ConversationRecord,
   InsertMessage,
@@ -99,6 +107,32 @@ class PgWriteTransaction implements MessageWriteTransaction {
     );
     const row = result.rows[0];
     return row === undefined ? undefined : toConversation(row);
+  }
+
+  /**
+   * The channel policy for this send, resolved for this sender.
+   *
+   * Shares its audience predicate with the read path through `channelVisibilitySql`, which
+   * is the point of that constant: an authorization rule with two hand-written copies is
+   * the divergence §38 records, and the write path is the worse half to get wrong.
+   *
+   * No `FOR UPDATE`. The policy is not being changed here, and locking it would serialise
+   * every send in a channel behind every other one.
+   */
+  async loadChannelFacts(
+    conversationId: UUID,
+    principalId: UUID,
+  ): Promise<ChannelFacts | undefined> {
+    const result = await this.client.query(
+      `SELECT ${CHANNEL_POLICY_COLUMNS},
+              ${channelVisibilitySql('$2')} AS channel_visible
+         FROM conversation.conversations c
+         ${CHANNEL_POLICY_JOIN}
+        WHERE c.conversation_id = $1`,
+      [conversationId, principalId],
+    );
+    const row = result.rows[0];
+    return row === undefined ? undefined : channelFactsFrom(row);
   }
 
   async loadParticipant(conversationId: UUID, principalId: UUID): Promise<ParticipantRecord | undefined> {
@@ -202,6 +236,30 @@ class PgWriteTransaction implements MessageWriteTransaction {
     );
   }
 
+  /**
+   * Clears `archived_at` for every live participant except the sender.
+   *
+   * See the port for why this exists. The predicate is deliberately narrow — only rows
+   * that ARE archived are touched, so the common case where nobody has archived anything
+   * updates nothing and costs one indexed lookup.
+   *
+   * `participants_unarchived_idx` (migration 0028) is partial on `archived_at IS NULL`,
+   * so it cannot serve this; the conversation_id lookup is what carries it, and the row
+   * count here is bounded by the participant count.
+   */
+  async unarchiveForOthers(conversationId: UUID, senderPrincipalId: UUID): Promise<number> {
+    const result = await this.client.query(
+      `UPDATE conversation.participants
+          SET archived_at = NULL
+        WHERE conversation_id = $1
+          AND principal_id <> $2
+          AND effective_to IS NULL
+          AND archived_at IS NOT NULL`,
+      [conversationId, senderPrincipalId],
+    );
+    return result.rowCount ?? 0;
+  }
+
   /** Live participants only: `effective_to IS NULL` is what makes participation current. */
   async listParticipantIds(conversationId: UUID): Promise<readonly UUID[]> {
     const result = await this.client.query(
@@ -296,6 +354,15 @@ class PgWriteTransaction implements MessageWriteTransaction {
    * So the newest message is chosen first and its preview derived second: its text if it
    * has any, otherwise the name of the file it carries. `NULLIF(trim(...))` is what makes
    * "a body of spaces" behave like no body rather than like a preview of nothing.
+   *
+   * A VOICE NOTE is the exception, because its filename is one we generated. "holiday.png"
+   * in a sidebar row tells you what arrived; "Voice note 2026-09-09 122813.webm" tells you
+   * the same thing four times over in the least readable form available. It gets "Voice
+   * note (0:13)" instead — the kind, and the one fact worth knowing before opening it.
+   *
+   * Decided on `sniffed_mime` where there is one, because that is what the scanner read
+   * out of the bytes; `declared_mime` is the uploader's word and is only the fallback for
+   * a row that has not been scanned yet. This is the same rule the thread renders by.
    */
   async refreshPreview(conversationId: UUID): Promise<void> {
     await this.client.query(
@@ -303,7 +370,16 @@ class PgWriteTransaction implements MessageWriteTransaction {
           SET last_message_preview = COALESCE((
                 SELECT COALESCE(
                          NULLIF(left(trim(m.body), 200), ''),
-                         (SELECT a.original_filename
+                         (SELECT CASE
+                                   WHEN COALESCE(a.sniffed_mime, a.declared_mime) LIKE 'audio/%'
+                                     THEN 'Voice note'
+                                          || COALESCE(
+                                               ' (' || (a.duration_ms / 60000)::int || ':'
+                                               || lpad((((a.duration_ms / 1000)::int) % 60)::text, 2, '0')
+                                               || ')',
+                                               '')
+                                   ELSE a.original_filename
+                                 END
                             FROM conversation.attachments a
                            WHERE a.message_id = m.message_id
                            ORDER BY a.created_at

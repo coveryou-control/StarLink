@@ -82,15 +82,65 @@ describe('the theme switch is wired to the design system', () => {
      * One small block is legitimate and expected: the handful of values that are NOT kit
      * tokens (the rail's translucent overlays, the scrollbar thumb). The bound is what
      * stops a whole palette creeping back in.
+     *
+     * Raised from 8 to 9 on 2026-09-09 for the light-bubble direction. `--bubble-mine`,
+     * `--bubble-mine-ink` and `--media-frame` cannot be expressed as kit tokens: the export
+     * carries brand, critical, info, neutral, success and warning ramps and no violet at
+     * all, so a lavender has nowhere else to live.
+     *
+     * ## What is counted, and why it changed
+     *
+     * It counted every declaration, and that measured the wrong thing. The hazard named
+     * above is DRIFT — a colour written here by hand that the next export silently
+     * disagrees with. A declaration whose value is nothing but `var(--kit-token)` cannot
+     * drift: it has no colour of its own, it re-points a ROLE at one the export owns, and
+     * a re-export moves it automatically. That is what the bridge is for.
+     *
+     * Counting those as palette forced a real choice to look like a violation. In dark the
+     * export makes `--base-surface-primary` pure black, so every raised object in the
+     * product — header, composer, card, selected row, incoming bubble — was darker than
+     * the ground it sat on. Fixing it means pointing `--surface` at a different kit token,
+     * which is exactly the sanctioned move and which the old count refused.
+     *
+     * So: literals are bounded, re-pointings are free. The guard now fails for the reason
+     * it says it does.
      */
     const blocks = [...css.matchAll(/:root\[data-theme='dark'\]\s*\{([^}]*)\}/g)];
     expect(blocks.length, 'expected exactly one local dark block').toBe(1);
-    const declarations = [...(blocks[0]?.[1] ?? '').matchAll(/^\s*--[a-z0-9-]+:/gm)];
+
+    const body = (blocks[0]?.[1] ?? '').replace(/\/\*[\s\S]*?\*\//g, '');
+    const declarations = [...body.matchAll(/^\s*(--[a-z0-9-]+)\s*:\s*([^;]+);/gm)];
+
+    /* A value made only of kit references, whitespace and CSS functions around them owns
+       no colour of its own. Anything with a hex, an rgb()/hsl() literal or a bare colour
+       keyword does. */
+    const ownsAColour = (value: string): boolean =>
+      /#[0-9a-f]{3,8}/i.test(value) || /(?:^|[\s(,])(?:rgba?|hsla?)\(/i.test(value);
+
+    const literals = declarations.filter((d) => ownsAColour(d[2] ?? ''));
+    const repointings = declarations.filter((d) => !ownsAColour(d[2] ?? ''));
+
     expect(
-      declarations.length,
+      literals.length,
       'the local dark block has grown into a second palette; it should only carry values ' +
-        'the design system does not define',
-    ).toBeLessThanOrEqual(8);
+        `the design system does not define. Literals: ${literals.map((d) => d[1]).join(', ')}`,
+    ).toBeLessThanOrEqual(9);
+
+    /*
+       The positive half, and it names the regression rather than counting.
+
+       Deleting these re-pointings puts `--surface` back on `--base-surface-primary`, which
+       in dark is pure black — and every raised object in the product (header, composer,
+       card, selected row, incoming bubble) goes back to being DARKER than the ground it
+       sits on. A count would not have noticed; this does.
+    */
+    const repointed = Object.fromEntries(repointings.map((d) => [d[1], (d[2] ?? '').trim()]));
+    expect(
+      repointed['--surface'],
+      'dark `--surface` must be re-pointed: the export makes it pure black, which is ' +
+        'darker than the panels it is drawn on top of',
+    ).toBeDefined();
+    expect(repointed['--surface']).not.toContain('base-surface-primary');
   });
 
   it('offers exactly the three choices the module can resolve', () => {

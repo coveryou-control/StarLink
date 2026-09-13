@@ -86,11 +86,28 @@ const LEAD_ID = '018f5eed-de70-7000-8000-000000000002';
    fail. HRMS is the system of record for both (rule 11) and these disappear with the rest
    of this fixture when it lands: `pnpm seed:people --remove`.
 */
+/**
+ * One password for every development account.
+ *
+ * They were five different strings of the form `starlink-dev-<name>`, which is a better
+ * password and a worse fixture: everybody signing in as somebody else had to look up
+ * which one, and the point of these rows is to make it trivial to be four people at once
+ * while testing. Asked for on 2026-09-10.
+ *
+ * It is a terrible password and that is not an accident of this file — it is a
+ * DEVELOPMENT fixture in a disposable local database, printed to the terminal and
+ * committed in the open, and the script refuses to run unless `SL_ENV` is `dev`, `test`
+ * or `local` (see below). Nothing here reaches an environment where the strength of this
+ * string is the thing standing between anybody and anything: HRMS is the authority the
+ * moment it lands, and `pnpm seed:people --remove` deletes every row this wrote.
+ */
+const DEV_PASSWORD = '12345678';
+
 const PEOPLE = [
   {
     principalId: '018f5eed-de70-7000-8000-000000000001',
     username: 'rishitt.gupta',
-    password: 'starlink-dev-rishitt',
+    password: DEV_PASSWORD,
     displayName: 'Rishitt Gupta',
     employeeId: 'DEV-0001',
     branch: 'Gurugram',
@@ -102,7 +119,7 @@ const PEOPLE = [
   {
     principalId: '018f5eed-de70-7000-8000-000000000002',
     username: 'archit.bali',
-    password: 'starlink-dev-archit',
+    password: DEV_PASSWORD,
     displayName: 'Archit Bali',
     employeeId: 'DEV-0002',
     branch: 'Gurugram',
@@ -119,9 +136,45 @@ const PEOPLE = [
   {
     principalId: '018f5eed-de70-7000-8000-000000000003',
     username: 'rahul',
-    password: 'starlink-dev-rahul',
+    password: DEV_PASSWORD,
     displayName: 'Rahul',
     employeeId: 'DEV-0003',
+    branch: 'Mumbai',
+    timezone: 'Asia/Kolkata',
+    managerId: LEAD_ID,
+    role: 'AGENT',
+    teamRole: 'MEMBER',
+  },
+  /*
+     Two more, asked for on 2026-09-10.
+
+     Five accounts rather than three is not decoration: a group needs more than three
+     people before "who can see this" is a question with an interesting answer, and the
+     identity palette only starts colliding at five speakers — which is the case
+     `distinctIdentityHues` exists for and which three accounts could never reach.
+
+     Fixed ids continuing the same sequence, so a second run updates these rows rather
+     than making new ones, and the `de7` prefix keeps them recognisable as development
+     data at a glance in a query result.
+  */
+  {
+    principalId: '018f5eed-de70-7000-8000-000000000004',
+    username: 's.nirvana',
+    password: DEV_PASSWORD,
+    displayName: 'S. Nirvana',
+    employeeId: 'DEV-0004',
+    branch: 'Gurugram',
+    timezone: 'Asia/Kolkata',
+    managerId: LEAD_ID,
+    role: 'AGENT',
+    teamRole: 'MEMBER',
+  },
+  {
+    principalId: '018f5eed-de70-7000-8000-000000000005',
+    username: 'manish.k',
+    password: DEV_PASSWORD,
+    displayName: 'Manish K',
+    employeeId: 'DEV-0005',
     branch: 'Mumbai',
     timezone: 'Asia/Kolkata',
     managerId: LEAD_ID,
@@ -215,6 +268,31 @@ try {
         person.timezone,
         credentialHash,
       ],
+    );
+
+    /**
+     * An email address, so the EMAIL notification transport has somewhere to send.
+     *
+     * `identity.principal_contacts` was EMPTY, and that made the whole mail path
+     * untestable in development without anybody noticing: enabling the transport and
+     * triggering an event that mails produced a log line reading "contact channels
+     * unavailable" and no message. The configuration looked right, the outbox looked
+     * right, and nothing arrived.
+     *
+     * `@coveryou.co.in` on the username, which is the same address the sign-in screen
+     * already accepts for these accounts (`verifyCredential` matches an address on its
+     * local part). Nothing real is behind it — dev never sends outward (NFR-DAT-6), and
+     * a local catcher is what receives these.
+     *
+     * `source = 'LOCAL'`, because HRMS is the authority for a contact channel when it
+     * lands and these rows must be distinguishable from the ones it will supply.
+     */
+    await pool.query(
+      `INSERT INTO identity.principal_contacts (principal_id, channel, address, source)
+       VALUES ($1, 'EMAIL', $2, 'LOCAL')
+       ON CONFLICT (principal_id, channel) DO UPDATE
+         SET address = EXCLUDED.address, source = 'LOCAL', updated_at = now()`,
+      [person.principalId, `${person.username}@coveryou.co.in`],
     );
 
     await pool.query(

@@ -11,14 +11,23 @@ import type { IdentityAuthorizationClient } from '@starlink/shared-contracts';
 import { cookieOptionsFor, type SessionService } from '@starlink/security';
 import { METRICS, metrics, type Logger } from '@starlink/observability';
 import type pg from 'pg';
-import { CONFIG, DATABASE, IDENTITY_CLIENT, LOGGER, SESSION_SERVICE, AUDIT_WRITER } from '../tokens.js';
+import { CONFIG, DATABASE, IDENTITY_CLIENT, LOGGER, SESSION_SERVICE, AUDIT_WRITER, SIGN_IN_THROTTLE } from '../tokens.js';
 import type { ApiConfig } from '../config.js';
 import type { AuditWriter } from '../audit/audit-writer.js';
 import { Public, REFUSAL, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
+import type { SignInThrottle } from '../edge/sign-in-throttle.js';
 
 const signInSchema = z.object({
   username: z.string().min(1).max(200),
   password: z.string().min(1).max(400),
+  /**
+   * "Keep me signed in on this device."
+   *
+   * Optional and defaulting to false, so a client that does not send it gets the short
+   * session — the safe answer rather than the convenient one, which is the direction a
+   * default about session length should always fall.
+   */
+  rememberMe: z.boolean().optional(),
 });
 
 @Controller('v1/employee/auth')
@@ -31,6 +40,7 @@ export class EmployeeAuthController {
     @Inject(CONFIG) private readonly config: ApiConfig,
     @Inject(LOGGER) private readonly logger: Logger,
     @Inject(DATABASE) private readonly pool: pg.Pool,
+    @Inject(SIGN_IN_THROTTLE) private readonly throttle: SignInThrottle,
   ) {}
 
   @Post('sign-in')
@@ -46,11 +56,55 @@ export class EmployeeAuthController {
     // request must not be a probing oracle either.
     if (!parsed.success) return this.refuse(request, response, 'malformed');
 
+    /**
+     * Refuse a username that has spent its failure budget, BEFORE verifying anything.
+     *
+     * Before the check, not after, for two reasons. It is the point of the control — a
+     * guess that still costs a scrypt is barely throttled — and scrypt here allocates about
+     * 64 MB per attempt, so unlimited guessing was also a way to make this process do
+     * expensive work on demand.
+     *
+     * Lower-cased, so `Archit.Bali` and `archit.bali` share one budget rather than handing
+     * an attacker a fresh allowance per spelling.
+     */
+    const throttleKey = parsed.data.username.trim().toLowerCase();
+    if (this.throttle.blocked(throttleKey)) {
+      return this.refuse(request, response, 'throttled');
+    }
+
     const verified = await this.identity.verifyCredential(parsed.data.username, parsed.data.password);
-    if (!verified.ok) return this.refuse(request, response, 'credential');
+    if (!verified.ok) {
+      this.throttle.recordFailure(throttleKey);
+      return this.refuse(request, response, 'credential');
+    }
 
     const claims = await this.identity.resolvePrincipal(verified.value.principalId);
-    if (!claims.ok) return this.refuse(request, response, 'principal');
+    if (!claims.ok) {
+      /* The credential was right and the account is unusable — a deactivated employee,
+         say. Not a guess, so it does not spend the budget. */
+      return this.refuse(request, response, 'principal');
+    }
+
+    /* The right password returns the budget in full: somebody who mistypes twice and then
+       gets it right should arrive tomorrow with a clean slate. */
+    this.throttle.clear(throttleKey);
+
+    /**
+     * Twelve hours, or fourteen days if they asked to stay signed in on this device.
+     *
+     * ONE number, used for both the token and the cookie below. They must agree: a cookie
+     * outliving its token leaves a dead credential on the machine, and a token outliving
+     * its cookie signs somebody out while the session is still valid. Computing it here and
+     * passing it to both is what makes disagreement impossible rather than unlikely.
+     *
+     * It does not weaken revocation. Every verification re-reads `sessionVersion`, so "sign
+     * out everywhere" ends a fourteen-day session on its next request exactly as it ends a
+     * twelve-hour one (FR-AUTH-2).
+     */
+    const ttlSeconds =
+      parsed.data.rememberMe === true
+        ? this.config.SL_SESSION_REMEMBER_TTL_SECONDS
+        : this.config.SL_SESSION_TTL_SECONDS;
 
     const { token, payload } = this.sessions.issue({
       principalId: claims.value.principalId,
@@ -58,6 +112,7 @@ export class EmployeeAuthController {
       surface: 'EMPLOYEE',
       // Baked in so that a later bump invalidates this cookie on the next request.
       sessionVersion: claims.value.sessionVersion,
+      ttlSeconds,
     });
 
     /**
@@ -81,7 +136,7 @@ export class EmployeeAuthController {
      * Spreading is the fix that also removes the opportunity: there is now no place to
      * convert a unit, and both surfaces set the cookie the same way.
      */
-    const cookie = cookieOptionsFor('EMPLOYEE', this.config.tls, this.config.SL_SESSION_TTL_SECONDS);
+    const cookie = cookieOptionsFor('EMPLOYEE', this.config.tls, ttlSeconds);
     response.cookie(cookie.name, token, { ...cookie });
 
     await this.audit.record({
@@ -92,6 +147,10 @@ export class EmployeeAuthController {
       targetId: claims.value.principalId,
       outcome: 'SUCCEEDED',
       correlationId: request.correlationId,
+      /* How long the session they just got will last. An audit entry saying somebody
+         signed in, without saying whether the credential on that machine lives for half a
+         day or a fortnight, omits the part an investigation would ask about. */
+      detail: { sessionTtlSeconds: ttlSeconds },
     });
 
     this.logger.info('sign-in succeeded', {
@@ -104,19 +163,48 @@ export class EmployeeAuthController {
     return { principalId: payload.principalId };
   }
 
+  /**
+   * Sign out.
+   *
+   * ## Clearing the cookie is not ending the session
+   *
+   * This used to do only that, and a token captured before the click kept working for the
+   * rest of its life — twelve hours, or **fourteen days** with "keep me signed in".
+   * Verified on 2026-09-08: sign out, replay the same cookie, `GET /auth/me` returned 200.
+   * `clearCookie` is a request to the browser; it has no reach over a copy.
+   *
+   * So the version is incremented, which every verification re-reads (ADR-008) and which
+   * therefore kills the copy too — the same mechanism `sign-out-everywhere` uses, and the
+   * same thing the customer surface has always done here.
+   *
+   * ## Which does mean this ends the session on your other devices
+   *
+   * That is a real behaviour change and it is the honest one available. Ending only THIS
+   * session needs a per-session record written on issue and read on every request, which
+   * is exactly the lookup ADR-008 was written to avoid; restoring per-device sign-out is
+   * therefore an ADR revision, not a patch, and it is called out in the audit rather than
+   * decided here. Between "signs you out of more than you asked" and "does not sign you
+   * out at all", the first is the one to ship.
+   *
+   * `sign-out-everywhere` stays: it is reachable when you are NOT the one holding the
+   * suspect device, and its audit line records a different intent.
+   */
   @Post('sign-out')
   @HttpCode(204)
   async signOut(@Req() request: AuthenticatedRequest, @Res({ passthrough: true }) response: Response): Promise<void> {
     const cookie = cookieOptionsFor('EMPLOYEE', this.config.tls, 0);
     response.clearCookie(cookie.name, { path: cookie.path });
     if (request.session !== undefined) {
+      const revoked = await this.identity.revokeSessions(request.session.principalId, 'USER_REQUESTED');
       await this.audit.record({
         actorId: request.session.principalId,
         actorKind: 'EMPLOYEE',
         action: 'auth.sign_out',
         targetKind: 'principal',
         targetId: request.session.principalId,
-        outcome: 'SUCCEEDED',
+        /* A sign-out whose revocation failed left a live token behind, so it did not
+           succeed however clean the redirect looked. */
+        outcome: revoked.ok ? 'SUCCEEDED' : 'FAILED',
         correlationId: request.correlationId,
       });
     }
@@ -165,30 +253,6 @@ export class EmployeeAuthController {
     });
   }
 
-  /**
-   * What this account has stored — Settings' "Storage & data".
-   *
-   * Only the caller's OWN uploads, and only BOUND ones: an unbound upload is reachable by
-   * nobody (§28.1) and counting it would report space that no longer exists to anyone. The
-   * figure is `declared_bytes`, which is what the uploader was charged against the size
-   * limit, so it agrees with the number they saw when they attached the file.
-   *
-   * No per-conversation breakdown. That would be a list of every thread this person has
-   * put a file in, which is a different and more sensitive object than a total.
-   */
-  @Get('me/storage')
-  async storage(@Req() request: AuthenticatedRequest): Promise<unknown> {
-    const session = request.session!;
-    const result = await this.pool.query(
-      `SELECT count(*)::int AS files, COALESCE(sum(declared_bytes), 0)::bigint AS bytes
-         FROM conversation.attachments
-        WHERE uploader_id = $1 AND state = 'BOUND' AND message_id IS NOT NULL`,
-      [session.principalId],
-    );
-    const row = result.rows[0];
-    return { files: Number(row?.files ?? 0), bytes: Number(row?.bytes ?? 0) };
-  }
-
   /** The one call the application shell depends on (doc §25.2). */
   @Get('me')
   async me(@Req() request: AuthenticatedRequest): Promise<unknown> {
@@ -205,6 +269,30 @@ export class EmployeeAuthController {
       // Surfaced deliberately: an interim identity source must be visible as such
       // wherever it is consumed (brief §48).
       authority: claims.value.authority,
+      /**
+       * This session, as far as ADR-008 can honestly describe it.
+       *
+       * There is no device list and there cannot be one: a session is a signed cookie
+       * carrying a version number, checked against the account on every request, and
+       * nothing records the individual sessions that exist. Settings used to say so and
+       * show nothing; it can at least describe the session in front of it.
+       *
+       * `ip` is the address this request arrived from, taken from Express's own `ip`
+       * (which respects `trust proxy`). It is shown back to the person it belongs to and
+       * to nobody else — this is the one place in the product that reads it, and it is
+       * not stored.
+       *
+       * There is deliberately no LOCATION. Deriving one means sending the address to a
+       * geo-IP service, which is a third party receiving employee network data and a
+       * data-residency question under the IRDAI record rules — not something to acquire
+       * as a side effect of a settings row. And no MAC address: a browser cannot obtain
+       * one, by any API, so a field for it could only ever be filled with a guess.
+       */
+      session: {
+        startedAt: session.issuedAt,
+        expiresAt: session.expiresAt,
+        ip: request.ip ?? null,
+      },
     };
   }
 

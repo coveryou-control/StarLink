@@ -27,6 +27,18 @@ import type { ConversationSummary } from '../lib/api-client';
 interface ActiveConversationValue {
   readonly conversation: ConversationSummary | undefined;
   /**
+   * Every conversation the shell has loaded.
+   *
+   * Added for forwarding, which needs somewhere to forward TO. The alternative was a
+   * second fetch of a list the shell already holds — two sources for one set of facts,
+   * which is how a dialog ends up offering a conversation the sidebar has since dropped.
+   *
+   * Paged, like the sidebar: a conversation further back than "Load older" has reached is
+   * genuinely not here. That is the same limitation the sidebar has and the same one the
+   * forward dialog's own search box works within.
+   */
+  readonly conversations: readonly ConversationSummary[];
+  /**
    * Re-reads the shell's conversation list.
    *
    * The thread needs this because the summary is the source of its own header. Adding a
@@ -41,15 +53,18 @@ interface ActiveConversationValue {
 
 const ActiveConversationContext = createContext<ActiveConversationValue>({
   conversation: undefined,
+  conversations: [],
   refreshConversations: () => undefined,
 });
 
 export function ActiveConversationProvider({
   conversation,
+  conversations,
   refreshConversations,
   children,
 }: {
   readonly conversation: ConversationSummary | undefined;
+  readonly conversations: readonly ConversationSummary[];
   readonly refreshConversations: () => void;
   readonly children: ReactNode;
 }): ReactNode {
@@ -59,8 +74,8 @@ export function ActiveConversationProvider({
    * re-renders with it, including the open thread.
    */
   const value = useMemo(
-    () => ({ conversation, refreshConversations }),
-    [conversation, refreshConversations],
+    () => ({ conversation, conversations, refreshConversations }),
+    [conversation, conversations, refreshConversations],
   );
 
   return (
@@ -76,4 +91,9 @@ export function useActiveConversation(): ConversationSummary | undefined {
 
 export function useRefreshConversations(): () => void {
   return useContext(ActiveConversationContext).refreshConversations;
+}
+
+/** Every conversation the shell has loaded — for choosing one, not for rendering the list. */
+export function useLoadedConversations(): readonly ConversationSummary[] {
+  return useContext(ActiveConversationContext).conversations;
 }

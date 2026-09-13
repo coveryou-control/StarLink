@@ -77,6 +77,35 @@ export function customerWorkspaceEnabled(): boolean {
   return (injected as { customerWorkspace?: unknown }).customerWorkspace === true;
 }
 
+/** Firebase's web configuration, or `undefined` when push is not set up. */
+export interface PushConfig {
+  readonly apiKey: string;
+  readonly appId: string;
+  readonly projectId: string;
+  readonly senderId: string;
+  readonly vapidKey: string;
+}
+
+/**
+ * The Firebase web config, and `undefined` unless it is COMPLETE.
+ *
+ * All five or nothing. A partially configured project produces a client that fails at
+ * `getToken` with a message about the missing field, which surfaces to somebody turning
+ * on a switch as "something went wrong" — where the truth is that an operator has not
+ * finished. Absent is the honest state and the settings panel says so.
+ */
+export function pushConfig(): PushConfig | undefined {
+  const injected = (globalThis as Record<string, unknown>)[RUNTIME_ORIGINS_KEY];
+  if (typeof injected !== 'object' || injected === null) return undefined;
+  const candidate = (injected as { push?: Partial<PushConfig> }).push;
+  if (candidate === undefined) return undefined;
+  const { apiKey, appId, projectId, senderId, vapidKey } = candidate;
+  const complete = [apiKey, appId, projectId, senderId, vapidKey].every(
+    (value) => typeof value === 'string' && value !== '',
+  );
+  return complete ? ({ apiKey, appId, projectId, senderId, vapidKey } as PushConfig) : undefined;
+}
+
 export function runtimeOrigins(): RuntimeOrigins {
   const injected = (globalThis as Record<string, unknown>)[RUNTIME_ORIGINS_KEY];
   if (typeof injected !== 'object' || injected === null) return FALLBACK_ORIGINS;

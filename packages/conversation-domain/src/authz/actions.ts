@@ -50,6 +50,31 @@ export const ACTIONS = [
   'conversation.announcement.post',
   'conversation.attachment.upload',
   'conversation.attachment.download',
+  /**
+   * Opening a new channel.
+   *
+   * A permission rather than something any employee may do, for the same reason an
+   * announcement is: a channel is a PERSISTENT company space with a reserved name, and a
+   * directory anybody can add to stops being a directory. Which roles hold it is a
+   * placeholder marked where it is granted, exactly as `conversation.announcement.post` is.
+   */
+  'channel.create',
+  /**
+   * Administering a channel that already exists: its access policy, its name, its
+   * membership, its retirement.
+   *
+   * ## This confers NO READ, deliberately
+   *
+   * FR-AUTHZ-7 and `decide()`'s own property 5. Somebody repairing the audience of a
+   * private channel does not thereby acquire its messages — `decide()` answers content
+   * questions on a channel from the channel's POLICY and from time-boxed grants, and never
+   * from a standing role. An administrator who needs to read the traffic joins the channel
+   * or takes a temporary grant, and both of those are visible.
+   *
+   * Held in addition by anyone the channel itself names as an administrator, which is the
+   * ordinary case; this action is the company-wide version for whoever runs the directory.
+   */
+  'channel.manage',
 
   // ownership and routing — deliberately separate from replying (P-03).
   // An advisor who may answer need not be able to re-prioritise or reassign.

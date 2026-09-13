@@ -5,6 +5,7 @@ import { io, type Socket } from 'socket.io-client';
 import {
   conversationChannel,
   SOCKET_EVENTS,
+  reactionChangeIn,
   toConversationEvent,
   type ConversationEvent,
   type RealtimeFrame,
@@ -47,11 +48,15 @@ interface UseRealtimeOptions {
   /**
    * SL-010. Someone else is composing in this conversation.
    *
-   * `undefined` means nobody is. The gateway broadcasts these and **nothing consumed
-   * them** until 2026-08-29, so the indicator the tracker asks for did not exist while
-   * the server dutifully sent it to nobody.
+   * One call per frame, and no expiry — the reader forgets a typist after the frame's own
+   * `expiresInSeconds`, because only the reader knows how many people it is tracking. This
+   * used to hand back `undefined` for "nobody", which cannot express "Rahul stopped but
+   * Priya has not" and so made a second typist impossible to represent.
+   *
+   * The gateway broadcasts these and **nothing consumed them** until 2026-08-29, so the
+   * indicator the tracker asks for did not exist while the server sent it to nobody.
    */
-  readonly onTyping?: (typing: TypingFrame | undefined) => void;
+  readonly onTyping?: (typing: TypingFrame) => void;
   /**
    * Somebody else has read up to a position — the second tick, live.
    *
@@ -91,6 +96,10 @@ export function useRealtime({
 
   // Hold the callbacks in refs so a re-render does not tear down and rebuild the
   // socket — reconnect storms are something we are explicitly trying to avoid.
+  /* Read inside the socket handler, which is registered once — a captured `conversationId`
+     would still name the thread that was open when the socket connected. */
+  const conversationIdRef = useRef(conversationId);
+  conversationIdRef.current = conversationId;
   const handlers = useRef({ onRefetch, onEvent, onSessionRevoked, onTyping, onRead });
   handlers.current = { onRefetch, onEvent, onSessionRevoked, onTyping, onRead };
 
@@ -168,6 +177,21 @@ export function useRealtime({
        * an unknown event name, a missing sequence — is ignored rather than applied at a
        * guessed position; the next re-fetch reconciles it (invariant 9).
        */
+      /*
+         A reaction is handled BEFORE the sequence logic, and only ever as a nudge.
+
+         It carries no `seq` because it does not advance the thread — see
+         `reactionChangeIn`. Re-reading is the whole response: the frame says which message
+         changed and nothing about how, so a client that misses one ends up in the same
+         place as one that receives it, which is invariant 9 working rather than being
+         worked around.
+      */
+      const reacted = reactionChangeIn(frame);
+      if (reacted !== undefined) {
+        if (reacted === conversationIdRef.current) handlers.current.onRefetch();
+        return;
+      }
+
       const event = toConversationEvent(frame);
       if (event === undefined) return;
 
@@ -192,14 +216,21 @@ export function useRealtime({
      * ends have different clocks (ADR-025), and the timer clears the indicator locally
      * rather than waiting for a "stopped typing" message that may never arrive.
      */
-    let typingTimer: ReturnType<typeof setTimeout> | undefined;
+    /*
+       Frames are forwarded; expiry belongs to the reader.
+
+       There used to be ONE timer here, which is correct only while one person can be
+       typing. In a group several can, and a single timer meant the second typist's frame
+       reset the first's clock and the one expiry then cleared everybody. Worse, the
+       consumer was handed `undefined` — "nobody is typing" — which cannot express "Rahul
+       stopped but Priya has not".
+
+       So this reports what actually happened, one frame at a time, and the component that
+       knows how many people it is tracking forgets them one at a time. `expiresInSeconds`
+       rides along on the frame, so nothing about the TTL moved — only who applies it.
+    */
     socket.on(SOCKET_EVENTS.typingSignal, (frame: TypingFrame) => {
       handlers.current.onTyping?.(frame);
-      if (typingTimer !== undefined) clearTimeout(typingTimer);
-      typingTimer = setTimeout(
-        () => handlers.current.onTyping?.(undefined),
-        Math.max(1, frame.expiresInSeconds) * 1000,
-      );
     });
 
     /**
@@ -236,9 +267,30 @@ export function useRealtime({
      * pending backoff timer on one that is waiting. Neither bypasses the backoff for a
      * server that is genuinely down: the reconnect attempt this triggers fails like any
      * other and the backoff resumes.
+     *
+     * ## And a re-read, whether or not the socket noticed
+     *
+     * `connect()` alone is not enough, and the gap it leaves is the one rule 9 exists to
+     * cover. A short interruption — a lift, a tunnel, a Wi-Fi handover — frequently does
+     * NOT close the WebSocket: the frames in flight are dropped by the network while the
+     * connection itself stays open. Socket.IO then has nothing to report, `connect` never
+     * fires a second time, and the page, which re-reads only on `connect`, never re-reads.
+     * A message pushed during those few hundred milliseconds is gone until something else
+     * happens to refetch — and the conversation page is the one surface with no polling
+     * fallback, so on that page nothing else does.
+     *
+     * The heartbeat does not save it either: at `pingInterval` 25s + `pingTimeout` 20s a
+     * genuinely dead socket takes up to 45 seconds to be declared dead, and a socket that
+     * is merely missing frames is never declared dead at all.
+     *
+     * So the browser's own signal is treated as what it is — "you were disconnected and
+     * now you are not" — and the thread is re-read unconditionally. That is exactly rule
+     * 9: no state exists only in an event, and recovery is re-fetch. It costs one GET on
+     * a transition the OS reports only when it really happened.
      */
     const reconnectNow = (): void => {
       if (!socket.connected) socket.connect();
+      handlers.current.onRefetch?.();
     };
     const onVisible = (): void => {
       if (document.visibilityState === 'visible') reconnectNow();
@@ -247,7 +299,6 @@ export function useRealtime({
     document.addEventListener('visibilitychange', onVisible);
 
     return () => {
-      if (typingTimer !== undefined) clearTimeout(typingTimer);
       window.removeEventListener('online', reconnectNow);
       document.removeEventListener('visibilitychange', onVisible);
       socket.removeAllListeners();

@@ -41,9 +41,31 @@ import type { PgNotificationOutbox } from '@starlink/database';
 import { NOTIFICATION_OUTBOX } from '../tokens.js';
 import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
 
+/**
+ * `unreadOnly=false` means false, which `z.coerce.boolean()` did not.
+ *
+ * `Boolean("false")` is `true`, so a client asking for ALL notifications by sending the
+ * flag explicitly got only the unread ones — the opposite of what it asked for, with no
+ * error to notice. Same defect as `SL_NOTIFY_EMAIL_SECURE`; see `config.ts` for the find.
+ *
+ * A query parameter is a person's or a client's text, so an unknown value is refused here
+ * too rather than guessed at: the route already answers a bad query with `refuse()`.
+ */
+const flag = z
+  .union([z.boolean(), z.string()])
+  .default(false)
+  .transform((value, ctx) => {
+    if (typeof value === 'boolean') return value;
+    const text = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(text)) return true;
+    if (['false', '0', 'no', 'off', ''].includes(text)) return false;
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'expected true or false' });
+    return z.NEVER;
+  });
+
 const listSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  unreadOnly: z.coerce.boolean().default(false),
+  unreadOnly: flag,
 });
 
 @Controller('v1/employee/notifications')

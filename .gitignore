@@ -83,3 +83,16 @@ playwright-report/
 # Local run scratch: the dev env file, the three service logs, and any one-off script used
 # to drive the running stack. Holds a database password, so it is never committed.
 .local/
+
+# Local object storage for the dev driver — attachments, not source.
+.starlink-objects/
+
+# Service-account keys, wherever they land.
+#
+# A Firebase console download arrives as `<project>-firebase-adminsdk-<hash>.json` in
+# whatever directory the browser saves to — which on this machine was the repository
+# root. It was untracked but NOT ignored, so the next `git add -A` would have committed a
+# credential that can push to every device in the project. The file belongs in `.local/`;
+# this pattern is the guard for the time somebody forgets to move it.
+*-firebase-adminsdk-*.json
+*service-account*.json

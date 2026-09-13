@@ -19,7 +19,22 @@ export const CONVERSATION_LIST_CURSOR_CODEC = Symbol('SL_CONVERSATION_LIST_CURSO
 export const MESSAGE_STORE = Symbol('SL_MESSAGE_STORE');
 export const MESSAGE_READER = Symbol('SL_MESSAGE_READER');
 export const REACTION_STORE = Symbol('SL_REACTION_STORE');
+export const STAR_STORE = Symbol('SL_STAR_STORE');
+export const ARCHIVE_STORE = Symbol('SL_ARCHIVE_STORE');
+export const PIN_STORE = Symbol('SL_PIN_STORE');
+export const MESSAGE_INFO_STORE = Symbol('SL_MESSAGE_INFO_STORE');
+export const STATUS_STORE = Symbol('SL_STATUS_STORE');
+export const AVATAR_STORE = Symbol('SL_AVATAR_STORE');
+export const HIDDEN_MESSAGE_STORE = Symbol('SL_HIDDEN_MESSAGE_STORE');
 export const CONVERSATION_STORE = Symbol('SL_CONVERSATION_STORE');
+/**
+ * The channel POLICY store - the internal rooms, not the delivery transport.
+ *
+ * Named CHANNEL_STORE rather than CHANNEL_POLICY_STORE because the delivery side has no
+ * store of its own to be confused with; `packages/channels` is stateless and the sessions
+ * live under the conversation stores. If that ever changes, this is the name to qualify.
+ */
+export const CHANNEL_STORE = Symbol('SL_CHANNEL_STORE');
 export const CONVERSATION_READER = Symbol('SL_CONVERSATION_READER');
 export const READ_STATE_STORE = Symbol('SL_READ_STATE_STORE');
 export const EMPLOYEE_DIRECTORY = Symbol('SL_EMPLOYEE_DIRECTORY');
@@ -28,6 +43,7 @@ export const CUSTOMER_STORE = Symbol('SL_CUSTOMER_STORE');
 export const CATEGORY_READER = Symbol('SL_CATEGORY_READER');
 export const SEARCH_PROVIDER = Symbol('SL_SEARCH_PROVIDER');
 export const SEARCH_RATE_LIMITER = Symbol('SL_SEARCH_RATE_LIMITER');
+export const SIGN_IN_THROTTLE = Symbol('SL_SIGN_IN_THROTTLE');
 export const ROUTING_STORE = Symbol('SL_ROUTING_STORE');
 /** SL-083: one grouped read of a team's waiting work, ownership, SLA and capacity. */
 export const TEAM_LOAD_READER = Symbol('SL_TEAM_LOAD_READER');
@@ -45,6 +61,8 @@ export const ATTACHMENT_STORE = Symbol('SL_ATTACHMENT_STORE');
 export const OBJECT_STORAGE = Symbol('SL_OBJECT_STORAGE');
 export const ATTACHMENT_SCANNER = Symbol('SL_ATTACHMENT_SCANNER');
 export const NOTIFICATION_OUTBOX = Symbol('SL_NOTIFICATION_OUTBOX');
+/** FCM registration tokens, for the PUSH transport and the device routes. */
+export const DEVICE_TOKENS = Symbol('SL_DEVICE_TOKENS');
 export const NOTIFICATION_TRANSPORTS = Symbol('SL_NOTIFICATION_TRANSPORTS');
 export const NOTIFICATION_RECIPIENTS = Symbol('SL_NOTIFICATION_RECIPIENTS');
 export const NOTIFICATION_PREFERENCES = Symbol('SL_NOTIFICATION_PREFERENCES');

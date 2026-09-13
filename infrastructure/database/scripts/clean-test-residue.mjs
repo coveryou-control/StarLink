@@ -36,9 +36,15 @@ const FIXTURE_PREFIX = '018f2c5a-%';
  *
  * They were `018f2c5a-…` — the fixture prefix — so this file deleted all three, and every
  * conversation they had created with them. It reported success while doing it. They have
- * moved to `018f5eed-` (see `seed-dev-people.mjs`), and they are named here as well: a
- * prefix is a convention, and a convention is not what should stand between a cleanup
- * script and the accounts people use.
+ * moved to `018f5eed-` (see `seed-dev-people.mjs`), and every delete below carries an
+ * explicit `NOT LIKE` against that prefix as well — so a fixture prefix that ever widened
+ * would still not reach them. Two guards, not one: a prefix is a convention, and a
+ * convention is not what should stand between a cleanup script and the accounts people
+ * use.
+ *
+ * The comment said they were "named here as well". They are not, and never were — the
+ * protection is the second prefix, which is real but is not a list of usernames. Corrected
+ * on 2026-09-10 when two more accounts were added and the claim was checked.
  */
 const DEV_ACCOUNT_PREFIX = '018f5eed-%';
 const FIXTURE_TEAMS = ['isolation-team', 'durability-team', 'roles-test-team', 'exit-test-team', 'msgstore-team', 'api-demo-team', 'paging-team'];

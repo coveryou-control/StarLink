@@ -33,6 +33,9 @@ export interface AttachmentRecord {
   readonly declaredMime: string;
   readonly sniffedMime?: string;
   readonly declaredBytes: number;
+  /** Voice notes only — how long the recording runs, so a bubble can say so without
+      fetching the file. */
+  readonly durationMs?: number;
   readonly actualBytes?: number;
   readonly originalFilename?: string;
   readonly quarantineKey?: string;
@@ -59,6 +62,11 @@ const toRecord = (row: Record<string, unknown>): AttachmentRecord => ({
   ...(row.sniffed_mime !== null ? { sniffedMime: row.sniffed_mime as string } : {}),
   declaredBytes: Number(row.declared_bytes),
   ...(row.actual_bytes !== null ? { actualBytes: Number(row.actual_bytes) } : {}),
+  /* Voice notes only. Absent on everything else, and absent rather than zero: "this is
+     not audio" and "this audio is zero seconds long" are different facts. */
+  ...(row.duration_ms !== null && row.duration_ms !== undefined
+    ? { durationMs: Number(row.duration_ms) }
+    : {}),
   ...(row.original_filename !== null ? { originalFilename: row.original_filename as string } : {}),
   ...(row.quarantine_key !== null ? { quarantineKey: row.quarantine_key as string } : {}),
   ...(row.clean_key !== null ? { cleanKey: row.clean_key as string } : {}),
@@ -95,13 +103,18 @@ export class PgAttachmentStore {
     quarantineKey: string;
     at: Timestamp;
     unboundTtlSeconds: number;
+    /* Voice notes. The recorder is the only thing that knows how long it recorded for, so
+       this arrives from the client and is bounded before it gets here — see the intake
+       schema and the CHECK in migration 0029. */
+    durationMs?: number;
   }): Promise<void> {
     await this.pool.query(
       `INSERT INTO conversation.attachments
          (attachment_id, conversation_id, uploader_id, uploader_kind, declared_mime,
-          declared_bytes, original_filename, quarantine_key, state, created_at, expires_at)
+          declared_bytes, original_filename, quarantine_key, state, created_at, expires_at,
+          duration_ms)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'UPLOAD_GRANTED',$9,
-               $9::timestamptz + make_interval(secs => $10))`,
+               $9::timestamptz + make_interval(secs => $10), $11)`,
       [
         input.attachmentId,
         input.conversationId,
@@ -113,6 +126,7 @@ export class PgAttachmentStore {
         input.quarantineKey,
         input.at,
         input.unboundTtlSeconds,
+        input.durationMs ?? null,
       ],
     );
   }

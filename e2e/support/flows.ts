@@ -16,11 +16,19 @@ import { otpsIssued, uniqueMobile, waitForOtp } from './otp.js';
 
 export async function signIn(page: Page, who: keyof typeof CREDENTIALS): Promise<void> {
   await page.goto(`${ORIGINS.employeeWeb}/sign-in`);
-  /* The field is labelled "Work email" now, as the design labels it. The local IAM adapter
-     takes the local part of an address, so a bare username still signs in — which is why
-     the fixtures below did not have to grow a domain. */
-  await page.getByLabel('Work email').fill(CREDENTIALS[who].username);
-  await page.getByLabel('Password').fill(CREDENTIALS[who].password);
+  /* The field is labelled "Work ID or email", and the label is the contract this helper
+     depends on. It was "Work email"; the sign-in screen was changed to accept an
+     employee code, a username OR an address and the label changed with it — and this
+     suite was not, so every spec that signs in timed out waiting for a field that no
+     longer existed. Thirteen failures, one string.
+
+     The local IAM adapter takes the local part of an address, so a bare username still
+     signs in — which is why the fixtures below did not have to grow a domain. */
+  await page.getByLabel('Work ID or email').fill(CREDENTIALS[who].username);
+  /* `exact`, because the reveal control beside this field is labelled "Show password" -
+     an accessible name that has to say what it reveals - and a substring match on
+     "Password" resolves to both. `security-baseline.spec.ts` already did it this way. */
+  await page.getByLabel('Password', { exact: true }).fill(CREDENTIALS[who].password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL(/\/conversations/);
 }

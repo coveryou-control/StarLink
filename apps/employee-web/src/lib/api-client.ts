@@ -14,6 +14,16 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    /**
+     * The parsed error body, for the few refusals that carry structure worth acting on.
+     *
+     * Almost every refusal here is the indistinguishable 404 and has nothing to read (see
+     * `isRefusal`). The exception is a limit: the server answers a too-long voice note
+     * with the ceiling it broke, and the composer turns that into "longer than the
+     * 30-minute limit" instead of leaving somebody to guess how much shorter is short
+     * enough. Typed `unknown` because it is a wire value — a caller narrows it.
+     */
+    readonly body?: unknown,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -64,6 +74,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       response.status,
       detail.code ?? 'UNKNOWN',
       detail.message ?? `Request failed with ${response.status}.`,
+      body,
     );
   }
 
@@ -78,12 +89,76 @@ export interface MeResponse {
   readonly roles: readonly { role: string; scope: unknown }[];
   /** `TEMPORARY_AUTHORITY` until HRMS/Central IAM take over — shown, never hidden. */
   readonly authority: string;
+  /**
+   * This session, as far as ADR-008 can honestly describe it.
+   *
+   * Optional because an older server does not send it, and the settings row then renders a
+   * dash rather than inventing a value. There is deliberately no location and no MAC
+   * address — see the route for why neither can be produced honestly.
+   */
+  readonly session?: {
+    readonly startedAt: string;
+    readonly expiresAt: string;
+    readonly ip: string | null;
+  };
 }
 
 /** Just enough of a participant to name a conversation. Never contact details. */
 export interface ConversationParticipantRef {
   readonly principalId: string;
   readonly displayName: string;
+  /**
+   * Their role in THIS conversation.
+   *
+   * `CREATOR` marks whoever started it, and in a group that is the only person permitted
+   * to remove members (migration 0023). Optional, because a summary produced before this
+   * was carried simply has no answer — and an absent role must read as "not the admin"
+   * rather than as "unknown, allow it", which is rule 4 applied to a projection.
+   */
+  readonly role?: string;
+}
+
+/**
+ * A channel, as the directory and the details panel need it.
+ *
+ * `mayRead`, `mayPost`, `mayManage` and `mayJoin` are the SERVER's answers, not the
+ * client's guesses. The client never derives a permission from the three policy enums — it
+ * would be deriving `decide()` a second time in a different language, which is the
+ * divergence §38 records. It renders what it is told, and every action re-decides anyway.
+ */
+export interface ChannelSummary {
+  readonly conversationId: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly purpose: 'DEPARTMENT' | 'TEAM' | 'PROJECT' | 'OTHER';
+  readonly visibility: 'EVERYONE' | 'DEPARTMENTS' | 'SELECTED';
+  readonly readAccess: 'ANYONE_WHO_CAN_SEE' | 'MEMBERS';
+  readonly postAccess: 'ANYONE_WHO_CAN_READ' | 'MEMBERS' | 'ADMINS';
+  readonly archived: boolean;
+  readonly memberCount: number;
+  readonly membership: 'ADMIN' | 'MEMBER' | 'NONE';
+  readonly unreadCount: number;
+  readonly lastActivityAt: string;
+  readonly mayRead: boolean;
+  readonly mayPost: boolean;
+  readonly mayManage: boolean;
+  readonly mayJoin: boolean;
+}
+
+export interface ChannelAudienceEntry {
+  readonly scopeKind: 'DEPARTMENT' | 'TEAM' | 'PRINCIPAL';
+  readonly scopeId: string;
+}
+
+/** Everything a channel is created or edited with. The three questions plus its identity. */
+export interface ChannelPolicyInput {
+  readonly name: string;
+  readonly description?: string;
+  readonly purpose: ChannelSummary['purpose'];
+  readonly visibility: ChannelSummary['visibility'];
+  readonly readAccess: ChannelSummary['readAccess'];
+  readonly postAccess: ChannelSummary['postAccess'];
+  readonly audience: readonly ChannelAudienceEntry[];
 }
 
 export interface ConversationSummary {
@@ -101,7 +176,30 @@ export interface ConversationSummary {
   readonly lastActivityAt: string;
   readonly lastMessagePreview?: string;
   readonly participantCount: number;
+  /**
+   * Who created it — a group's admin (migration 0023).
+   *
+   * Carried so the members list can label the admin even when the admin is the READER:
+   * `participants` excludes the caller, so their own role is not in it and the badge was
+   * the one thing about a group its creator could not see.
+   */
+  readonly createdBy?: string;
   readonly unreadCount: number;
+  /**
+   * Who issued this announcement. Absent on every other conversation type.
+   *
+   * The CREATOR, not the newest sender — see the server's own note. On the one screen where
+   * attribution is the point, a reply from a second publisher must not rename the notice.
+   */
+  readonly publisherName?: string;
+  /**
+   * When a publisher pinned this announcement for EVERYBODY, if one has.
+   *
+   * A different pin from `pinned` below, which is this reader's own ordering of their own
+   * chat list and says nothing to anybody else. Three things in this product are called a
+   * pin; migration 0032 lists all three and why they are three.
+   */
+  readonly pinnedForEveryone?: string;
   /**
    * Enough for a list row to draw a tick on the newest message without opening the thread.
    *
@@ -117,19 +215,85 @@ export interface ConversationSummary {
    * Never optional: false is a real answer, and an absent flag would make "not pinned"
    * indistinguishable from "not asked", which is not a state a switch can be drawn from.
    *
-   * There is no mute. Being told a conversation needs you is not a per-thread preference —
-   * see migration 0018.
    */
   readonly pinned: boolean;
+  /**
+   * When this reader's mute of the thread runs out; absent when it is not muted.
+   *
+   * Mute was removed in migration 0018 and brought back by 0021 as a LEASE rather than a
+   * switch — every mute ends, and the longest is a day. That is why this is an instant and
+   * not a boolean: the menu says "Muted until 15:40", which is a thing somebody can act on,
+   * where "Muted" is a state they have to remember setting.
+   *
+   * §29.6 is untouched: a muted conversation still counts unread and still bolds its row.
+   * What is suppressed is the interruption, never the record.
+   */
+  readonly mutedUntil?: string;
   readonly readWatermark?: number;
 }
 
+/** A message held at the top of a conversation, for everybody in it. */
+export interface PinnedMessage {
+  readonly messageId: string;
+  readonly pinnedBy: string;
+  readonly pinnedByName: string;
+  readonly pinnedAt: string;
+  /** Empty when the message has been deleted since it was pinned. */
+  readonly body: string;
+  readonly senderPrincipalId?: string;
+  readonly senderDisplayName?: string;
+  readonly redacted: boolean;
+}
+
+/** Who has read one message — the "Message info" panel. The sender is not listed. */
+export interface MessageInfo {
+  readonly deliveredAt: string;
+  readonly senderPrincipalId?: string;
+  readonly readers: readonly {
+    readonly principalId: string;
+    readonly displayName: string;
+    /** Only present when they have actually read past this message. */
+    readonly readAt?: string;
+    readonly hasRead: boolean;
+  }[];
+}
+
+/**
+ * What somebody says they are doing — never inferred, and never routed on.
+ *
+ * `clearsAt` is absent only for AVAILABLE. Everything else expires, because a status that
+ * cannot go stale is one nobody remembers to clear, and a reader burned by that once stops
+ * believing any of them.
+ */
+export interface DeclaredStatusView {
+  readonly principalId: string;
+  readonly status: string;
+  readonly setAt: string;
+  readonly clearsAt?: string;
+}
+
 /** One file shared in a conversation, for the information panel. Metadata only. */
+/** A conversation matched by its title. Groups and announcements only — a 1:1 has none. */
+export interface ConversationTitleHit {
+  readonly conversationId: string;
+  readonly title: string;
+  readonly conversationType: string;
+  readonly participantCount: number;
+  readonly lastActivityAt: string;
+}
+
 export interface SharedFile {
   readonly attachmentId: string;
   readonly filename: string;
   readonly declaredBytes: number;
   readonly sharedAt: string;
+  /**
+   * The SNIFFED type, so the info panel can tell a picture from a contract.
+   *
+   * Absent on anything the scanner did not report one for, which is the fail-closed
+   * answer: no type means it is listed as a file rather than drawn as an image.
+   */
+  readonly contentType?: string;
   readonly uploadedBy?: string;
 }
 
@@ -140,6 +304,22 @@ export interface AttachmentView {
   readonly declaredBytes: number;
   /** Only BOUND is downloadable (§28.1); anything else is still being checked. */
   readonly state: string;
+  /**
+   * What the scanner read out of the bytes — not what the uploader claimed.
+   *
+   * The thread decides from this whether to draw a picture, a player or a file card, so it
+   * has to be the sniffed type: a client that could name its own content type could choose
+   * how its file is interpreted in every recipient's browser. Absent until the scan runs.
+   */
+  readonly contentType?: string;
+  /**
+   * Voice notes only: how long the recording runs, in milliseconds.
+   *
+   * Comes with the message so the bubble can label a play button without fetching the
+   * audio — a download grant is audited (§28.4), and issuing one per voice note on the
+   * page to draw a number would put reads in the ledger that nobody performed.
+   */
+  readonly durationMs?: number;
 }
 
 /** A structured mention, exactly as stored. Offsets index into `body`. */
@@ -182,6 +362,8 @@ export interface MessageView {
   readonly createdAt: string;
   readonly mentions?: readonly MentionView[];
   readonly reactions?: readonly ReactionView[];
+  /** Present only when the reader has starred it. Private — never another reader's. */
+  readonly starred?: boolean;
   /**
    * This client's own id for the message, echoed back by the server.
    *
@@ -230,6 +412,8 @@ export interface DirectoryEntry {
   readonly teams: readonly { teamId: string; displayName: string }[];
   readonly status: string;
   readonly authority: string;
+  /** `archit.bali`, rendered as `@archit.bali`. Absent when the directory has none. */
+  readonly username?: string;
   /**
    * The information panel's DETAILS list. Optional, all of them: the directory is HRMS's
    * and a field it does not carry must render as an absent row, never as a blank one.
@@ -300,6 +484,8 @@ export interface SearchHit {
   /** Who wrote it and when — see the contract for why the conversation's name is not here. */
   readonly createdAt?: string;
   readonly senderDisplayName?: string;
+  /** So the row can draw their photograph rather than their initials. */
+  readonly senderPrincipalId?: string;
 }
 
 /** An in-app notification (§29.2, §19.6). Body-free by design — it points, it does not tell. */
@@ -327,11 +513,17 @@ const query = (params: Record<string, string | number | undefined>): string => {
 export const api = {
   me: () => request<MeResponse>(employeeRoutes.auth.me),
 
-  /** Sign-in returns only the id; the shell then loads the full profile via `me()`. */
-  signIn: (username: string, password: string) =>
+  /**
+   * Sign-in returns only the id; the shell then loads the full profile via `me()`.
+   *
+   * `rememberMe` asks for a fourteen-day session instead of twelve hours. The server
+   * decides both numbers and sets the cookie to match — the client asks a question, it
+   * does not set a duration.
+   */
+  signIn: (username: string, password: string, rememberMe = false) =>
     request<{ principalId: string }>(employeeRoutes.auth.signIn, {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, rememberMe }),
     }),
 
   signOut: () => request<void>(employeeRoutes.auth.signOut, { method: 'POST' }),
@@ -342,14 +534,98 @@ export const api = {
    * Two destinations over one relation, split by the server so a page is a page. Defaulted,
    * so every existing call site keeps exactly the list it had.
    */
-  conversations: (options: { cursor?: string; limit?: number; scope?: 'announcements' } = {}) =>
+  conversations: (
+    options: { cursor?: string; limit?: number; scope?: 'announcements'; archived?: boolean } = {},
+  ) =>
     request<ConversationPage>(
       `${employeeRoutes.conversations.list}${query({
         cursor: options.cursor,
         limit: options.limit,
         scope: options.scope,
+        /* Only sent when asking for the archive. Omitted otherwise so every existing
+           caller's request is byte-for-byte what it was. */
+        ...(options.archived === true ? { archived: 'true' } : {}),
       })}`,
     ),
+
+  /* ------------------------------------------------------------------------ channels */
+
+  /**
+   * Every channel this person is allowed to know exists.
+   *
+   * Note what the server does NOT do: filter the list down to what they may read. A
+   * visible, members-only channel comes back with `mayRead: false`, because "there is a
+   * Technology channel and you are not in it" is the information that makes joining
+   * something a person can ask for rather than guess at.
+   */
+  channels: (options: { includeArchived?: boolean } = {}) =>
+    request<{ channels: readonly ChannelSummary[] }>(
+      `${employeeRoutes.channels.list}${
+        options.includeArchived === true ? '?includeArchived=true' : ''
+      }`,
+    ),
+
+  /** One channel, plus its audience when the caller may edit it. */
+  channel: (conversationId: string) =>
+    request<{ channel: ChannelSummary; audience?: readonly ChannelAudienceEntry[] }>(
+      employeeRoutes.channels.one(conversationId),
+    ),
+
+  /**
+   * Whether the caller may open one.
+   *
+   * A convenience, exactly like `mayAnnounce`: the POST decides again and that decision is
+   * the boundary. A reader shown a control that answers 404 learns the product is
+   * unreliable, which is worse than not seeing the control.
+   */
+  mayCreateChannel: () => request<{ mayCreate: boolean }>(employeeRoutes.channels.permission),
+
+  /**
+   * The departments and teams an audience may name.
+   *
+   * Fetched rather than typed. A free-text scope is how a channel ends up addressed to
+   * "Techonlogy" and reaches nobody — a misspelling behaves exactly like a blank while
+   * looking deliberate (§27.2).
+   */
+  channelScopes: () =>
+    request<{
+      departments: readonly string[];
+      teams: readonly { teamId: string; displayName: string }[];
+    }>(employeeRoutes.channels.scopes),
+
+  createChannel: (input: ChannelPolicyInput & { memberIds?: readonly string[] }) =>
+    request<{ conversationId: string }>(employeeRoutes.channels.create, {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
+  /** Replaces the whole policy. A partial edit is not offered — see the store's note. */
+  updateChannel: (conversationId: string, input: ChannelPolicyInput) =>
+    request<{ conversationId: string }>(employeeRoutes.channels.one(conversationId), {
+      method: 'PATCH',
+      body: JSON.stringify(input),
+    }),
+
+  setChannelArchived: (conversationId: string, archived: boolean) =>
+    request<{ conversationId: string; archived: boolean }>(
+      employeeRoutes.channels.archive(conversationId),
+      { method: 'POST', body: JSON.stringify({ archived }) },
+    ),
+
+  joinChannel: (conversationId: string) =>
+    request<{ conversationId: string; joined: boolean }>(
+      employeeRoutes.channels.join(conversationId),
+      { method: 'POST' },
+    ),
+
+  /**
+   * Has the caller ever been in a conversation?
+   *
+   * The empty thread pane asks, because an empty list means two different things and the
+   * right thing to say differs completely between them.
+   */
+  firstRun: () =>
+    request<{ hasEverConversed: boolean }>(employeeRoutes.conversations.firstRun),
 
   /** Opens an announcement addressed to every active employee. */
   announce: (title: string) =>
@@ -357,6 +633,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ title }),
     }),
+
+  /** Holds an announcement at the top of everybody's board, or lets it go. */
+  pinAnnouncement: (conversationId: string, pinned: boolean) =>
+    request<{ conversationId: string; pinned: boolean }>(
+      employeeRoutes.conversations.announcementPin(conversationId),
+      { method: 'POST', body: JSON.stringify({ pinned }) },
+    ),
 
   /**
    * Whether the caller may open one.
@@ -499,6 +782,16 @@ export const api = {
       method: 'DELETE',
     }),
 
+  /**
+   * Leave a group you are in.
+   *
+   * Not `removeParticipant(id, me)`: that route refuses self-removal outright, and
+   * refuses anybody who is not the group's creator. Two operations with different rules,
+   * kept apart here as well as on the server.
+   */
+  leaveConversation: (conversationId: string) =>
+    request<void>(employeeRoutes.conversations.leave(conversationId), { method: 'POST' }),
+
   /* ---------------------------------------------------- attachments (SL-054/055/056) */
 
   /**
@@ -514,7 +807,13 @@ export const api = {
    */
   requestUpload: (
     conversationId: string,
-    file: { filename: string; declaredMime: string; declaredBytes: number },
+    file: {
+      filename: string;
+      declaredMime: string;
+      declaredBytes: number;
+      /** Voice notes only. See `voice-note-limits.ts` for what the server does with it. */
+      durationMs?: number;
+    },
   ) =>
     request<{ attachmentId: string; uploadUrl: string; expiresAt: string }>(
       employeeRoutes.conversations.attachments(conversationId),
@@ -672,15 +971,62 @@ export const api = {
     ),
 
   /**
-   * Deletes one of the caller's OWN messages.
+   * Stars a message for the caller alone, or removes the star.
    *
-   * A redaction, not a row removal: the message stays in the thread with its text gone, so
-   * the sequence has no gap and a reply pointing at it still resolves.
+   * Private, unlike a reaction: no count comes back and nobody else can see it. `changed:
+   * false` means it was already in that state, which is a normal outcome rather than an
+   * error.
    */
-  deleteMessage: (conversationId: string, messageId: string) =>
-    request<{ redacted: boolean }>(
-      employeeRoutes.conversations.message(conversationId, messageId),
-      { method: 'DELETE' },
+  star: (conversationId: string, messageId: string) =>
+    request<{ changed: boolean }>(employeeRoutes.conversations.star(conversationId, messageId), {
+      method: 'POST',
+    }),
+
+  unstar: (conversationId: string, messageId: string) =>
+    request<{ changed: boolean }>(employeeRoutes.conversations.star(conversationId, messageId), {
+      method: 'DELETE',
+    }),
+
+  /** Everything the caller has starred, newest bookmark first, across every conversation. */
+  starred: () =>
+    request<{
+      starred: readonly {
+        messageId: string;
+        conversationId: string;
+        body: string;
+        senderPrincipalId: string;
+        senderDisplayName: string;
+        sentAt: string;
+        starredAt: string;
+      }[];
+    }>(employeeRoutes.starred),
+
+  /**
+   * Moves a conversation off the caller's list, or back onto it.
+   *
+   * Not leaving: participation, permissions and everybody else's view are untouched. This
+   * only decides which of the caller's own two lists it appears in.
+   */
+  archiveConversation: (conversationId: string) =>
+    request<{ changed: boolean }>(employeeRoutes.conversations.archive(conversationId), {
+      method: 'POST',
+    }),
+
+  restoreConversation: (conversationId: string) =>
+    request<{ changed: boolean }>(employeeRoutes.conversations.archive(conversationId), {
+      method: 'DELETE',
+    }),
+
+  /**
+   * Who reacted to one message, and with what.
+   *
+   * Fetched on demand rather than sent with the page: the listing carries only counts, so
+   * that "who is paying attention to whom" is not on the wire for every message somebody
+   * scrolls past. Ids only — the caller resolves names from the participants it holds.
+   */
+  reactors: (conversationId: string, messageId: string) =>
+    request<{ reactors: readonly { principalId: string; emoji: string; at: string }[] }>(
+      employeeRoutes.conversations.reactions(conversationId, messageId),
     ),
 
   unreact: (conversationId: string, messageId: string, emoji: string) =>
@@ -704,18 +1050,168 @@ export const api = {
     }),
 
   /** Sets this reader's preference for one thread. Today that is where it sits. */
-  setConversationPreferences: (conversationId: string, preferences: { pinned: boolean }) =>
-    request<{ pinned: boolean }>(employeeRoutes.conversations.preferences(conversationId), {
+  /**
+   * `limitReached` is a SUCCESSFUL response, not an error.
+   *
+   * The server caps pinning at `MAX_PINNED_CONVERSATIONS` inside the statement that writes,
+   * so the fourth pin is refused by the database rather than by a check that could race.
+   * That refusal comes back as `{ pinned: false, limitReached: true }` — the request was
+   * valid and the caller is allowed; they simply already have three. Throwing here would
+   * make the caller render "that could not be saved", which is both wrong and unhelpful.
+   */
+  setConversationPreferences: (
+    conversationId: string,
+    /*
+       Both optional, and at least one required by the server. Pinning and muting are
+       independent, and sending only the one being changed means a mute cannot silently
+       clear a pin set in another tab.
+
+       `muteMinutes` is a duration, never an instant: see the route's own note on why the
+       browser must not be the thing deciding when "an hour from now" is.
+    */
+    preferences: { pinned?: boolean; muteMinutes?: number | null },
+  ) =>
+    request<{
+      pinned?: boolean;
+      mutedUntil?: string | null;
+      limitReached?: boolean;
+      maxPinned?: number;
+    }>(
+      employeeRoutes.conversations.preferences(conversationId),
+      {
+        method: 'PUT',
+        body: JSON.stringify(preferences),
+      },
+    ),
+
+  /**
+   * What is pinned in this conversation, newest first.
+   *
+   * A redacted pin comes back with `redacted: true` and an empty body rather than being
+   * omitted — see the store. The panel renders it as "this message was deleted", which is
+   * the only thing that gives somebody a reason to unpin it.
+   */
+  pins: (conversationId: string) =>
+    request<{ pins: readonly PinnedMessage[] }>(employeeRoutes.conversations.pins(conversationId)),
+
+  pinMessage: (conversationId: string, messageId: string) =>
+    request<{ pinned: boolean; changed: boolean }>(
+      employeeRoutes.conversations.pin(conversationId, messageId),
+      { method: 'PUT' },
+    ),
+
+  unpinMessage: (conversationId: string, messageId: string) =>
+    request<{ pinned: boolean; changed: boolean }>(
+      employeeRoutes.conversations.pin(conversationId, messageId),
+      { method: 'DELETE' },
+    ),
+
+  /** Who has read one message, and when it was delivered. */
+  messageInfo: (conversationId: string, messageId: string) =>
+    request<MessageInfo>(employeeRoutes.conversations.messageInfo(conversationId, messageId)),
+
+  /**
+   * Sends this message on to another conversation.
+   *
+   * One destination per call. A list would force a partial-success answer nobody can act
+   * on; four requests can each be reported on.
+   */
+  forwardMessage: (conversationId: string, messageId: string, toConversationId: string) =>
+    request<{ messageId: string; conversationId: string }>(
+      employeeRoutes.conversations.forward(conversationId, messageId),
+      { method: 'POST', body: JSON.stringify({ toConversationId }) },
+    ),
+
+  /**
+   * What the caller says they are doing.
+   *
+   * Distinct from presence, which is a realtime lease and says only "connected" — see the
+   * status controller for why the two are shown together and never merged.
+   */
+  myStatus: () => request<DeclaredStatusView>(employeeRoutes.auth.status),
+
+  /**
+   * Sets it. `minutes` is a duration, and the server dates the expiry from its own clock.
+   *
+   * Required for everything except AVAILABLE and refused for AVAILABLE: that one is the
+   * absence of a claim, and giving it an expiry would mean "I stop being available in an
+   * hour", which is a different statement.
+   */
+  setMyStatus: (status: string, minutes?: number) =>
+    request<{ status: string; clearsAt: string | null }>(employeeRoutes.auth.status, {
       method: 'PUT',
-      body: JSON.stringify(preferences),
+      body: JSON.stringify(minutes === undefined ? { status } : { status, minutes }),
     }),
+
+  /**
+   * Statuses for the colleagues currently on screen.
+   *
+   * AVAILABLE is omitted and a lapsed status is omitted, so an id missing from the answer
+   * means "nothing to say" — which is what lets the caller treat absence as the default
+   * rather than having to filter.
+   */
+  statusesFor: (principalIds: readonly string[]) =>
+    request<{ statuses: readonly DeclaredStatusView[] }>(
+      `${employeeRoutes.statuses}?ids=${principalIds.join(',')}`,
+    ),
+
+  /**
+   * Sets the caller's own picture.
+   *
+   * The bytes have already been through a canvas on the client — see `avatar-picker.tsx`,
+   * which is where the safety comes from. The server re-checks size, type and the bytes'
+   * own signature regardless, because a caller can skip the client.
+   */
+  setMyAvatar: (base64: string, contentType = 'image/png') =>
+    request<{ updatedAt: string }>(employeeRoutes.auth.avatar, {
+      method: 'PUT',
+      body: JSON.stringify({ base64, contentType }),
+    }),
+
+  removeMyAvatar: () =>
+    request<{ removed: boolean }>(employeeRoutes.auth.avatar, { method: 'DELETE' }),
+
+  /** Tell the server this browser can receive a push. Idempotent; see the controller. */
+  registerDevice: (
+    token: string,
+    platform: 'WEB' | 'ANDROID' | 'IOS' = 'WEB',
+    /* This device's quiet window, so the SERVER can decide whether to buzz it. It was
+       applied only in the browser, which works for an in-app notification and not at
+       all for a push: by the time this tab could consult a preference the phone has
+       already lit up. Absent means always deliver. */
+    quiet?: { from: string; to: string; timeZone: string },
+  ) =>
+    request<{ registered: boolean; wasKnown: boolean }>(employeeRoutes.devices, {
+      method: 'POST',
+      body: JSON.stringify({ token, platform, ...(quiet !== undefined ? { quiet } : {}) }),
+    }),
+
+  /** Stop sending push to this browser. */
+  forgetDevice: (token: string) =>
+    request<{ forgotten: boolean }>(employeeRoutes.device(token), { method: 'DELETE' }),
+
+  setConversationAvatar: (conversationId: string, base64: string, contentType = 'image/png') =>
+    request<{ updatedAt: string }>(employeeRoutes.conversations.avatar(conversationId), {
+      method: 'PUT',
+      body: JSON.stringify({ base64, contentType }),
+    }),
+
+  /**
+   * Which of these people have a picture, and when each last changed.
+   *
+   * Stamps, not bytes: the list draws thirty avatars and needs to know which of them to
+   * point at an image and what to hang on the URL so a changed one is not served from
+   * cache. Fetching the images to decide whether to draw initials would move megabytes.
+   */
+  avatarStamps: (principalIds: readonly string[]) =>
+    request<{ avatars: readonly { id: string; updatedAt: string }[] }>(
+      `${employeeRoutes.avatarStamps}?ids=${principalIds.join(',')}`,
+    ),
 
   /** Ends every session this account holds, including this browser's. */
   signOutEverywhere: () =>
     request<void>(employeeRoutes.auth.signOutEverywhere, { method: 'POST' }),
 
-  /** What this account has uploaded that is still reachable. */
-  storage: () => request<{ files: number; bytes: number }>(employeeRoutes.auth.storage),
 
   /** Everything BOUND in a conversation, newest first. */
   sharedFiles: (conversationId: string) =>
@@ -778,5 +1274,17 @@ export const api = {
   search: (term: string, conversationId?: string) =>
     request<{ matched: boolean; results: readonly SearchHit[] }>(
       `${employeeRoutes.search.messages}${query({ q: term, conversationId })}`,
+    ),
+
+  /**
+   * Conversations whose title matches.
+   *
+   * Its own call rather than a facet of `search`, for the same reason `searchFiles` is:
+   * that route is rate-limited and audited as a CONTENT search, and a title match reads no
+   * message body.
+   */
+  searchConversations: (term: string) =>
+    request<{ conversations: readonly ConversationTitleHit[] }>(
+      `${employeeRoutes.search.conversations}${query({ q: term })}`,
     ),
 };

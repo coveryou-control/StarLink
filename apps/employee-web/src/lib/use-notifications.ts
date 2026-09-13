@@ -51,6 +51,26 @@ export interface NotificationsState {
 export function useNotifications(
   principalId: string,
   onUnauthenticated?: () => void,
+  /**
+   * Conversations this person has quietened, and until when.
+   *
+   * ## Why mute is applied HERE and not on the server
+   *
+   * §29.6 makes the in-app unread count a fact rather than a preference, and the
+   * notification rows ARE that mechanism. Filtering them server-side would take the
+   * conversation out of the unread count, which is precisely what mute must not do — you
+   * are meant to see everything you missed, just not be pulled away from your work to see
+   * it as it happens.
+   *
+   * So the record is untouched and only the INTERRUPTION is suppressed: no tone, no
+   * system notification. The row still arrives, the badge still counts it, the list still
+   * bolds it.
+   *
+   * Passed in rather than fetched, because the shell already holds the conversation list
+   * that carries `mutedUntil` and a second request for the same facts could disagree with
+   * the first.
+   */
+  mutedUntil?: ReadonlyMap<string, string>,
 ): NotificationsState {
   const [unread, setUnread] = useState(0);
   const [items, setItems] = useState<readonly NotificationView[]>([]);
@@ -166,7 +186,22 @@ export function useNotifications(
       typeof window === 'undefined'
         ? undefined
         : /\/conversations\/([0-9a-f-]{36})/.exec(window.location.pathname)?.[1];
-    const elsewhere = wanted.filter(
+    /*
+       A muted conversation makes no noise and raises nothing.
+
+       Evaluated against the clock at the moment the notification arrives, not at the
+       moment the list was fetched: a fifteen-minute mute set from this tab is over
+       fifteen minutes later whether or not anything has re-read the list since, and a
+       stale `mutedUntil` must expire on its own rather than keep quietening things.
+    */
+    const audible = wanted.filter((item) => {
+      if (item.targetRef === undefined) return true;
+      const until = mutedUntil?.get(item.targetRef);
+      return until === undefined || Date.parse(until) <= Date.now();
+    });
+    if (audible.length === 0) return;
+
+    const elsewhere = audible.filter(
       (item) => hidden || item.targetRef === undefined || item.targetRef !== openConversation,
     );
     if (elsewhere.length > 0) playNotificationTone();
@@ -177,8 +212,8 @@ export function useNotifications(
        on the lock screen the way every other app's does.
     */
     if (!hidden) return;
-    for (const item of wanted) raiseDeviceNotification(item.subject, item.targetRef);
-  }, [items]);
+    for (const item of audible) raiseDeviceNotification(item.subject, item.targetRef);
+  }, [items, mutedUntil]);
 
   const load = useCallback(async () => {
     setLoading(true);

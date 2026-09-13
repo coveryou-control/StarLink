@@ -1,16 +1,22 @@
 'use client';
 
-import { Fragment, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { api, ApiError, type AttachmentView } from '../lib/api-client';
-import { extensionOf, formatBytes } from './attachment-picker';
+import { documentFamily, extensionOf, formatBytes } from './attachment-picker';
+import { AttachmentMedia, mediaKindOf } from './attachment-media';
+import { MediaGalleryProvider, type GalleryItem } from './media-gallery';
+import { VoiceNote, isVoiceNote } from './voice-note';
+import { AvatarImage } from './avatar-image';
 import { deliveryTick, type DeliveryTick } from '@starlink/shared-contracts';
-import { initialsFor, senderColour } from './conversation-naming';
+import { initialsFor } from './conversation-naming';
+import { distinctIdentityHues, identityStyleFrom } from '../lib/identity-colour';
 import { crossesDay, daySeparatorLabel, unreadDividerIndex } from './timeline';
 import { splitBody } from '../lib/mention-draft';
 import { MessageActions } from './message-actions';
 import { MessageContextMenu } from './message-context-menu';
+import { ReactionDetails } from './reaction-details';
 
 import type { MessageView } from '../lib/api-client';
 import type { PendingSend } from './composer';
@@ -70,7 +76,20 @@ interface MessageListProps {
   /** Toggles one of the reader's own reactions. Absent means the surface offers none. */
   readonly onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
   readonly onEdit?: ((message: MessageView) => void) | undefined;
-  readonly onDelete?: ((message: MessageView) => void) | undefined;
+  /** The message currently being corrected in place, if any. */
+  readonly editingMessageId?: string | undefined;
+  /** Commit the correction. The caller decides what "unchanged" means and may ignore it. */
+  readonly onSubmitEdit?: ((message: MessageView, body: string) => void) | undefined;
+  readonly onCancelEdit?: (() => void) | undefined;
+  /** Message ids currently pinned for everybody in the conversation. */
+  readonly pinnedIds?: ReadonlySet<string> | undefined;
+  readonly onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
+  readonly onForward?: ((message: MessageView) => void) | undefined;
+  readonly onToggleStar?: ((message: MessageView, next: boolean) => void) | undefined;
+  /** Needed to fetch who reacted, which is a per-message read the page does not carry. */
+  readonly conversationId?: string | undefined;
+  readonly participants?: readonly { principalId: string; displayName: string }[] | undefined;
+  readonly onMessageInfo?: ((message: MessageView) => void) | undefined;
   /**
    * How far every OTHER participant has read. Zero means nobody, or somebody has not.
    *
@@ -79,6 +98,18 @@ interface MessageListProps {
    * in the domain package for why it is a minimum and why it resolves downward.
    */
   readonly readWatermark?: number;
+  /**
+   * What to say when a CHANNEL has no messages yet.
+   *
+   * Absent for a chat or a group, which keep "say hello". A channel is a persistent room
+   * that exists whether or not anybody has written in it, so the empty state names the
+   * room and its purpose instead of asking somebody to greet a department.
+   */
+  readonly channelIntro?: {
+    readonly name: string;
+    readonly description?: string;
+    readonly memberCount: number;
+  };
 }
 
 /**
@@ -100,10 +131,61 @@ export function MessageList({
   unreadOnOpen = 0,
   onReact,
   onEdit,
-  onDelete,
+  editingMessageId,
+  onSubmitEdit,
+  onCancelEdit,
+  pinnedIds,
+  onTogglePin,
+  onForward,
+  onToggleStar,
+  conversationId,
+  participants,
+  onMessageInfo,
   readWatermark = 0,
+  channelIntro,
 }: MessageListProps): ReactNode {
   if (messages.length === 0 && pending.length === 0) {
+    /*
+       A channel that nobody has written in yet is a PLACE, not a blank chat.
+
+       "Say hello — this is the beginning of the conversation" is right for a thread
+       between two people and wrong for a department space: nobody says hello to
+       #Compliance, and a persistent room that exists whether or not anyone is talking is
+       precisely the thing the copy was denying. What somebody arriving needs to know is
+       what the room is for and who is in it, which is exactly what the directory row
+       promised them on the way in.
+
+       Centred in a full-height pane either way — but this one has something to say, so
+       the blankness reads as a room waiting rather than a screen that failed to load.
+    */
+    if (channelIntro !== undefined) {
+      return (
+        <div className="thread-empty">
+          <div className="channel-intro">
+            <span className="channel-intro-mark" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="26" height="26" focusable="false">
+                <path
+                  d="M9.4 4 7.8 20M16.2 4l-1.6 16M4.6 9h15M3.8 15h15"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </span>
+            <h3>{channelIntro.name}</h3>
+            {channelIntro.description !== undefined ? (
+              <p className="channel-intro-purpose">{channelIntro.description}</p>
+            ) : null}
+            <p className="channel-intro-meta">
+              {channelIntro.memberCount} {channelIntro.memberCount === 1 ? 'member' : 'members'}
+              {' · '}
+              This is the beginning of the channel.
+            </p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="thread-empty">
         <p className="state-note">
@@ -114,9 +196,79 @@ export function MessageList({
     );
   }
 
+  /**
+   * One colour each, for the people in THIS thread.
+   *
+   * Built from the senders actually present rather than from the participant list: a group
+   * of forty with four people talking should spend four colours, not four out of forty. The
+   * hash alone cannot promise distinctness - nine hues and five speakers collide 41% of the
+   * time - so `distinctIdentityHues` settles it, deterministically and independently of the
+   * order the messages arrived in.
+   *
+   * Memoised on the sender ids, so scrolling, reacting and a new message from somebody
+   * already here do not rebuild it.
+   */
+  const senderKey = messages
+    .map((m) => m.senderPrincipalId ?? '')
+    .filter((id) => id !== '')
+    .sort()
+    .join(',');
+  const identityHues = useMemo(
+    () => distinctIdentityHues(senderKey === '' ? [] : senderKey.split(',')),
+    [senderKey],
+  );
+
   const dividerAt = unreadDividerIndex(messages, currentPrincipalId, unreadOnOpen);
 
+  /**
+   * Every picture and video in this thread, in the order they were sent.
+   *
+   * Assembled here because this is the only component that knows the ORDER — a viewer
+   * built from what the bubbles happened to fetch would page in scroll order, or in
+   * whichever order the grants came back. A voice note is deliberately absent: it is a
+   * control, not something to look at, and putting one in a picture gallery would be a
+   * blank frame between two photographs.
+   *
+   * Memoised on the message ids so reacting, editing or a read receipt landing does not
+   * rebuild the strip under somebody's finger.
+   */
+  const galleryKey = messages.map((message) => message.messageId).join(',');
+  const galleryItems = useMemo<readonly GalleryItem[]>(() => {
+    const collected: GalleryItem[] = [];
+    for (const message of messages) {
+      for (const file of message.attachments ?? []) {
+        if (isVoiceNote(file)) continue;
+        const kind = mediaKindOf(file);
+        if (kind === undefined) continue;
+        collected.push({
+          attachmentId: file.attachmentId,
+          kind,
+          filename: file.filename,
+          declaredBytes: file.declaredBytes,
+          senderDisplayName: message.senderDisplayName,
+          senderPrincipalId: message.senderPrincipalId,
+          sentAt: message.createdAt,
+          mine: message.senderPrincipalId === currentPrincipalId,
+        });
+      }
+    }
+    return collected;
+    /*
+       `galleryKey` stands in for `messages`, deliberately and by hand.
+
+       The array's identity changes on every poll, so depending on it would rebuild this
+       list - and the strip's scroll position with it - several times a minute under
+       somebody's finger. The ids are what actually decide the contents.
+
+       There is no `react-hooks/exhaustive-deps` rule configured in this repository, so
+       nothing checks the claim mechanically and no disable comment is possible either:
+       naming a rule ESLint does not have is itself a build error. Keep this list correct
+       by hand, as `attachment-picker.tsx` does for the same reason.
+    */
+  }, [galleryKey, currentPrincipalId]);
+
   return (
+    <MediaGalleryProvider items={galleryItems}>
     <ol aria-label="Messages" className="thread">
       {messages.map((message, index) => (
         <Fragment key={message.messageId}>
@@ -159,12 +311,22 @@ export function MessageList({
               : messages.find((m) => m.messageId === message.replyToMessageId)
           }
           onReply={onReply}
+          pinnedIds={pinnedIds}
+          onTogglePin={onTogglePin}
+          onForward={onForward}
+          onToggleStar={onToggleStar}
+          conversationId={conversationId}
+          participants={participants}
+          onMessageInfo={onMessageInfo}
           conversationIsInternal={conversationIsInternal}
           isGroup={isGroup}
           currentPrincipalId={currentPrincipalId}
           onReact={onReact}
           onEdit={onEdit}
-          onDelete={onDelete}
+          identityHues={identityHues}
+          editingMessageId={editingMessageId}
+          onSubmitEdit={onSubmitEdit}
+          onCancelEdit={onCancelEdit}
         />
         </Fragment>
       ))}
@@ -177,6 +339,7 @@ export function MessageList({
         />
       ))}
     </ol>
+    </MediaGalleryProvider>
   );
 }
 
@@ -193,6 +356,93 @@ export function MessageList({
  * prevent. A note always starts its own turn.
  */
 const TURN_WINDOW_MS = 5 * 60 * 1000;
+
+/**
+ * A message being corrected, in place.
+ *
+ * Enter commits and Shift+Enter adds a line, matching the composer — a person editing a
+ * message is in the same mode of thought they were in when they wrote it, and two different
+ * meanings for one key in one thread is the kind of detail that makes software feel
+ * arbitrary. Escape cancels, and so does clicking away.
+ *
+ * The textarea grows with its content rather than scrolling inside three fixed rows: a
+ * correction to a long message must show the long message, or the person is editing
+ * something they cannot see.
+ */
+function MessageEditor({
+  message,
+  onSubmit,
+  onCancel,
+}: {
+  readonly message: MessageView;
+  readonly onSubmit: (body: string) => void;
+  readonly onCancel: () => void;
+}): React.JSX.Element {
+
+  const [text, setText] = useState(message.body);
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    const field = ref.current;
+    if (field === null) return;
+    field.focus();
+    /* Caret at the END, not selecting everything. A correction is usually a word at the
+       end or a typo in the middle; select-all means the first keystroke destroys the
+       message, which is the one outcome an edit must not make easy. */
+    field.setSelectionRange(field.value.length, field.value.length);
+  }, []);
+
+  /* Grown on every change rather than on mount alone, so pasting a paragraph in opens the
+     field rather than hiding it behind a scrollbar. */
+  useEffect(() => {
+    const field = ref.current;
+    if (field === null) return;
+    field.style.height = 'auto';
+    field.style.height = `${Math.min(field.scrollHeight, 260)}px`;
+  }, [text]);
+
+  const commit = (): void => {
+    const next = text.trim();
+    if (next === '' || next === message.body) {
+      onCancel();
+      return;
+    }
+    onSubmit(next);
+  };
+
+  return (
+    <div className="message-editing">
+      <textarea
+        ref={ref}
+        className="message-edit-field"
+        value={text}
+        rows={1}
+        aria-label="Edit this message"
+        onChange={(event) => setText(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onCancel();
+            return;
+          }
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            commit();
+          }
+        }}
+      />
+      <div className="message-edit-actions">
+        <span className="message-edit-hint">Enter to save · Esc to cancel</span>
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button type="button" className="primary" onClick={commit}>
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function continuesTurn(previous: MessageView | undefined, current: MessageView): boolean {
   if (previous === undefined) return false;
@@ -216,7 +466,17 @@ function MessageRow({
   currentPrincipalId,
   onReact,
   onEdit,
-  onDelete,
+  identityHues,
+  editingMessageId,
+  onSubmitEdit,
+  onCancelEdit,
+  pinnedIds,
+  onTogglePin,
+  onForward,
+  onToggleStar,
+  conversationId,
+  participants,
+  onMessageInfo,
   readWatermark,
 }: {
   message: MessageView;
@@ -231,7 +491,18 @@ function MessageRow({
   currentPrincipalId: string;
   onReact?: ((messageId: string, emoji: string, on: boolean) => void) | undefined;
   onEdit?: ((message: MessageView) => void) | undefined;
-  onDelete?: ((message: MessageView) => void) | undefined;
+  /** @see MessageList - one hue per speaker, distinct within this conversation. */
+  identityHues: ReadonlyMap<string, number>;
+  editingMessageId?: string | undefined;
+  onSubmitEdit?: ((message: MessageView, body: string) => void) | undefined;
+  onCancelEdit?: (() => void) | undefined;
+  pinnedIds?: ReadonlySet<string> | undefined;
+  onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
+  onForward?: ((message: MessageView) => void) | undefined;
+  onToggleStar?: ((message: MessageView, next: boolean) => void) | undefined;
+  conversationId?: string | undefined;
+  participants?: readonly { principalId: string; displayName: string }[] | undefined;
+  onMessageInfo?: ((message: MessageView) => void) | undefined;
   readWatermark: number;
 }): ReactNode {
   /**
@@ -275,12 +546,80 @@ function MessageRow({
 
   /** Where the context menu was summoned, or absent when it is closed. */
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | undefined>();
+  /**
+   * An in-flight touch long-press: where it began, and the timer that will open the menu.
+   *
+   * A ref rather than state — it changes on every pointer move and must not re-render a
+   * row of a list that can be hundreds long.
+   */
+  const longPress = useRef<
+    { from: { x: number; y: number }; timer: ReturnType<typeof setTimeout> } | undefined
+  >(undefined);
+
+  /* A row can unmount mid-press — a re-fetch replaces the list — and a timer that fires
+     afterwards would open a menu for a message no longer on screen. */
+  useEffect(
+    () => () => {
+      if (longPress.current !== undefined) clearTimeout(longPress.current.timer);
+    },
+    [],
+  );
+  /** Which chip's detail panel is open, if any. */
+  /*
+     Which chip was asked about, AND where that chip is.
+
+     The emoji alone was not enough. The panel was positioned at the message stack's edge,
+     so on a message carrying three chips all three opened the same panel in the same place
+     — measured at x 1152..1412 whichever of them was pressed, which is a panel that answers
+     a question without saying which one it answered. The offset travels with the emoji so
+     the panel can point at the thing that opened it.
+  */
+  const [detailsFor, setDetailsFor] = useState<
+    { readonly emoji: string; readonly left: number; readonly caret: number } | undefined
+  >();
 
   return (
     <li
       className={`message-row${isCustomerNote ? ' internal' : ''}${isMine ? ' mine' : ''}${
         grouped ? ' grouped' : ''
-      }${showHead ? ' with-head' : ''}`}
+      }${showHead ? ' with-head' : ''}${
+        message.redactedAt === undefined && isSoleEmoji(message.body) ? ' sole-emoji' : ''
+      }${
+        /*
+           A message that is ONLY a picture, decided here rather than in CSS.
+
+           The stylesheet tried `:not(:has(.message-body:not(:empty)))` and never matched:
+           `.message-body` renders mention-split spans, so it has child nodes and is not
+           `:empty` even when the text is blank. The component knows the difference between
+           "no words" and "an element containing no words", and it is the only one that
+           does.
+        */
+        message.body.trim() === '' &&
+        (message.attachments ?? []).some((file) => mediaKindOf(file) !== undefined)
+          ? ' media-only'
+          : ''
+      }${
+        /*
+           A picture WITH something written under it, which is a different shape again.
+
+           `media-only` covers the caption-less case and got the layout right there. With a
+           caption the bubble stayed a wrapping flex ROW, so the words landed BESIDE the
+           picture and the bubble grew to hold both — measured at 543x176 around a 302px
+           video, a quarter of a screen of empty bubble beside a caption of four words.
+
+           A caption belongs under the thing it captions. The bubble is a column here, and
+           this class is what says so; the stylesheet cannot work it out, for the same
+           reason `media-only` is decided in the component.
+        */
+        message.body.trim() !== '' &&
+        (message.attachments ?? []).some((file) => mediaKindOf(file) !== undefined)
+          ? ' media-caption'
+          : ''
+      }`}
+      /* The anchor the pinned bar scrolls to. An id attribute rather than a ref map: the
+         list is virtualised by nothing and remounts freely, and a map of refs would need
+         clearing on every page load to avoid pointing at detached nodes. */
+      data-message-id={message.messageId}
       /*
         Right-click opens the message's actions — see `message-context-menu.tsx`.
 
@@ -295,6 +634,76 @@ function MessageRow({
         event.preventDefault();
         setMenuAt({ x: event.clientX, y: event.clientY });
       }}
+      /*
+         The same menu, from a long press.
+
+         On a phone there was no way to reach any of this. `contextmenu` is not dispatched
+         by a touch long-press on Android Chrome, and iOS Safari answers it with its own
+         selection callout — so Reply, Copy, Forward, Pin, Save, Edit, Delete and Message
+         info were all unreachable, which is most of what the product does with a message.
+         Tapping did nothing either; the react button was the only control a finger could
+         find.
+
+         Held for 500ms, cancelled by movement. The movement check is what keeps this from
+         eating scrolls: a finger that travels more than ten pixels is scrolling the thread,
+         not pressing a message, and the timer is dropped without opening anything.
+      */
+      onPointerDown={(event) => {
+        if (event.pointerType !== 'touch' || message.redactedAt !== undefined) return;
+        const start = { x: event.clientX, y: event.clientY };
+        longPress.current = {
+          from: start,
+          timer: setTimeout(() => {
+            longPress.current = undefined;
+            setMenuAt(start);
+          }, 500),
+        };
+      }}
+      onPointerMove={(event) => {
+        const held = longPress.current;
+        if (held === undefined) return;
+        const moved =
+          Math.abs(event.clientX - held.from.x) + Math.abs(event.clientY - held.from.y);
+        if (moved <= 10) return;
+        clearTimeout(held.timer);
+        longPress.current = undefined;
+      }}
+      onPointerUp={() => {
+        if (longPress.current === undefined) return;
+        clearTimeout(longPress.current.timer);
+        longPress.current = undefined;
+      }}
+      onPointerCancel={() => {
+        if (longPress.current === undefined) return;
+        clearTimeout(longPress.current.timer);
+        longPress.current = undefined;
+      }}
+      /*
+         The same menu, from the keyboard.
+
+         Reply used to be a button on the hover bar and is now only in this menu, so a menu
+         that opens on right-click alone would put Reply, Edit and Delete out of reach of
+         anybody not using a mouse — NFR-ACC-1 requires the product to be fully operable
+         from a keyboard, and "fully" is doing real work in that sentence.
+
+         `ContextMenu` is the dedicated key; `Shift+F10` is what keyboards without one use,
+         and what most screen-reader users press by habit. The handler sits on the ROW and
+         catches the event as it bubbles from whatever inside it has focus — in practice
+         the react button, which is already a tab stop. That is deliberately not the same
+         as making every message focusable: a thread of two hundred messages would then be
+         two hundred tab stops between the list and the composer.
+
+         Anchored to the focused element's own rect rather than to a pointer that was never
+         used, so the menu opens beside the control the person can see.
+      */
+      onKeyDown={(event) => {
+        if (message.redactedAt !== undefined) return;
+        const wanted = event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10');
+        if (!wanted) return;
+        event.preventDefault();
+        const box = (event.target as HTMLElement).getBoundingClientRect();
+        setMenuAt({ x: box.left, y: box.bottom });
+      }}
     >
       {/*
         An avatar gutter on the left, filled once per turn.
@@ -306,11 +715,24 @@ function MessageRow({
       */}
       {!isMine ? (
         <span
-          className="message-avatar"
+          className={`message-avatar${grouped ? '' : ' identity'}`}
           aria-hidden="true"
-          style={grouped ? undefined : { color: senderColour(message.senderPrincipalId) }}
+          /* The whole pair, not just the ink. This used to set `color` alone over a fixed
+             `--accent-soft` circle, so the same person was a blue R here and a brick R in
+             the list — on an identical pink disc in both. */
+          style={grouped ? undefined : identityStyleFrom(identityHues, message.senderPrincipalId)}
         >
           {grouped ? '' : initialsFor(message.senderDisplayName)}
+          {/*
+            The person's actual PHOTO, over the initials.
+
+            The initials were the whole avatar here, so somebody who had set a profile
+            picture saw it in the chat header and in the conversation list and then two
+            letters beside every line they wrote. `AvatarImage` renders nothing when there
+            is no picture, so the initials underneath are the fallback rather than a
+            competing layer - the same arrangement the list row and the header already use.
+          */}
+          {grouped ? null : <AvatarImage principalId={message.senderPrincipalId} alt="" />}
         </span>
       ) : null}
 
@@ -333,10 +755,10 @@ function MessageRow({
       {showHead ? (
         <div className="message-head">
           <strong
-            className="author"
+            className="author identity-ink"
             /* A stable hue per person, so "who said this" is a glance rather than a read
                in a group. Never the only signal — the name is right there. */
-            style={{ color: senderColour(message.senderPrincipalId) }}
+            style={identityStyleFrom(identityHues, message.senderPrincipalId)}
           >
             {message.senderDisplayName}
           </strong>
@@ -409,6 +831,27 @@ function MessageRow({
         <div className="message-body message-deleted">
           <span aria-hidden="true">🚫 </span>This message was deleted
         </div>
+      ) : editingMessageId === message.messageId && onSubmitEdit !== undefined ? (
+        /*
+           Correcting a message happens IN the message.
+
+           It used to be `window.prompt`, whose own comment called it deliberate and
+           temporary: an inline editor "has to grow, keep the caret, handle Escape and Enter,
+           preserve mentions across the edit and reconcile with the optimistic row". All
+           true, and all cheaper than what the prompt actually costs — a modal dialog drawn
+           by the browser, titled with the origin ("localhost:3010 says"), which blocks the
+           page, cannot be styled, and looks to a person exactly like the alert a website
+           shows when something has gone wrong.
+
+           The mentions survive because the SERVER re-parses them from the text (see
+           `revise-message.ts`); the client never had to preserve them, which was the part
+           that looked expensive.
+        */
+        <MessageEditor
+          message={message}
+          onSubmit={(body) => onSubmitEdit(message, body)}
+          onCancel={() => onCancelEdit?.()}
+        />
       ) : (
       <div className="message-body">
         {splitBody(message.body, message.mentions ?? []).map((part, index) =>
@@ -444,11 +887,37 @@ function MessageRow({
       */}
       {message.attachments !== undefined && message.attachments.length > 0 ? (
         <ul className="attachments" aria-label="Attached files">
-          {message.attachments.map((file) => (
-            <li key={file.attachmentId}>
-              <AttachmentLink file={file} />
-            </li>
-          ))}
+          {message.attachments.map((file) => {
+            /*
+               A picture is shown; everything else is listed.
+
+               `mediaKindOf` decides from the SNIFFED content type, so a file named `.png`
+               that is not one gets a card rather than being handed to an <img>. Anything
+               still being scanned is a card too — it has no trustworthy type yet, and it
+               is not downloadable either.
+            */
+            const kind = mediaKindOf(file);
+            /* A voice note is neither. It is not a picture to show and not a file to list:
+               it is a control, and `duration_ms` means the row is complete before any
+               grant is spent — see `voice-note.tsx`. */
+            const voice = isVoiceNote(file);
+            return (
+              <li
+                key={file.attachmentId}
+                className={
+                  voice ? 'attachment-voice' : kind === undefined ? undefined : 'attachment-visual'
+                }
+              >
+                {voice ? (
+                  <VoiceNote file={file} />
+                ) : kind === undefined ? (
+                  <AttachmentLink file={file} />
+                ) : (
+                  <AttachmentMedia file={file} kind={kind} />
+                )}
+              </li>
+            );
+          })}
         </ul>
       ) : null}
 
@@ -477,6 +946,24 @@ function MessageRow({
             edited
           </span>
         ) : null}
+        {/*
+          A starred message says so, on the message.
+
+          Favourites is a list somewhere else; without a mark here, the only way to know
+          whether you had already starred something was to open the menu and read whether
+          it offered "Add" or "Remove". The star is private — nobody else sees it — which
+          is why it carries no count, unlike a reaction.
+        */}
+        {message.starred === true ? (
+          <span className="message-starred" title="In your favourites" aria-label="In your favourites" role="img">
+            <svg viewBox="0 0 24 24" width="11" height="11" focusable="false">
+              <path
+                d="M12 4.2l2.3 4.9 5.2.7-3.8 3.7.9 5.3-4.6-2.5-4.6 2.5.9-5.3L4.5 9.8l5.2-.7L12 4.2Z"
+                fill="currentColor"
+              />
+            </svg>
+          </span>
+        ) : null}
         <time dateTime={message.createdAt}>{formatTimestamp(message.createdAt)}</time>
         <DeliveryTicks tick={deliveryTick({ isMine, seq: message.seq, readWatermark })} />
       </span>
@@ -484,12 +971,16 @@ function MessageRow({
 
 
       {/*
-        React and reply, on hover. Everything else is on right-click — see the row's
-        `onContextMenu` above.
+        The smiley, and only the smiley.
+
+        Reply was beside it and has moved into the context menu — the request asked for one
+        control on hover, and reacting is the one worth a permanent target because it is
+        the only action with no keyboard-friendly alternative phrasing ("react with a
+        thumbs up" is a picker, not a command). Reply, Edit and Delete are all in the menu,
+        reachable by right-click or by the ContextMenu key handled on the row above.
       */}
       <MessageActions
         message={message}
-        {...(onReply !== undefined ? { onReply } : {})}
         {...(onReact !== undefined ? { onReact } : {})}
       />
 
@@ -501,10 +992,13 @@ function MessageRow({
              impersonation and deleting them is moderation. The server refuses both, so
              offering them would be offering a refusal. */
           canEdit={isMine}
-          canDelete={isMine}
+          pinned={pinnedIds?.has(message.messageId) === true}
+          {...(onTogglePin !== undefined ? { onTogglePin } : {})}
+          {...(onForward !== undefined ? { onForward } : {})}
+          {...(onToggleStar !== undefined ? { onToggleStar } : {})}
+          {...(onMessageInfo !== undefined ? { onMessageInfo } : {})}
           {...(onReply !== undefined ? { onReply } : {})}
           {...(onEdit !== undefined ? { onEdit } : {})}
-          {...(onDelete !== undefined ? { onDelete } : {})}
           onClose={() => setMenuAt(undefined)}
         />
       ) : null}
@@ -523,9 +1017,67 @@ function MessageRow({
               <button
                 type="button"
                 className={`reaction${reaction.mine ? ' mine' : ''}`}
-                onClick={() => onReact?.(message.messageId, reaction.emoji, !reaction.mine)}
-                aria-pressed={reaction.mine}
-                aria-label={`${reaction.emoji} ${reaction.count}${reaction.mine ? ', including you' : ''}`}
+                /*
+                   The chip OPENS the detail panel; it does not toggle.
+
+                   Adding, changing and removing all live in the hover picker, where the
+                   emoji you already chose is highlighted and tapping it again removes it —
+                   so the chip is free to answer the question a chip actually raises, which
+                   is "who?". Toggling here as well would mean the same click both removed
+                   your reaction and asked about it.
+                */
+                onClick={(event) => {
+                  if (detailsFor?.emoji === reaction.emoji) {
+                    setDetailsFor(undefined);
+                    return;
+                  }
+                  /*
+                     Measured at the moment of the press, not derived in CSS.
+
+                     The panel's left edge has to be clamped so it cannot leave the thread
+                     column, and the caret has to point at the chip REGARDLESS of that
+                     clamp — which means the caret's position depends on the clamped value.
+                     `clamp()` can express the first and cannot be read back for the second,
+                     so both are computed here where the resolved number is available.
+                  */
+                  const chip = event.currentTarget.getBoundingClientRect();
+                  const stack = event.currentTarget.closest('.message-stack');
+                  const column = stack?.closest('.thread');
+                  if (stack == null || column == null) return;
+                  const box = stack.getBoundingClientRect();
+                  /*
+                     The boundary is the THREAD, not the message.
+
+                     Clamping to `.message-stack` was the first attempt and it collapsed the
+                     fix: a stack is only as wide as its own bubble — about 410px for a
+                     one-line message — so a 260px panel had 150px of travel inside it, and
+                     two chips 43px apart both hit the same limit. Measured: x 1164..1424 for
+                     both, which is the bug this was meant to remove.
+
+                     A panel is allowed to reach across the column it hangs in. It is not
+                     allowed to leave it, which is what this actually measures.
+                  */
+                  const within = column.getBoundingClientRect();
+                  const width = Math.min(260, window.innerWidth - 32);
+                  const MARGIN = 8;
+                  const centre = chip.left - box.left + chip.width / 2;
+                  /* Everything below is in the stack's coordinates, which is what `left`
+                     on an absolutely positioned child of it means. */
+                  const lowest = within.left + MARGIN - box.left;
+                  const highest = within.right - MARGIN - width - box.left;
+                  const left =
+                    highest < lowest ? lowest : Math.max(lowest, Math.min(centre - width / 2, highest));
+                  setDetailsFor({
+                    emoji: reaction.emoji,
+                    left,
+                    /* Inset from the panel's edge, kept off the rounded corners. */
+                    caret: Math.max(14, Math.min(centre - left, width - 14)),
+                  });
+                }}
+                aria-haspopup="dialog"
+                aria-label={`${reaction.emoji} ${reaction.count}${
+                  reaction.mine ? ', including you' : ''
+                } — see who reacted`}
                 disabled={onReact === undefined}
               >
                 <span aria-hidden="true">{reaction.emoji}</span>
@@ -536,6 +1088,32 @@ function MessageRow({
             </li>
           ))}
         </ul>
+      ) : null}
+
+      {/*
+        Anchored to the CHIP, and not portalled.
+
+        `.message-stack` is already a positioning context — the hover action bar uses it —
+        and a panel that scrolls with its own message is one the reader never has to hunt
+        for after the thread moves under it. Within that context the panel is placed at the
+        offset the pressed chip reported, so a message with several chips opens a different
+        panel position for each of them.
+      */}
+      {detailsFor !== undefined && conversationId !== undefined ? (
+        <ReactionDetails
+          conversationId={conversationId}
+          messageId={message.messageId}
+          participants={participants ?? []}
+          currentPrincipalId={currentPrincipalId}
+          initialEmoji={detailsFor.emoji}
+          anchor={{ left: detailsFor.left, caret: detailsFor.caret }}
+          onClose={() => setDetailsFor(undefined)}
+          onRemoveOwn={() => {
+            const own = message.reactions?.find((entry) => entry.mine);
+            if (own !== undefined) onReact?.(message.messageId, own.emoji, false);
+            setDetailsFor(undefined);
+          }}
+        />
       ) : null}
 
       {/*
@@ -686,7 +1264,35 @@ function PendingRow({
  * ago it was, and printing a bare clock time on it would put yesterday's message on
  * today's footing.
  */
-function formatTimestamp(iso: string): string {
+/**
+ * Is this message a single emoji and nothing else?
+ *
+ * ## Why graphemes and not characters
+ *
+ * "👍" is two code units, "👨‍👩‍👧" is eight, and a flag is two code points that mean one
+ * picture. Counting `length`, or even `[...body]`, splits all three into several
+ * "characters" and the test never fires for exactly the emoji people send most. `Intl
+ * .Segmenter` counts what a reader would call one symbol.
+ *
+ * ## Why only one
+ *
+ * The rule is a single emoji, not a short message. Two of them go back in a bubble: at
+ * display size a row of them stops reading as a gesture and starts crowding the thread,
+ * which is why every product with this behaviour caps it.
+ */
+export function isSoleEmoji(body: string): boolean {
+  const text = body.trim();
+  if (text === '') return false;
+  /* Older engines without `Intl.Segmenter` simply never get the treatment — a plain
+     bubble is the correct fallback, and guessing with a regex over code units is how the
+     family emoji ends up rendered as four. */
+  if (typeof Intl === 'undefined' || typeof Intl.Segmenter !== 'function') return false;
+  const graphemes = [...new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(text)];
+  if (graphemes.length !== 1) return false;
+  return /\p{Extended_Pictographic}/u.test(graphemes[0]?.segment ?? '');
+}
+
+export function formatTimestamp(iso: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return iso;
 
@@ -747,12 +1353,65 @@ function AttachmentLink({ file }: { readonly file: AttachmentView }): ReactNode 
         onClick={() => void open()}
         disabled={busy}
       >
-        <span className="attachment-icon" aria-hidden="true">
-          {extensionOf(file.filename)}
+        {/*
+          A page with the extension ON it, tinted by family.
+
+          It was a rounded square carrying three letters, which is legible and is not
+          recognisable: a column of them is read rather than glanced at. The sheet is the
+          shape everything else calls a document, the fold is what makes it one at 34px,
+          and the colour says which kind before the name is read at all.
+        */}
+        <span
+          className={`attachment-icon is-${documentFamily(file.filename)}`}
+          aria-hidden="true"
+        >
+          <svg viewBox="0 0 32 40" width="30" height="34" focusable="false">
+            <path
+              d="M4 3.4A2.4 2.4 0 0 1 6.4 1h12.2L28 10.4v26.2a2.4 2.4 0 0 1-2.4 2.4H6.4A2.4 2.4 0 0 1 4 36.6Z"
+              fill="currentColor"
+              opacity="0.16"
+            />
+            <path
+              d="M4 3.4A2.4 2.4 0 0 1 6.4 1h12.2L28 10.4v26.2a2.4 2.4 0 0 1-2.4 2.4H6.4A2.4 2.4 0 0 1 4 36.6Z"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+            />
+            {/* The folded corner, which is what reads as "document" rather than "card". */}
+            <path
+              d="M18.6 1v7a2.4 2.4 0 0 0 2.4 2.4h7"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+            />
+          </svg>
+          <span className="attachment-ext">{extensionOf(file.filename)}</span>
         </span>
         <span className="attachment-text">
           <span className="attachment-name">{file.filename}</span>
-          <span className="attachment-meta">{formatBytes(file.declaredBytes)}</span>
+          {/*
+            The kind AND the size. It said only the size, so two files with the same
+            name and different formats were one row repeated — and "4 MB" alone tells you
+            nothing about whether the thing will open in front of you or land in Downloads.
+          */}
+          <span className="attachment-meta">
+            {extensionOf(file.filename)} · {formatBytes(file.declaredBytes)}
+          </span>
+        </span>
+        {/* What pressing it does. The card navigates to a `Content-Disposition:
+            attachment` URL — see `media-viewer.tsx` for why that header stays — so the
+            honest glyph is a download, not an "open". */}
+        <span className="attachment-go" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="17" height="17" focusable="false">
+            <path
+              d="M12 4v11m0 0 4.2-4.2M12 15l-4.2-4.2M4.5 18.5h15"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
         </span>
       </button>
       {problem !== undefined ? <span role="alert"> {problem}</span> : null}

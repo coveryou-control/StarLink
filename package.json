@@ -21,7 +21,7 @@
     "dev:down": "docker compose -f infrastructure/deployment/compose.yaml down",
     "seed:people": "node infrastructure/deployment/seed-dev-people.mjs",
     "test:e2e": "playwright test",
-    "test:e2e:verify": "playwright test && node infrastructure/guards/src/no-skips.mjs .playwright-report.json"
+    "test:e2e:verify": "pnpm build && playwright test && node infrastructure/guards/src/no-skips.mjs .playwright-report.json"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

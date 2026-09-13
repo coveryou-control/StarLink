@@ -66,6 +66,167 @@ describe('fail-closed fundamentals', () => {
   });
 });
 
+/**
+ * The hole this suite did not have.
+ *
+ * The regression test below proves a non-participant with NO grants cannot read. That is a
+ * weaker claim than it looks: every real employee holds a role, every seeder in the repo
+ * issues it at `GLOBAL`, and `scopeCovers('GLOBAL')` returns true unconditionally. So the
+ * lowest-privilege AGENT could read every private message between colleagues by id — and no
+ * case here said otherwise, because none of them combined a non-participant WITH a grant on
+ * an INTERNAL conversation. Confirmed against the running system on 2026-09-08.
+ *
+ * These are the rows that were missing.
+ */
+describe('a private internal conversation is reachable only by participation', () => {
+  /*
+     Built from scratch rather than by overriding `customerConversation`, because the point
+     is what is ABSENT. No case, so no owning team and no owning department — which is
+     precisely why TEAM- and DEPARTMENT-scoped grants never matched these threads and GLOBAL
+     was the only scope that did. Under `exactOptionalPropertyTypes` an explicit `undefined`
+     is not the same as an omitted key, and here the omission is the fixture.
+  */
+  const privateThread = (over: Partial<ResourceContext> = {}): ResourceContext => ({
+    conversationId: 'conv-1',
+    conversationType: 'INTERNAL_DIRECT',
+    sensitivity: 'ORDINARY',
+    ...over,
+  });
+
+  const globalAgent = (): ActorContext =>
+    employee({
+      grants: [
+        { role: 'AGENT', actions: ['conversation.read'], scopeKind: 'GLOBAL', effectiveFrom: PAST },
+      ],
+    });
+
+  it('a non-participant holding a GLOBAL role grant cannot read a direct message', () => {
+    const d = decide(ask({ actor: globalAgent(), resource: privateThread() }));
+    expect(d.allow).toBe(false);
+    expect(d.allow === false && d.reason).toBe('PRIVATE_CONVERSATION_NOT_A_PARTICIPANT');
+  });
+
+  it('the same is true of a group', () => {
+    const d = decide(
+      ask({ actor: globalAgent(), resource: privateThread({ conversationType: 'INTERNAL_GROUP' }) }),
+    );
+    expect(d.allow).toBe(false);
+  });
+
+  it('a GLOBAL delegation does not reach one either', () => {
+    const d = decide(
+      ask({
+        actor: employee({
+          delegations: [
+            {
+              delegationId: 'del-1',
+              capabilities: ['conversation.read'],
+              scopeKind: 'GLOBAL',
+              effectiveFrom: PAST,
+              effectiveTo: FUTURE,
+            },
+          ],
+        }),
+        resource: privateThread(),
+      }),
+    );
+    expect(d.allow).toBe(false);
+  });
+
+  it('writing is refused as well, not just reading', () => {
+    for (const action of ['conversation.message.send', 'conversation.message.react'] as const) {
+      const d = decide(
+        ask({
+          action,
+          actor: employee({
+            grants: [
+              { role: 'AGENT', actions: [action], scopeKind: 'GLOBAL', effectiveFrom: PAST },
+            ],
+          }),
+          resource: privateThread(),
+        }),
+      );
+      expect(d.allow, `${action} must not be reachable by scope`).toBe(false);
+    }
+  });
+
+  it('a participant is unaffected — this closes a hole, it does not close the door', () => {
+    const d = decide(
+      ask({
+        actor: globalAgent(),
+        resource: privateThread({
+          participant: { role: 'PARTICIPANT', replyAuthority: false, effectiveFrom: PAST },
+        }),
+      }),
+    );
+    expect(d.allow).toBe(true);
+    expect(d.allow === true && d.basis).toBe('PARTICIPANT');
+  });
+
+  it('an explicit, time-boxed TEMPORARY grant naming the conversation still reaches it', () => {
+    /* The lawful break-glass path. Refusing this too would leave no way to investigate a
+       private thread at all, which is not what rule 3 asks for. */
+    const d = decide(
+      ask({
+        actor: employee({
+          temporaryGrants: [
+            {
+              grantId: 'tg-1',
+              capability: 'conversation.read',
+              conversationId: 'conv-1',
+              effectiveFrom: PAST,
+              effectiveTo: FUTURE,
+            },
+          ],
+        }),
+        resource: privateThread(),
+      }),
+    );
+    expect(d.allow).toBe(true);
+    expect(d.allow === true && d.basis).toBe('TEMPORARY_GRANT');
+  });
+
+  it('a PARTICIPANT may still use a role grant for what participation does not carry', () => {
+    /*
+       The case the first draft of this rung broke.
+
+       Participation grants reading and sending, not renaming (P-03) — so a member renaming
+       their own group reaches rung 8 and is allowed by their role. Denying every scope
+       grant on a private thread took rename, edit and delete down for the person who
+       created the conversation. The hole was NON-participants; this is the line between
+       the two, and it is asserted so neither side can drift.
+    */
+    const d = decide(
+      ask({
+        action: 'conversation.rename',
+        actor: employee({
+          grants: [
+            {
+              role: 'AGENT',
+              actions: ['conversation.rename'],
+              scopeKind: 'GLOBAL',
+              effectiveFrom: PAST,
+            },
+          ],
+        }),
+        resource: privateThread({
+          participant: { role: 'PARTICIPANT', replyAuthority: false, effectiveFrom: PAST },
+        }),
+      }),
+    );
+    expect(d.allow).toBe(true);
+    expect(d.allow === true && d.basis).toBe('SCOPE_GRANT');
+  });
+
+  it('a CUSTOMER_SERVICE conversation is still reachable by scope — the fix is narrow', () => {
+    /* Anti-overreach. If this ever fails, the new rung has been widened past the two
+       participant-managed types and the agent workspace has been broken. */
+    const d = decide(ask({ actor: globalAgent() }));
+    expect(d.allow).toBe(true);
+    expect(d.allow === true && d.basis).toBe('SCOPE_GRANT');
+  });
+});
+
 describe('participation is conversation-scoped, and is not ownership', () => {
   it('THE regression test: a non-participant with no scope cannot read', () => {
     const d = decide(ask({ actor: employee() }));

@@ -53,6 +53,16 @@ export const FORBIDDEN_KEYS: readonly string[] = Object.freeze([
   'firstname',
   'lastname',
   'customername',
+  'username',
+  /* User-authored free text. A conversation title, a search term and an internal note are
+     all typed by a person and can carry anything a person can type. */
+  'title',
+  'subject',
+  'note',
+  'internalnote',
+  'comment',
+  'searchterm',
+  'searchquery',
   // credentials and session material
   'password',
   'secret',
@@ -92,6 +102,27 @@ const FORBIDDEN_SUBSTRINGS: readonly string[] = Object.freeze([
   'credential',
   'cookie',
   'apikey',
+  /*
+     Content and PII fragments, added 2026-09-09.
+
+     Until now only the credential fragments matched as substrings, so QUALIFYING a content
+     key silently switched the rule off: `displayName` was redacted and `senderDisplayName`
+     was not, `body` was and `noteBody` was not. `senderDisplayName` is a live field at six
+     call sites, which is how the gap was found.
+
+     Worse, the convention immediately above — "qualify your keys" — is correct for `name`
+     and trains exactly the habit that defeats the rule for everything else. Making these
+     fragments behave like the credential ones removes the trap rather than documenting it.
+
+     `name` and `text` are deliberately NOT here. `name` must stay an exact match or
+     `teamName`, `providerName`, `queueName` and `eventName` all disappear, and the note
+     above promises they will not. `text` would swallow `context` and `contextId`.
+  */
+  'displayname',
+  'body',
+  'preview',
+  'transcript',
+  'snippet',
 ]);
 
 const FORBIDDEN_SET = new Set(FORBIDDEN_KEYS);
@@ -110,6 +141,15 @@ export function isForbiddenKey(key: string): boolean {
  * — it is the second layer, and it deliberately errs toward over-redaction.
  */
 const VALUE_PATTERNS: readonly RegExp[] = Object.freeze([
+  /*
+     A URI with credentials in it: postgres://starlink:S3cr3t@host:5432/db
+
+     The key is usually something innocent like `url` or `dsn`, and the email pattern
+     below does not catch it when the host has no dotted TLD — `@localhost` sails
+     through with the password still attached. Listed first so the whole URI is
+     replaced rather than the part of it that happens to look like an address.
+  */
+  /(?:^|[\s'"(<])[a-z][a-z0-9+.-]*:\/\/[^\s/:@]+:[^\s/@]+@\S+/gi,
   /\b[\w.%+-]+@[\w.-]+\.[A-Za-z]{2,}\b/g, // email
   // Phone with an international prefix. A plain \b will not do the job here: `+` is
   // not a word character, so \b never matches before it and `+919876543210` slips

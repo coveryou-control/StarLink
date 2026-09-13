@@ -1,5 +1,20 @@
 export { PgMessageStore, PgMessageReader } from './message-store.js';
 export { PgReactionStore, type ReactionRow } from './reaction-store.js';
+export { PgStarStore, PgArchiveStore, type StarredMessageRow } from './star-store.js';
+export { PgStatusStore, type DeclaredStatusRow } from './status-store.js';
+export {
+  PgAvatarStore,
+  looksLikeImage,
+  type AvatarRow,
+  type AvatarStamp,
+} from './avatar-store.js';
+export {
+  PgPinStore,
+  PgMessageInfoStore,
+  PgHiddenMessageStore,
+  type PinnedMessageRow,
+  type MessageReaderRow,
+} from './pin-store.js';
 export {
   PgConversationStore,
   PgConversationReader,
@@ -14,6 +29,16 @@ export {
 } from './admin-store.js';
 export { PgSearchProvider } from './search-provider.js';
 export { PgConversationAuthzReader, type ConversationAuthzReader } from './authz-reader.js';
+export {
+  PgChannelStore,
+  channelFactsFrom,
+  channelVisibilitySql,
+  CHANNEL_POLICY_COLUMNS,
+  CHANNEL_POLICY_JOIN,
+  type ChannelAudienceEntry,
+  type ChannelDirectoryRow,
+  type NewChannel,
+} from './channel-store.js';
 export { PgCategoryReader, type CategoryView } from './category-reader.js';
 export {
   PgCustomerStore,

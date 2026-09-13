@@ -7,9 +7,41 @@
  * up misconfigured.
  */
 import { z } from 'zod';
-import { validateStartupConfiguration } from '@starlink/database';
+import { secretRulesApply, validateStartupConfiguration } from '@starlink/database';
 
 const adapterMode = z.enum(['mock', 'local', 'remote']);
+
+/**
+ * A boolean from a string, which `z.coerce.boolean()` is NOT.
+ *
+ * `z.coerce.boolean()` is `Boolean(value)`, and `Boolean("false")` is `true`. So is
+ * `Boolean("0")`. Every value a person would actually write to turn something OFF turns
+ * it ON, and the only inputs that yield `false` are an empty string and an absent
+ * variable — neither of which anybody types deliberately.
+ *
+ * Found on 2026-09-10 while proving the mail path end to end: `SL_NOTIFY_EMAIL_SECURE=false`
+ * — the documented setting for the ordinary STARTTLS-on-587 relay — was enabling implicit
+ * TLS, so every send failed with `EMAIL_SEND_FAILED` and the outbox filled with RETRYING
+ * rows. The configuration was not merely ignored; it was inverted.
+ *
+ * Unknown values are REFUSED rather than guessed. A typo in a security-relevant flag must
+ * stop the process at boot with the variable named, not silently pick a side.
+ */
+const booleanFlag = (fallback: boolean) =>
+  z
+    .union([z.boolean(), z.string()])
+    .default(fallback)
+    .transform((value, ctx) => {
+      if (typeof value === 'boolean') return value;
+      const text = value.trim().toLowerCase();
+      if (['true', '1', 'yes', 'on'].includes(text)) return true;
+      if (['false', '0', 'no', 'off', ''].includes(text)) return false;
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `expected a boolean such as true/false, got "${value}"`,
+      });
+      return z.NEVER;
+    });
 
 const schema = z.object({
   SL_ENV: z.enum(['dev', 'test', 'staging', 'production']).default('dev'),
@@ -185,12 +217,81 @@ const schema = z.object({
   SL_NOTIFY_EMAIL_HOST: z.string().min(1).optional(),
   SL_NOTIFY_EMAIL_PORT: z.coerce.number().int().positive().max(65535).default(587),
   /** Implicit TLS (465). Left false for the usual STARTTLS-on-587 relay. */
-  SL_NOTIFY_EMAIL_SECURE: z.coerce.boolean().default(false),
+  SL_NOTIFY_EMAIL_SECURE: booleanFlag(false),
+  /**
+   * Firebase Cloud Messaging, for the PUSH channel (§29).
+   *
+   * All three or none: `PROJECT_ID` is the switch, and a partially configured project
+   * gets no sender rather than one that fails on every send. The same posture the email
+   * transport takes, and for the same reason — a channel that cannot deliver must look
+   * undelivered, not broken.
+   *
+   * The private key comes out of the service-account JSON with its newlines escaped as
+   * `\n`, which is how it survives an environment variable. Unescaped here so callers
+   * do not each have to remember.
+   */
+  SL_NOTIFY_PUSH_PROJECT_ID: z.string().min(1).optional(),
+  SL_NOTIFY_PUSH_CLIENT_EMAIL: z.string().email().optional(),
+  SL_NOTIFY_PUSH_PRIVATE_KEY: z
+    .string()
+    .min(1)
+    .optional()
+    .transform((value) => (value === undefined ? undefined : value.replace(/\\n/g, '\n'))),
   SL_NOTIFY_EMAIL_USER: z.string().min(1).optional(),
   SL_NOTIFY_EMAIL_PASSWORD: z.string().min(1).optional(),
   /** Envelope sender. A relay will refuse a domain it does not own. */
   SL_NOTIFY_EMAIL_FROM: z.string().email().optional(),
   SL_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(12 * 60 * 60),
+  /**
+   * The session length when somebody ticks "keep me signed in on this device".
+   *
+   * Fourteen days, against the default twelve hours. The point of the ordinary TTL is that
+   * a shared branch terminal forgets you by the end of the shift; the point of this one is
+   * that a personal laptop does not ask again every morning. Those are different machines
+   * and the person at the keyboard is the only one who knows which they are sitting at,
+   * which is why the choice is theirs and the wording names the device.
+   *
+   * Fourteen and not ninety: a stolen laptop is a stolen session until somebody revokes it,
+   * and while "sign out everywhere" makes that immediate on the next request (FR-AUTH-2),
+   * it only helps once the loss is noticed. Two weeks is short enough that a forgotten
+   * machine expires on its own and long enough to be worth ticking.
+   */
+  /**
+   * How long a voice note may run, and how large it may get.
+   *
+   * ## Why there is no five-minute cap
+   *
+   * A short fixed limit is the obvious way to bound this and the wrong one: people send
+   * voice notes precisely when a thing is too involved to type, and a handover, a
+   * walkthrough or a claim summary is routinely longer than five minutes. Cutting somebody
+   * off mid-sentence to save storage is the product deciding their message was not worth
+   * finishing.
+   *
+   * What actually costs money is BYTES, and Opus at a voice bitrate is roughly 6 KB per
+   * second — twenty minutes is about 7 MB, comfortably inside the 25 MB an employee
+   * attachment may already be. So the bound that matters is the size one, which every
+   * attachment already has, and the duration limit exists only to stop a forgotten open
+   * microphone recording for an hour.
+   *
+   * Thirty minutes by default, and configurable, because the right number is an
+   * operational judgement about storage rather than a fact about conversations — the same
+   * reasoning rule 10 applies to business values.
+   */
+  SL_VOICE_NOTE_MAX_SECONDS: z.coerce.number().int().positive().max(43_200).default(30 * 60),
+  /**
+   * The byte ceiling for a voice note specifically.
+   *
+   * Separate from the attachment ceiling so audio can be tuned without touching what a
+   * claims document may weigh, and never ABOVE it: the attachment policy is still the
+   * outer bound and this narrows it.
+   */
+  SL_VOICE_NOTE_MAX_BYTES: z.coerce.number().int().positive().default(16 * 1024 * 1024),
+
+  SL_SESSION_REMEMBER_TTL_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(14 * 24 * 60 * 60),
 });
 
 export type ApiConfig = z.infer<typeof schema> & { readonly tls: boolean };
@@ -285,5 +386,58 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     );
   }
 
-  return { ...parsed.data, tls: parsed.data.SL_ENV === 'production' || parsed.data.SL_ENV === 'staging' };
+  /**
+   * A PLACEHOLDER user authority may not be the identity of a deployed environment.
+   *
+   * Rule 11: no permanent user authority lives in StarLink. `SL_ADAPTER_IAM=local` selects
+   * `LocalIamAdapter`, the placeholder that reads `identity.principals` and verifies
+   * passwords written by `pnpm seed:people` — a script whose passwords are committed to
+   * this repository and which refuses to run outside dev, test or local.
+   *
+   * Nothing refused that adapter in a deployed environment, and `local` is the DEFAULT. So
+   * `SL_ENV=production` started cleanly with StarLink as the permanent user authority rule
+   * 11 forbids, and the accounts it would authenticate are the three whose passwords are
+   * public. `mock` is worse in a quieter way: it resolves nobody, so the product starts and
+   * no one can sign in.
+   *
+   * There is deliberately no value that is both production-correct and startable today —
+   * `remote` throws in the DI, because the Central IAM adapter is Phase 9. That is the
+   * honest state, and this turns it from a silent one into a refusal that names it.
+   */
+  if (
+    parsed.data.SL_ADAPTER_IAM !== 'remote' &&
+    (parsed.data.SL_ENV === 'staging' || parsed.data.SL_ENV === 'production')
+  ) {
+    throw new Error(
+      `StarLink API refused to start:
+  - SL_ADAPTER_IAM=${parsed.data.SL_ADAPTER_IAM} is the ` +
+        'development identity placeholder, and rule 11 forbids StarLink holding a permanent ' +
+        'user authority. Its accounts come from `pnpm seed:people`, whose passwords are in ' +
+        'the repository. A deployed environment needs the Central IAM adapter (Phase 9), ' +
+        'which is not built — so there is no correct value for this setting yet and the ' +
+        'environment cannot be deployed.',
+    );
+  }
+
+  /**
+   * `tls` decides the `Secure` flag on the session cookie, so it must not be a claim.
+   *
+   * It was `SL_ENV === 'production' || SL_ENV === 'staging'`, which is right until
+   * somebody deploys with `SL_ENV=dev` — and since no value currently both boots and is
+   * production-safe, that is the likely thing to happen rather than an unlikely one. A
+   * session cookie without `Secure` travels over plain http, which is the whole attack.
+   *
+   * `secretRulesApply` asks the same question the secret ban now asks, from the same
+   * evidence: not dev/test, or a database that is not on this machine. One predicate for
+   * both, so the two cannot drift into disagreeing about whether this is a deployment.
+   *
+   * Local development over `http://localhost` is unaffected: loopback database, declared
+   * dev, no `Secure` flag, cookies work.
+   */
+  const tls = secretRulesApply({
+    SL_ENV: parsed.data.SL_ENV,
+    SL_DATABASE_URL: parsed.data.SL_DATABASE_URL,
+  });
+
+  return { ...parsed.data, tls };
 }

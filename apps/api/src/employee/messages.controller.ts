@@ -25,6 +25,7 @@ import {
   sendMessage,
   type MessageReader,
   type MessageStore,
+  conversationResource,
 } from '@starlink/messaging';
 import {
   decide,
@@ -45,16 +46,30 @@ import {
   MESSAGE_READER,
   MESSAGE_STORE,
   REACTION_STORE,
+  STAR_STORE,
+  PIN_STORE,
+  MESSAGE_INFO_STORE,
+  HIDDEN_MESSAGE_STORE,
   READ_STATE_STORE,
 } from '../tokens.js';
 import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
 import { AttachmentService } from '../attachments/attachment-service.js';
 import type { AuditWriter } from '../audit/audit-writer.js';
 import { ConversationNotifier } from '../notifications/conversation-notifier.js';
-import type { PgReactionStore } from '@starlink/database';
+import type {
+  PgHiddenMessageStore,
+  PgMessageInfoStore,
+  PgPinStore,
+  PgReactionStore,
+  PgStarStore,
+} from '@starlink/database';
 
 /** Structural, not the class: the controller needs the two methods, not the pool. */
-type ReactionStore = Pick<PgReactionStore, 'forMessages' | 'add' | 'remove' | 'conversationOf'>;
+type ReactionStore = Pick<
+  PgReactionStore,
+  'forMessages' | 'forMessage' | 'add' | 'remove' | 'conversationOf' | 'authorOf'
+>;
+type StarStore = Pick<PgStarStore, 'add' | 'remove' | 'minedOn' | 'conversationOf'>;
 
 const uuid = z.string().uuid();
 
@@ -123,6 +138,22 @@ const editSchema = z.object({
   body: z.string().min(1).max(10_000),
 });
 
+/**
+ * Where a forwarded message is going.
+ *
+ * The destination is in the BODY rather than the path because the authorization is
+ * two-sided — read the source, write the destination — and a path naming only one of them
+ * invites a handler that checks only one of them.
+ *
+ * One conversation at a time. A list would make the refusal ambiguous: "some of these
+ * went" is not an answer a caller can act on, and the partial-success shape it forces
+ * ("forwarded to 2 of 4, and no, we will not say which two") is worse than making the
+ * client send four requests it can report on individually.
+ */
+const forwardSchema = z.object({
+  toConversationId: uuid,
+});
+
 const reactionSchema = z.object({
   emoji: z.string().min(1).max(16),
 });
@@ -146,6 +177,10 @@ export class EmployeeMessagesController {
     @Inject(AttachmentService) private readonly attachments: AttachmentService,
     @Inject(AUDIT_WRITER) private readonly audit: AuditWriter,
     @Inject(REACTION_STORE) private readonly reactions: ReactionStore,
+    @Inject(STAR_STORE) private readonly stars: StarStore,
+    @Inject(PIN_STORE) private readonly pins: PgPinStore,
+    @Inject(MESSAGE_INFO_STORE) private readonly messageInfoStore: PgMessageInfoStore,
+    @Inject(HIDDEN_MESSAGE_STORE) private readonly hidden: PgHiddenMessageStore,
     @Inject(ConversationNotifier) private readonly notifier: ConversationNotifier,
     @Inject(READ_STATE_STORE) private readonly readState: ReadStateStore,
   ) {}
@@ -291,6 +326,45 @@ export class EmployeeMessagesController {
         });
     }
 
+    /**
+     * Everyone else who should hear about this message.
+     *
+     * Raised with the mentions above and for the same reason: the send has committed,
+     * so a notification outage costs the notification and not the message (rule 1,
+     * invariant 9).
+     *
+     * The notifier does the suppression — somebody mentioned in this message gets the
+     * mention and NOT a second row for the message itself. It is handed the live
+     * participant set the send transaction saw rather than re-reading it here, because
+     * a set read now could have changed and would reach the wrong people.
+     *
+     * Skipped entirely for a duplicate: that is an idempotent retry of a send that
+     * already notified, and notifying again turns a network hiccup into a second
+     * interruption — the very thing `clientMessageId` exists to prevent, one layer up.
+     */
+    if (!result.duplicate && result.participants !== undefined) {
+      await this.notifier
+        .messageArrived({
+          conversationId: conversationId.data,
+          conversationType: result.conversationType ?? '',
+          messageId: result.message.messageId,
+          senderId: session.principalId as UUID,
+          participants: result.participants,
+          ...(result.mentioned !== undefined ? { mentioned: result.mentioned } : {}),
+          ...(result.repliedToAuthor !== undefined
+            ? { repliedToAuthor: result.repliedToAuthor }
+            : {}),
+        })
+        .catch((error: unknown) => {
+          this.logger.warn('message notification failed', {
+            correlationId: request.correlationId,
+            operation: 'message.arrived.notify',
+            outcome: 'FAILED',
+            errorCode: error instanceof Error ? error.name : 'UNKNOWN',
+          });
+        });
+    }
+
     return {
       messageId: result.message.messageId,
       seq: result.message.seq,
@@ -329,34 +403,42 @@ export class EmployeeMessagesController {
     let lifecycleState: string | undefined;
     let conversationType: string | undefined;
 
+    /**
+     * The whole decision, not just its boolean.
+     *
+     * `decide()` returns `basis` — "why it was allowed" — and its own docblock says the
+     * field exists to drive the audit record for privileged access. No read call site
+     * consumed it, so a read reached by a SCOPE GRANT rather than by participation left
+     * nothing in the ledger at all: refusals were recorded, successes were not.
+     *
+     * That is what made the GLOBAL-scope hole exploitable invisibly. P-06 makes "who read
+     * a customer's history" the question an incident asks, and until now the honest answer
+     * for a non-participant read was that nobody knew.
+     */
+    let basis: string | undefined;
+    let privileged = false;
     const authorized = await this.store.transaction(async (tx) => {
       const conversation = await tx.loadConversationForUpdate(conversationId.data);
       if (conversation === undefined) return false;
       lifecycleState = conversation.state ?? undefined;
       conversationType = conversation.conversationType;
-      const participant = await tx.loadParticipant(conversationId.data, session.principalId);
-      return recordDecision(
+      const decision = recordDecision(
         'conversation.read',
         decide({
-        actor: toActorContext(claims.value),
-        action: 'conversation.read',
-        resource: {
-          conversationId: conversation.conversationId,
-          conversationType: conversation.conversationType,
-          ...(conversation.caseId !== undefined ? { caseId: conversation.caseId } : {}),
-          ...(conversation.owningTeamId !== undefined ? { owningTeamId: conversation.owningTeamId } : {}),
-          ...(conversation.owningDepartment !== undefined
-            ? { owningDepartment: conversation.owningDepartment }
-            : {}),
-          ...(conversation.currentOwnerId !== undefined
-            ? { currentOwnerId: conversation.currentOwnerId }
-            : {}),
-          sensitivity: conversation.sensitivity,
-          ...(participant !== undefined ? { participant } : {}),
-        },
-        now: new Date().toISOString(),
+          actor: toActorContext(claims.value),
+          action: 'conversation.read',
+          /* Assembled by `conversationResource`, not by hand. Three copies of this shape
+             lived in this file and a channel's access policy reached none of them - which
+             turned every channel read into a 404 while the writes worked. */
+          resource: await conversationResource(tx, conversation, session.principalId),
+          now: new Date().toISOString(),
         }),
-      ).allow;
+      );
+      if (decision.allow) {
+        basis = decision.basis;
+        privileged = decision.privileged;
+      }
+      return decision.allow;
     });
 
     if (!authorized) {
@@ -383,6 +465,32 @@ export class EmployeeMessagesController {
         correlationId: request.correlationId,
       });
       return refuse();
+    }
+
+
+    /**
+     * An allowed read that was NOT reached by participation or ownership is recorded.
+     *
+     * Participation is the ordinary case, and auditing it would write a row for every page
+     * of every thread anybody opens — noise that buries the thing worth finding. Everything
+     * else means somebody reached a conversation they are not in: a scope grant, a
+     * delegation, or a time-boxed cover. Those are what §31.1 means by "the exercise of
+     * authority", and they are rare enough to be worth a row each.
+     *
+     * Written BEFORE the content is read, so a crash between the two cannot produce the
+     * read without the record.
+     */
+    if (basis !== undefined && basis !== 'PARTICIPANT' && basis !== 'OWNER') {
+      await this.audit.record({
+        actorId: session.principalId,
+        actorKind: 'EMPLOYEE',
+        action: privileged ? 'privileged.conversation.read' : 'conversation.read',
+        targetKind: 'conversation',
+        targetId: conversationId.data,
+        outcome: 'SUCCEEDED',
+        detail: { basis },
+        correlationId: request.correlationId,
+      });
     }
 
     let before: { createdAt: string; id: string } | undefined;
@@ -416,7 +524,17 @@ export class EmployeeMessagesController {
      * time, after §28.4's full ladder, and is audited at issuance (ADR-012, FR-ATT-5), so
      * putting one in a list response would be handing out grants nobody asked for.
      */
-    const attachmentsByMessage = new Map<string, { attachmentId: string; originalFilename?: string; declaredBytes: number; state: string }[]>();
+    const attachmentsByMessage = new Map<
+      string,
+      {
+        attachmentId: string;
+        originalFilename?: string;
+        declaredBytes: number;
+        state: string;
+        sniffedMime?: string;
+        durationMs?: number;
+      }[]
+    >();
     for (const record of await this.attachments.forMessages(messages.map((m) => m.messageId))) {
       const list = attachmentsByMessage.get(record.messageId!) ?? [];
       list.push(record);
@@ -431,6 +549,24 @@ export class EmployeeMessagesController {
      * gets the same shape, and `mine` is computed against the reader — the ids themselves
      * never leave the server.
      */
+    /* Which of this page's messages this reader has chosen not to see. */
+    const hiddenHere = await this.hidden.hiddenAmong(
+      messages.map((m) => m.messageId),
+      session.principalId,
+    );
+
+    /*
+       Which of this page's messages the reader has starred.
+
+       One query for the page, like reactions. Unlike reactions no count is sent and no
+       other reader's stars are: a bookmark is private, so the only fact the client needs
+       is whether this reader made one.
+    */
+    const starredHere = await this.stars.minedOn(
+      messages.map((m) => m.messageId),
+      session.principalId,
+    );
+
     const reactionsByMessage = new Map<string, { emoji: string; count: number; mine: boolean }[]>();
     for (const row of await this.reactions.forMessages(messages.map((m) => m.messageId))) {
       const list = reactionsByMessage.get(row.messageId) ?? [];
@@ -481,7 +617,21 @@ export class EmployeeMessagesController {
        * BR-23 makes the kind the real fact; this returns it.
        */
       conversationType,
-      messages: messages.map((m) => ({
+      /*
+         "Delete for me", applied.
+
+         One indexed lookup with the page's own ids — almost always returning nothing,
+         because hiding a message is rare. Filtered HERE rather than in the reader's query
+         so the shared message reader does not grow a principal-scoped LEFT JOIN that every
+         caller pays for and most do not want.
+
+         The paging cursor is unaffected: it is keyed on `seq`, and a hidden message simply
+         is not in the array. A page can therefore come back shorter than the limit without
+         meaning the end of the conversation, which is already true of nothing else here —
+         and is why the cursor is computed from the reader's own page below rather than
+         from what survives this filter.
+      */
+      messages: messages.filter((m) => !hiddenHere.has(m.messageId)).map((m) => ({
         messageId: m.messageId,
         seq: m.seq,
         visibility: m.visibility,
@@ -547,12 +697,38 @@ export class EmployeeMessagesController {
         ...(reactionsByMessage.has(m.messageId)
           ? { reactions: reactionsByMessage.get(m.messageId) }
           : {}),
+        /* Present only when true, so an unstarred message costs nothing on the wire. */
+        ...(starredHere.has(m.messageId) ? { starred: true } : {}),
         ...(attachmentsByMessage.has(m.messageId)
           ? {
               attachments: (attachmentsByMessage.get(m.messageId) ?? []).map((a) => ({
                 attachmentId: a.attachmentId,
                 filename: a.originalFilename ?? 'attachment',
                 declaredBytes: a.declaredBytes,
+                /*
+                   The SNIFFED type, never the declared one.
+
+                   `declared_mime` is whatever the uploading client said. The client is
+                   about to decide, from this value, whether to render the bytes as an
+                   image or a video — so a caller who claims `image/png` for something else
+                   would be choosing how their file is interpreted in everybody's browser.
+                   `sniffed_mime` is what the scanner read out of the bytes themselves, and
+                   it is the only one that may make that decision.
+
+                   Absent until the scan has run, which is correct: an unscanned attachment
+                   is not BOUND and is not offered for download either.
+                */
+                ...(a.sniffedMime !== undefined ? { contentType: a.sniffedMime } : {}),
+                /*
+                   How long a voice note runs.
+                   
+                   Sent with the message so the bubble can say "7:34" beside a play button
+                   without fetching the audio. Fetching it to find out would issue a
+                   download grant — which §28.4 AUDITS — for every voice note in a page
+                   nobody has pressed play on, which is both a lie in the ledger and a lot
+                   of bytes to draw a label.
+                */
+                ...(a.durationMs !== undefined ? { durationMs: a.durationMs } : {}),
                 /**
                  * §28.1: BOUND is the only state a recipient may reach. Sent so the
                  * interface can say "still being checked" rather than offering a download
@@ -650,19 +826,50 @@ export class EmployeeMessagesController {
   }
 
   /**
-   * Deletes a message — a REDACTION, not a row removal.
+   * REFUSED. Nobody deletes a message.
    *
-   * The row survives with its body blanked, because the per-conversation sequence must
-   * stay gap-free (the client's gap detector reads a hole as a missed message and
-   * re-fetches forever), a reply pointing at it must still resolve, and what was there
-   * stays answerable from `message_revisions`. Idempotent: deleting twice succeeds and
-   * writes one revision.
+   * ## The decision
+   *
+   * Taken on 2026-09-09: no user may delete a message and no user may delete a chat.
+   * ARCHIVE is what remains and it is a different act - it takes a conversation out of your
+   * own list without taking anything away from anybody, and it is reversible.
+   *
+   * An internal record that its participants can remove is not a record. StarLink's whole
+   * posture is an append-only ledger (rule 8) and participation that is dated out rather
+   * than deleted (BR-09/§24.3); a thread anybody could quietly redact sat badly beside both.
+   *
+   * ## Why the route still exists and refuses, rather than being removed
+   *
+   * A removed route 404s, and so does this - to a caller they are the same answer, which is
+   * §27.3 working as intended. What the route buys is that the decision is WRITTEN DOWN at
+   * the exact place somebody will look for it, instead of being an absence that reads like
+   * an oversight and gets "fixed" by the next person.
+   *
+   * `redactMessage` and the revision history are untouched below the HTTP layer. If a
+   * retention or legal-hold path ever needs to redact, it will be an ADMINISTRATIVE act with
+   * its own permission and its own audit trail, not this.
    */
   @Delete(':messageId')
   async remove(
     @Param('conversationId') conversationIdRaw: string,
     @Param('messageId') messageIdRaw: string,
     @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    this.logger.info('message delete refused: the product does not offer one', {
+      correlationId: request.correlationId,
+      principalId: request.session!.principalId,
+      operation: 'message.delete',
+      outcome: 'REFUSED',
+      errorCode: 'DELETION_NOT_OFFERED',
+    });
+    return refuse();
+  }
+
+  /** Unreachable. Kept compiling so the redaction path is not silently rotted. */
+  private async removeUnreachable(
+    conversationIdRaw: string,
+    messageIdRaw: string,
+    request: AuthenticatedRequest,
   ): Promise<unknown> {
     const conversationId = uuid.safeParse(conversationIdRaw);
     const messageId = uuid.safeParse(messageIdRaw);
@@ -684,6 +891,222 @@ export class EmployeeMessagesController {
     return { redacted: true };
   }
 
+  /**
+   * Who has read this message, and when it was delivered — the "Message info" panel.
+   *
+   * Authorized with `conversation.read` on the conversation the message is in, and the
+   * message is proved to BE in that conversation first. Without that, a caller could
+   * authorize against a thread they belong to and read the receipts of a message in one
+   * they do not — the object check would pass and the answer would come from somewhere
+   * else. Unknown and not-yours give the same refusal (§27.3).
+   *
+   * Its own route rather than fields on the message projection: the read state is a join
+   * against every participant, and doing it per row would pay for fifty of them to answer
+   * a question somebody asks about one.
+   */
+  @Get(':messageId/info')
+  async messageInfo(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    if (!conversationId.success || !messageId.success) return refuse();
+
+    if (!(await this.mayReadIn(conversationId.data, request))) return refuse();
+
+    const info = await this.messageInfoStore.readers(conversationId.data, messageId.data);
+    if (info === undefined) return refuse();
+    return info;
+  }
+
+  /**
+   * Sends an existing message on to another conversation.
+   *
+   * ## Both sides are authorized, separately
+   *
+   * Forwarding is a read of one conversation and a write to another, and the two are
+   * different decisions about different objects. Checking only the destination would let
+   * somebody copy text out of a thread they may not read; checking only the source would
+   * let them write into a thread they are not in. Both, in that order, and the refusal is
+   * identical either way so the caller cannot map out which conversations exist.
+   *
+   * ## An internal note does not become a customer-visible message
+   *
+   * The forwarded copy is sent with the SOURCE's visibility, and a note may only land in a
+   * conversation where notes are possible. Rule 5 is the one rule in this file that would
+   * fail silently and permanently: a customer reading a colleague's private assessment of
+   * them cannot be undone by deleting it afterwards. `sendMessage` refuses an internal
+   * note in a conversation that cannot hold one, so the domain is the boundary here — this
+   * passes the visibility through rather than choosing one.
+   *
+   * ## It is a new message, not a reference
+   *
+   * The destination gets its own row, its own sequence and its own author: the person who
+   * forwarded it. Deleting the original does not empty the copy, and the copy carries no
+   * claim to be the original — attributing it to the first sender in a thread they are not
+   * in would put words in their mouth in front of people they never addressed.
+   */
+  @Post(':messageId/forward')
+  async forward(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Body() body: unknown,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    const parsed = forwardSchema.safeParse(body);
+    if (!conversationId.success || !messageId.success || !parsed.success) return refuse();
+
+    /* The message must be in the conversation named in the path, or the read check below
+       is authorizing against the wrong object. */
+    const owner = await this.pins.conversationOf(messageId.data);
+    if (owner === undefined || owner !== conversationId.data) return refuse();
+
+    /* Forwarding to the thread it is already in is a no-op dressed as a feature. */
+    if (parsed.data.toConversationId === conversationId.data) return refuse();
+
+    if (!(await this.mayReadIn(conversationId.data, request))) return refuse();
+
+    const session = request.session!;
+    const claims = await this.identity.resolvePrincipal(session.principalId);
+    if (!claims.ok) return refuse();
+
+    const source = await this.messageInfoStore.forwardable(
+      conversationId.data,
+      messageId.data,
+    );
+    /* A deleted message has no text to forward, and forwarding an empty body would put a
+       blank bubble in another conversation over somebody's name. */
+    if (source === undefined || source.body.trim() === '') return refuse();
+
+    const result = await sendMessage(
+      {
+        conversationId: parsed.data.toConversationId,
+        actor: toActorContext(claims.value),
+        senderDisplayName: claims.value.displayName,
+        body: source.body,
+        visibility: source.visibility as MessageVisibility,
+        hasAttachment: false,
+        correlationId: request.correlationId,
+      },
+      { store: this.store, now: () => new Date(), newId: () => crypto.randomUUID() },
+    );
+
+    if (!result.ok) {
+      this.logger.info('forward refused', {
+        correlationId: request.correlationId,
+        principalId: session.principalId,
+        operation: 'message.forward',
+        outcome: 'REFUSED',
+        errorCode: result.reason,
+      });
+      return refuse();
+    }
+
+    return { messageId: result.message.messageId, conversationId: parsed.data.toConversationId };
+  }
+
+  /**
+   * Hides one message from the caller's own view — "delete for me".
+   *
+   * ## Why this is not the DELETE beside it
+   *
+   * `DELETE /messages/:id` is a redaction: it clears the body for every reader, it is
+   * recorded, and only the author may do it. This is the other question — "I do not want
+   * to see this any more" — and the two must not share a route, because getting the method
+   * wrong on a shared path would reach the destructive one.
+   *
+   * ## Anybody who can read it can hide it
+   *
+   * Including somebody else's message, which is the common case: the thing people want out
+   * of their timeline is usually not their own. Authorized with `conversation.read`,
+   * because that is exactly the right this acts on — your own view of what you may see.
+   *
+   * ## It changes nothing shared
+   *
+   * The message is untouched, every other reader still sees it, and the audit ledger does
+   * not move. Rule 8 and BR-09 are about the record, and this writes a row saying one
+   * person would rather not look at it.
+   */
+  @Post(':messageId/hide')
+  async hide(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    /*
+       REFUSED, with the DELETE above and for the same decision.
+
+       "Delete for me" is the gentler of the two and it goes as well: a person who hides a
+       message they were sent has a thread whose history differs from everybody else's, and
+       "what did this conversation say" then has more than one answer depending on who is
+       asked. That is the property the decision protects.
+    */
+    this.logger.info('message hide refused: the product does not offer one', {
+      correlationId: request.correlationId,
+      principalId: request.session!.principalId,
+      operation: 'message.hide',
+      outcome: 'REFUSED',
+      errorCode: 'DELETION_NOT_OFFERED',
+    });
+    return refuse();
+  }
+
+  /** Unreachable. @see hide */
+  private async hideUnreachable(
+    conversationIdRaw: string,
+    messageIdRaw: string,
+    request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    if (!conversationId.success || !messageId.success) return refuse();
+
+    /* The message must be in the conversation named in the path, or the read check below
+       authorizes against the wrong object. */
+    const owner = await this.pins.conversationOf(messageId.data);
+    if (owner === undefined || owner !== conversationId.data) return refuse();
+
+    if (!(await this.mayReadIn(conversationId.data, request))) return refuse();
+
+    await this.hidden.hide(
+      messageId.data,
+      request.session!.principalId,
+      new Date().toISOString(),
+    );
+    return { hidden: true };
+  }
+
+  /**
+   * May this caller READ this conversation?
+   *
+   * The same shape as `mayReactTo` below, with the read action — loaded and decided
+   * against what it loaded, so the check is visible in the handler that needs it rather
+   * than hidden behind a shared tail.
+   */
+  private async mayReadIn(conversationId: UUID, request: AuthenticatedRequest): Promise<boolean> {
+    const session = request.session!;
+    const claims = await this.identity.resolvePrincipal(session.principalId);
+    if (!claims.ok) return false;
+
+    return this.store.transaction(async (tx) => {
+      const conversation = await tx.loadConversationForUpdate(conversationId);
+      if (conversation === undefined) return false;
+      return recordDecision(
+        'conversation.read',
+        decide({
+          actor: toActorContext(claims.value),
+          action: 'conversation.read',
+          resource: await conversationResource(tx, conversation, session.principalId),
+          now: new Date().toISOString(),
+        }),
+      ).allow;
+    });
+  }
+
   @Post(':messageId/reactions')
   async react(
     @Param('conversationId') conversationIdRaw: string,
@@ -703,8 +1126,76 @@ export class EmployeeMessagesController {
       target.messageId,
       request.session!.principalId,
       target.emoji,
+      /* Already verified above to be the conversation this message is IN, so the frame
+         cannot be published to a conversation the message does not belong to. */
+      target.conversationId,
     );
+
+    /*
+       Tell the author, but only when the reaction actually landed.
+
+       `changed` is false when the same person taps the same emoji twice — the second tap
+       removes it — and notifying on a removal would tell somebody their message was
+       reacted to at the moment it stopped being. The notifier drops a self-reaction.
+
+       After the write, like every other notification here: the reaction is durable
+       first (rule 1), and a notification failure must not report the reaction as failed.
+    */
+    if (changed) {
+      const author = await this.reactions.authorOf(target.messageId).catch(() => undefined);
+      if (author !== undefined) {
+        await this.notifier
+          .reactedToYourMessage({
+            conversationId: target.conversationId,
+            messageId: target.messageId,
+            messageAuthorId: author,
+            reactorId: request.session!.principalId as UUID,
+          })
+          .catch((error: unknown) => {
+            this.logger.warn('reaction notification failed', {
+              correlationId: request.correlationId,
+              operation: 'message.reaction.notify',
+              outcome: 'FAILED',
+              errorCode: error instanceof Error ? error.name : 'UNKNOWN',
+            });
+          });
+      }
+    }
     return { changed };
+  }
+
+  /**
+   * Who reacted to this message, and with what.
+   *
+   * ## Authorized as a READ of the conversation
+   *
+   * Reacting needs `mayReactTo`; seeing who reacted needs only what the thread already
+   * shows you — the chips are on the page. `mayReadIn` is therefore the right check, and
+   * the same one the star routes use.
+   *
+   * ## Ids, not names
+   *
+   * The client already holds the conversation's participants and resolves the name from
+   * them, exactly as the typing indicator does. Resolving here would mean a directory
+   * lookup per reactor on a request that fires every time somebody opens a popover, to
+   * produce names the caller can already see in the same thread.
+   */
+  @Get(':messageId/reactions')
+  async reactors(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    if (!conversationId.success || !messageId.success) return refuse();
+    /* The message must be IN the named conversation — the same guard the write routes
+       carry, so a caller cannot read one thread's reactors by authorizing against another. */
+    const owner = await this.reactions.conversationOf(messageId.data);
+    if (owner === undefined || owner !== conversationId.data) return refuse();
+    if (!(await this.mayReadIn(conversationId.data, request))) return refuse();
+
+    return { reactors: await this.reactions.forMessage(messageId.data) };
   }
 
   @Delete(':messageId/reactions')
@@ -723,8 +1214,72 @@ export class EmployeeMessagesController {
       target.messageId,
       request.session!.principalId,
       target.emoji,
+      /* Already verified above to be the conversation this message is IN, so the frame
+         cannot be published to a conversation the message does not belong to. */
+      target.conversationId,
     );
     return { changed };
+  }
+
+  /**
+   * Stars one message, for the caller alone.
+   *
+   * ## Authorized against the conversation, like every other message route
+   *
+   * A star is private, which is exactly why the check still has to happen: "only I can see
+   * it" is not "anyone may create it". Someone who can name a message id in a thread they
+   * are not in must not be able to bookmark it, because the Favourites view would then read
+   * that message back to them. Rule 2 — the object check runs before content is touched.
+   *
+   * `mayReadIn` rather than `mayReactTo`: bookmarking is a reading act, not a contribution
+   * to the conversation, and it should be available wherever reading is.
+   */
+  @Post(':messageId/star')
+  async star(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const target = await this.resolveStarTarget(conversationIdRaw, messageIdRaw);
+    if (target === undefined) return refuse();
+    if (!(await this.mayReadIn(target.conversationId, request))) return refuse();
+
+    const changed = await this.stars.add(target.messageId, request.session!.principalId);
+    return { changed };
+  }
+
+  @Delete(':messageId/star')
+  async unstar(
+    @Param('conversationId') conversationIdRaw: string,
+    @Param('messageId') messageIdRaw: string,
+    @Req() request: AuthenticatedRequest,
+  ): Promise<unknown> {
+    const target = await this.resolveStarTarget(conversationIdRaw, messageIdRaw);
+    if (target === undefined) return refuse();
+    if (!(await this.mayReadIn(target.conversationId, request))) return refuse();
+
+    const changed = await this.stars.remove(target.messageId, request.session!.principalId);
+    return { changed };
+  }
+
+  /**
+   * Parses both ids and proves the message is IN the named conversation.
+   *
+   * The same guard `resolveReactionTarget` carries, and for the same reason: without it a
+   * caller could authorize against a thread they are in and act on a message belonging to
+   * one they are not. An unknown message and a message in another thread both return
+   * `undefined`, so the caller cannot tell them apart (§27.3).
+   */
+  private async resolveStarTarget(
+    conversationIdRaw: string,
+    messageIdRaw: string,
+  ): Promise<{ conversationId: UUID; messageId: UUID } | undefined> {
+    const conversationId = uuid.safeParse(conversationIdRaw);
+    const messageId = uuid.safeParse(messageIdRaw);
+    if (!conversationId.success || !messageId.success) return undefined;
+    const owner = await this.stars.conversationOf(messageId.data);
+    if (owner === undefined || owner !== conversationId.data) return undefined;
+    return { conversationId: conversationId.data, messageId: messageId.data };
   }
 
   /**
@@ -774,25 +1329,12 @@ export class EmployeeMessagesController {
     return this.store.transaction(async (tx) => {
       const conversation = await tx.loadConversationForUpdate(conversationId);
       if (conversation === undefined) return false;
-      const participant = await tx.loadParticipant(conversationId, session.principalId);
       return recordDecision(
         'conversation.message.react',
         decide({
           actor: toActorContext(claims.value),
           action: 'conversation.message.react',
-          resource: {
-            conversationId: conversation.conversationId,
-            conversationType: conversation.conversationType,
-            ...(conversation.caseId !== undefined ? { caseId: conversation.caseId } : {}),
-            ...(conversation.owningTeamId !== undefined
-              ? { owningTeamId: conversation.owningTeamId }
-              : {}),
-            ...(conversation.currentOwnerId !== undefined
-              ? { currentOwnerId: conversation.currentOwnerId }
-              : {}),
-            sensitivity: conversation.sensitivity,
-            ...(participant !== undefined ? { participant } : {}),
-          },
+          resource: await conversationResource(tx, conversation, session.principalId),
           now: new Date().toISOString(),
         }),
       ).allow;

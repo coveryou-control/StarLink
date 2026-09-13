@@ -172,10 +172,68 @@ export class S3ObjectStorage implements ObjectStorageProvider {
   }
 
   /**
-   * A short-lived presigned GET.
+   * The quarantined bytes, for the scanner.
+   *
+   * ## Why this exists on the driver and not on the port
+   *
+   * `ObjectStorageProvider` deliberately has no read method: the application never streams
+   * file contents (ADR-012), so a general read would be an affordance nothing should use.
+   * The mock exposes one for dev, and this is the same shape for the S3 driver — reachable
+   * by the scanner wiring, invisible to everything that goes through the port.
+   *
+   * ## Why it was needed
+   *
+   * The scanner's byte reader was `storage instanceof MockObjectStorage ? … : undefined`.
+   * `LocalObjectStorage` extends the mock so it worked; `S3ObjectStorage` does not, so
+   * every read returned `undefined`, every scan reported QUARANTINE_OBJECT_MISSING, and
+   * nothing was ever promoted to BOUND — no attachment in a deployed environment would
+   * ever have been downloadable. Fail-closed, and silent.
+   *
+   * A real scanner (N-06) reads the object itself with its own credentials and will not
+   * use this. It is what makes the DEV scanner usable against MinIO or S3 in staging,
+   * which is the configuration that would otherwise fail invisibly.
+   */
+  async readQuarantine(key: string): Promise<Uint8Array | undefined> {
+    if (!key.startsWith(QUARANTINE_PREFIX)) return undefined;
+    try {
+      const result = await this.client.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      return new Uint8Array(await S3ObjectStorage.collect(result.Body));
+    } catch {
+      /* Missing, or unreadable. Both mean the scanner has nothing to look at, and the
+         caller already treats that as "could not run" rather than "clean". */
+      return undefined;
+    }
+  }
+
+  /**
+   * A short-lived presigned GET, served as an opaque download.
    *
    * Authorization happened before this was called — the URL itself is a bearer capability,
    * which is why the TTL is the caller's and deliberately small (§28.5).
+   *
+   * ## Why the response type is overridden
+   *
+   * `issueUploadGrant` presigns a PUT with no `ContentType`, so the UPLOADER chooses the
+   * `Content-Type` S3 stores and later serves. Without the overrides below, an employee
+   * could attach a file declaring `text/html`, and the colleague who opened it would have
+   * it rendered as a document by their browser rather than downloaded — stored XSS on the
+   * bucket's origin, reached through an ordinary attachment.
+   *
+   * This is not a hypothetical gap in a document nobody reads. `packages/attachments/policy.ts`
+   * gives it twice as the REASON the accepted-type list can safely include images, audio
+   * and video: "the download path serves everything as `application/octet-stream` with
+   * `Content-Disposition: attachment`, so nothing here is ever interpreted as script by a
+   * browser". That was true of the development driver
+   * (`dev-upload.controller.ts` sets exactly those headers) and false here — so the
+   * argument the policy rests on held only in the environment that does not ship.
+   *
+   * `ResponseContentType` and `ResponseContentDisposition` are signed into the URL, so
+   * they cannot be stripped by editing it: changing either invalidates the signature.
+   * Inline rendering is unaffected — `<img>` and `<video>` sniff the bytes and ignore
+   * `Content-Disposition` on a subresource, which is why the dev driver has served these
+   * same headers all along while pictures rendered in the thread.
    */
   async issueDownloadGrant(cleanKey: string, ttlSeconds: number): Promise<Result<{ url: string }>> {
     if (!cleanKey.startsWith(CLEAN_PREFIX)) {
@@ -185,7 +243,12 @@ export class S3ObjectStorage implements ObjectStorageProvider {
     try {
       const url = await getSignedUrl(
         this.client,
-        new GetObjectCommand({ Bucket: this.bucket, Key: cleanKey }),
+        new GetObjectCommand({
+          Bucket: this.bucket,
+          Key: cleanKey,
+          ResponseContentType: 'application/octet-stream',
+          ResponseContentDisposition: 'attachment',
+        }),
         { expiresIn: ttlSeconds },
       );
       return ok({ url });

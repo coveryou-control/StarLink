@@ -13,7 +13,7 @@
  * the "after edits/archive" half of that criterion is not yet exercisable and is not
  * claimed here.
  */
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 
 import { claimFromQueue, signIn, startCustomerConversation } from './support/flows.js';
 import { resetTeamWork } from './support/reset.js';
@@ -34,6 +34,37 @@ test.beforeEach(async () => {
   await resetTeamWork();
 });
 
+/**
+ * Opens a message's context menu and picks Reply.
+ *
+ * Reply used to be a button on the hover bar and moved into the right-click menu: the
+ * request was one control on hover, and the smiley earned it because it opens a picker
+ * rather than performing a command. The capability is unchanged — this is where it is now,
+ * and `message-list.tsx` also opens the same menu on the ContextMenu key so a keyboard can
+ * still reach it.
+ */
+async function replyTo(message: Locator): Promise<void> {
+  /*
+     `.first()`, because the caller's filter can match more than one row.
+
+     It did not have to before: the old call chained `.getByRole('button', …)` onto the
+     filtered locator, and strict mode was satisfied because exactly one of the matched
+     rows carried that button. Right-clicking the ROW has no such narrowing — the same text
+     appears in the message and in the reply quoting it — so the first is taken, which is
+     what these steps mean by "the message".
+
+     The callers scope to the Messages list, and that is load-bearing rather than tidy: the
+     SIDEBAR rows are list items too, and a conversation's row shows a preview of its last
+     message. An unscoped filter on the message text matched the sidebar row first, so the
+     right-click opened the CONVERSATION menu — Pin chat, Mute — which has no Reply, and
+     the step waited three minutes for an item that was never going to appear.
+  */
+  const row = message.first();
+  await row.scrollIntoViewIfNeeded();
+  await row.click({ button: 'right' });
+  await row.page().getByRole('menuitem', { name: 'Reply' }).click();
+}
+
 test('an employee replies to a specific message and the quote survives a reload', async ({
   browser,
 }) => {
@@ -49,8 +80,9 @@ test('an employee replies to a specific message and the quote survives a reload'
     const conversationUrl = employee.url();
 
     await test.step('replying quotes the message it answers', async () => {
-      const target = employee.getByRole('listitem').filter({ hasText: FIRST });
-      await target.getByRole('button', { name: /^Reply to/ }).click();
+      const messages = employee.getByRole('list', { name: 'Messages' });
+      const target = messages.getByRole('listitem').filter({ hasText: FIRST });
+      await replyTo(target);
 
       // What is being answered is shown while composing - a reply aimed at the wrong
       // message is invisible once sent.
@@ -60,6 +92,7 @@ test('an employee replies to a specific message and the quote survives a reload'
       await employee.getByRole('button', { name: 'Send to customer' }).click();
 
       const sent = employee
+        .getByRole('list', { name: 'Messages' })
         .getByRole('listitem')
         .filter({ hasText: REPLY })
         .filter({ hasNotText: 'Sending' });
@@ -72,7 +105,10 @@ test('an employee replies to a specific message and the quote survives a reload'
       // Reloading proves the reference came back from the SERVER, not from state this tab
       // happened to hold - the projection returning it is the half that was missing.
       await employee.goto(conversationUrl);
-      const sent = employee.getByRole('listitem').filter({ hasText: REPLY });
+      const sent = employee
+        .getByRole('list', { name: 'Messages' })
+        .getByRole('listitem')
+        .filter({ hasText: REPLY });
       await expect(sent.locator('blockquote')).toContainText(FIRST, { timeout: 20_000 });
     });
 
@@ -84,6 +120,7 @@ test('an employee replies to a specific message and the quote survives a reload'
       await employee.getByRole('button', { name: 'Save internal note' }).click();
 
       const note = employee
+        .getByRole('list', { name: 'Messages' })
         .getByRole('listitem')
         .filter({ hasText: NOTE })
         .filter({ hasNotText: 'Sending' });
@@ -92,7 +129,7 @@ test('an employee replies to a specific message and the quote survives a reload'
       // Reply to the NOTE, then switch the composer to customer-visible. Quoting staff-only
       // text into a customer message would launder it past every layer that inspects the
       // message rather than what it points at - so the send is refused before it happens.
-      await note.getByRole('button', { name: /^Reply to/ }).click();
+      await replyTo(note);
       await employee.getByRole('radiogroup', { name: 'Message visibility' })
         .getByRole('radio', { name: 'Reply to customer' })
         .click();

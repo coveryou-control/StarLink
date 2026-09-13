@@ -116,6 +116,33 @@ const DELEGATED = [
   },
 ] as const;
 
+/**
+ * Routes that name a conversation and authorize NOTHING, because they permit nothing.
+ *
+ * ## Why an entry here is not a hole
+ *
+ * The guard below asks "does this route decide before it acts". These routes never act.
+ * They log and return the uniform refusal, for every caller, on every conversation — which
+ * is strictly stronger than any decision `decide()` could reach, and the one case the
+ * question does not fit.
+ *
+ * Message deletion was withdrawn on 2026-09-09: no user deletes a message and no user
+ * deletes a chat. `messages.controller.ts` carries the reasoning. The routes remain and
+ * refuse rather than being removed, so the decision is written where the next person will
+ * look for it instead of being an absence that reads like an oversight.
+ *
+ * ## The entry cannot become a hole either
+ *
+ * `refuses unconditionally` below reads each named handler and requires its body to contain
+ * a `return refuse()` and NO conditional return of anything else. Re-implement the delete
+ * and the body stops matching, the exemption stops applying, and the guard demands an
+ * object check again — which is exactly what should happen.
+ */
+const REFUSES_UNCONDITIONALLY: readonly string[] = [
+  'DELETE v1/employee/conversations/:conversationId/messages/:messageId',
+  'POST v1/employee/conversations/:conversationId/messages/:messageId/hide',
+];
+
 interface Handler {
   readonly file: string;
   readonly method: string;
@@ -215,7 +242,7 @@ describe('employee controller authorization', () => {
      * in, it was not in this list at all.
      */
     const messages = handlers.filter((h) => h.file === 'messages.controller.ts');
-    expect(messages.length, 'the message controller matched no handlers').toBe(6);
+    expect(messages.length, 'the message controller matched no handlers').toBe(12);
     /**
      * Named, not just counted. The count alone would be satisfied by four handlers that
      * are not these — and the bare `@Post()` send path is the specific one that went
@@ -224,10 +251,16 @@ describe('employee controller authorization', () => {
     expect(messages.map((h) => `${h.method} ${h.path}`).sort()).toEqual([
       'DELETE v1/employee/conversations/:conversationId/messages/:messageId',
       'DELETE v1/employee/conversations/:conversationId/messages/:messageId/reactions',
+      'DELETE v1/employee/conversations/:conversationId/messages/:messageId/star',
       'GET v1/employee/conversations/:conversationId/messages',
+      'GET v1/employee/conversations/:conversationId/messages/:messageId/info',
+      'GET v1/employee/conversations/:conversationId/messages/:messageId/reactions',
       'PATCH v1/employee/conversations/:conversationId/messages/:messageId',
       'POST v1/employee/conversations/:conversationId/messages',
+      'POST v1/employee/conversations/:conversationId/messages/:messageId/forward',
+      'POST v1/employee/conversations/:conversationId/messages/:messageId/hide',
       'POST v1/employee/conversations/:conversationId/messages/:messageId/reactions',
+      'POST v1/employee/conversations/:conversationId/messages/:messageId/star',
     ]);
     expect(
       messages.every((h) => h.path.includes(':conversationId')),
@@ -281,6 +314,31 @@ describe('employee controller authorization', () => {
     }
   });
 
+  it('refuses unconditionally, on every route exempted for doing so', () => {
+    /**
+     * The exemption above, made falsifiable.
+     *
+     * Two properties per handler, and the second is the one that matters: the body returns
+     * the uniform refusal, and it contains no OTHER return at all. A re-implemented delete
+     * would return something — a result, an object, a 204 — and would fail here rather than
+     * quietly inheriting an exemption written for a route that permitted nothing.
+     */
+    for (const route of REFUSES_UNCONDITIONALLY) {
+      const handler = handlers.find((h) => `${h.method} ${h.path}` === route);
+      expect(handler, `${route} is exempted and does not exist - stale entry`).toBeDefined();
+      const body = stripComments(handler!.body);
+
+      expect(/return\s+refuse\s*\(\s*\)\s*;/.test(body), `${route} does not refuse`).toBe(true);
+
+      const returns = body.match(/\breturn\b[^;]*;/g) ?? [];
+      expect(
+        returns.every((statement) => /return\s+refuse\s*\(\s*\)\s*;/.test(statement)),
+        `${route} is exempted from the object check because it permits nothing, and it ` +
+          `now returns something else:\n${returns.join('\n')}`,
+      ).toBe(true);
+    }
+  });
+
   it('object-checks every route that names a conversation', () => {
     const approved = (h: Handler): readonly string[] => [
       ...(sources.find((s) => s.file === h.file)?.checks ?? []),
@@ -289,6 +347,9 @@ describe('employee controller authorization', () => {
 
     const unchecked = handlers
       .filter((h) => h.path.includes(':conversationId'))
+      /* A route that permits nothing needs no decision - see REFUSES_UNCONDITIONALLY, and
+         the test below which proves each of them still refuses. */
+      .filter((h) => !REFUSES_UNCONDITIONALLY.includes(`${h.method} ${h.path}`))
       // Either it calls something proved to object-check, or it loads and decides inline.
       .filter((h) => !checksWith(h.body, approved(h)) && !isObjectCheck(h.body))
       .map((h) => `${h.file}: ${h.method} ${h.path}`);

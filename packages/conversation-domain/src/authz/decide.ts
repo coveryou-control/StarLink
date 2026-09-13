@@ -19,6 +19,7 @@
  */
 import type {
   Assurance,
+  ChannelAccessPolicy,
   ConversationType,
   MessageVisibility,
   PrincipalKind,
@@ -26,7 +27,7 @@ import type {
   Timestamp,
   UUID,
 } from '@starlink/shared-contracts';
-import { ASSURANCE_RANK } from '@starlink/shared-contracts';
+import { ASSURANCE_RANK, isChannelAdminRole } from '@starlink/shared-contracts';
 import { CUSTOMER_PERMITTED_ACTIONS, PRIVILEGED_ACTIONS, isKnownAction, type Action } from './actions.js';
 
 export interface ScopeGrant {
@@ -92,6 +93,32 @@ export interface ResourceContext {
   readonly belongsToActorCustomer?: boolean;
   /** Verification instant of the customer session that created the conversation. */
   readonly customerVerifiedAt?: Timestamp;
+  /**
+   * An `INTERNAL_CHANNEL`'s access policy, and whether this actor is inside its audience.
+   *
+   * Loaded alongside the conversation, never looked up in here — `decide` is pure, and that
+   * is what makes the authorization matrix a table rather than a set of HTTP tests.
+   *
+   * ABSENT ON A CHANNEL IS A DENY, not a default. A loader that forgets to read the policy
+   * would otherwise silently produce whatever the fallback happened to be, and the fallback
+   * is the one thing nobody reviews. See `decideChannel`.
+   */
+  readonly channel?: ChannelFacts;
+}
+
+/** @see ResourceContext.channel */
+export interface ChannelFacts {
+  readonly policy: ChannelAccessPolicy;
+  /**
+   * Does this actor fall inside the channel's audience?
+   *
+   * Resolved by the loader against `conversation.channel_audience`: true for 'EVERYONE',
+   * otherwise true when one of the actor's departments, teams or their own principal id is
+   * named. `decide` additionally treats a live participant as inside regardless — being in
+   * a room is knowing it exists — so a loader that computes this narrowly cannot lock a
+   * member out of their own channel.
+   */
+  readonly visibleToActor: boolean;
 }
 
 export interface DecisionRequest {
@@ -113,7 +140,13 @@ export type DenyReason =
   | 'CUSTOMER_INTERNAL_CONTENT'
   | 'CUSTOMER_PRE_VERIFICATION_HISTORY'
   | 'NOT_PARTICIPANT_NO_SCOPE'
+  | 'PRIVATE_CONVERSATION_NOT_A_PARTICIPANT'
   | 'PARTICIPATION_DOES_NOT_GRANT_ACTION'
+  /**
+   * The channel's own policy refused it — including the case where the policy did not
+   * arrive at all, which is refused rather than guessed.
+   */
+  | 'CHANNEL_POLICY_DENIES'
   | 'SENSITIVITY_SEGMENTATION'
   | 'NO_MATCHING_GRANT';
 
@@ -121,7 +154,15 @@ export type Decision =
   | {
       readonly allow: true;
       /** Why it was allowed — drives the audit record for privileged access. */
-      readonly basis: 'PARTICIPANT' | 'OWNER' | 'SCOPE_GRANT' | 'DELEGATION' | 'TEMPORARY_GRANT' | 'CUSTOMER_OWN';
+      readonly basis:
+        | 'PARTICIPANT'
+        | 'OWNER'
+        | 'SCOPE_GRANT'
+        | 'DELEGATION'
+        | 'TEMPORARY_GRANT'
+        | 'CUSTOMER_OWN'
+        /** An `INTERNAL_CHANNEL` said so — see `decideChannel`. */
+        | 'CHANNEL_POLICY';
       readonly privileged: boolean;
       readonly grantRef?: string;
     }
@@ -415,6 +456,49 @@ export function decide(request: DecisionRequest): Decision {
     return { allow: true, basis: 'OWNER', privileged: false };
   }
 
+  /*
+     4a. A channel decides its own access.
+
+     Before participation, because on a channel participation is an INPUT to the policy
+     rather than the rule itself: a member of a channel whose posting is reserved to its
+     administrators may not post, and rung 5 would hand them `conversation.message.send`
+     before this rung was ever consulted.
+  */
+  if (resource.conversationType === 'INTERNAL_CHANNEL') {
+    const verdict = decideChannel(resource, action, isLiveParticipant);
+    if (verdict === 'ALLOW') {
+      return {
+        allow: true,
+        /* PARTICIPANT when they are in the room, so the audit reads the way it did before
+           channels existed; CHANNEL_POLICY when the room itself let a non-member in, which
+           is the case that is new and the one worth being able to find in a log. */
+        basis: isLiveParticipant ? 'PARTICIPANT' : 'CHANNEL_POLICY',
+        privileged: false,
+      };
+    }
+    if (verdict === 'DENY') {
+      /*
+         Except by temporary grant. A compliance investigation must have a lawful route into
+         a private room, and the temporary grant is it: explicit, time-boxed, naming this
+         conversation, and audited on both success and refusal. Rung 6 is inlined here
+         rather than jumped to, because falling through would also reach rungs 7 and 8 -
+         the standing authority this rung exists to refuse.
+      */
+      for (const grant of actor.temporaryGrants) {
+        if (
+          grant.capability === action &&
+          isWithinPeriod(now, grant.effectiveFrom, grant.effectiveTo) &&
+          (grant.conversationId === undefined || grant.conversationId === resource.conversationId) &&
+          (grant.caseId === undefined || grant.caseId === resource.caseId)
+        ) {
+          return { allow: true, basis: 'TEMPORARY_GRANT', privileged, grantRef: grant.grantId };
+        }
+      }
+      return { allow: false, reason: 'CHANNEL_POLICY_DENIES', privilegedAttempt: privileged };
+    }
+    // FALL_THROUGH: an administrative action the channel does not settle. Rungs 6-8 decide.
+  }
+
   // 5. Participation — a CONVERSATION-SCOPED grant, never a global one.
   if (isLiveParticipant) {
     if (PARTICIPANT_ACTIONS.has(action) && grantedByParticipationOn(resource.conversationType, action)) {
@@ -464,6 +548,44 @@ export function decide(request: DecisionRequest): Decision {
     ) {
       return { allow: true, basis: 'TEMPORARY_GRANT', privileged, grantRef: grant.grantId };
     }
+  }
+
+  /*
+     6a. A private internal conversation is reachable by PARTICIPATION, never by standing scope.
+
+     Gated on NOT being a participant, and that qualifier is the whole difference between a
+     fix and an outage. A participant frequently needs a role grant for an action that
+     participation alone does not carry — renaming the group, editing, deleting — and rung 5
+     deliberately falls through to rungs 7 and 8 to find it ("being in the room is not being
+     in charge of it"). The first draft of this rung omitted the qualifier and took four
+     journey tests down with it: rename, react, edit and delete all became 404 for the
+     person who had just created the conversation.
+
+     This is the rule rule 3 states — "participation grants that conversation and nothing
+     else" — and until now it was stated nowhere in code. An `INTERNAL_DIRECT` or
+     `INTERNAL_GROUP` thread has no case, so `owning_team_id` and `owning_department` are
+     NULL and TEAM- and DEPARTMENT-scoped grants correctly failed to match it. `GLOBAL`
+     matched unconditionally, and GLOBAL is what every seeder issues and what the admin API
+     offers first — so the lowest-privilege AGENT in the product could read every private
+     message between colleagues by id, and react to and star them. Confirmed against the
+     running system on 2026-09-08, not theorised.
+
+     Placed AFTER rung 6 on purpose. A temporary grant is explicit, time-boxed, names this
+     conversation and is audited — it is the lawful way to reach a private thread for a
+     compliance investigation, and removing it would leave no lawful way at all. What is
+     refused here is the STANDING kind of authority: a delegation or a role×scope grant
+     that was never about this conversation and quietly covers every one of them.
+
+     Ownership is not consulted because these conversations have no owner: rule 6's
+     exclusion constraint is on CUSTOMER conversations, and rung 4 has already returned for
+     anything that does have one.
+  */
+  if (!isLiveParticipant && PARTICIPANT_MANAGED_TYPES.has(resource.conversationType)) {
+    return {
+      allow: false,
+      reason: 'PRIVATE_CONVERSATION_NOT_A_PARTICIPANT',
+      privilegedAttempt: privileged,
+    };
   }
 
   // 7. Delegations received from another principal.
@@ -570,6 +692,112 @@ const ANNOUNCEMENT_PARTICIPANT_ACTIONS: ReadonlySet<Action> = new Set<Action>([
   'conversation.attachment.download',
   'conversation.message.react',
 ]);
+
+/**
+ * What a channel READER may do - everything that consumes the room's content.
+ *
+ * These are the actions a channel decides ALONE. If the policy does not grant one, nothing
+ * else in the ladder may, apart from a temporary grant - see `decideChannel`.
+ */
+const CHANNEL_READ_ACTIONS: ReadonlySet<Action> = new Set<Action>([
+  'conversation.read',
+  'conversation.attachment.download',
+  'case.read',
+]);
+
+/** What a channel POSTER may do: put something in the room. */
+const CHANNEL_POST_ACTIONS: ReadonlySet<Action> = new Set<Action>([
+  'conversation.message.send',
+  'conversation.note.internal',
+  'conversation.attachment.upload',
+]);
+
+/**
+ * Administering the room, as opposed to using it.
+ *
+ * These FALL THROUGH when the channel's own administrators do not include the actor, so a
+ * holder of the company-wide `channel.manage` can still repair a channel nobody is left to
+ * run. Content actions never fall through, which is the distinction FR-AUTHZ-7 draws:
+ * administration is not readership.
+ */
+const CHANNEL_ADMIN_ACTIONS: ReadonlySet<Action> = new Set<Action>([
+  'conversation.participant.add',
+  'conversation.participant.remove',
+  'conversation.rename',
+  'channel.manage',
+]);
+
+type ChannelVerdict = 'ALLOW' | 'DENY' | 'FALL_THROUGH';
+
+/**
+ * A channel's three questions, answered.
+ *
+ * ## Why this is a rung of its own rather than another narrowing of participation
+ *
+ * An announcement is expressible as "participation grants less here", because everybody who
+ * may read one is a participant of it. A channel is not: a channel can be READABLE BY
+ * PEOPLE WHO ARE NOT IN IT. That is the whole point of separating visibility from read
+ * access - it is what lets somebody find a room, read what is in it and then decide to
+ * join, instead of joining blind. No amount of narrowing `PARTICIPANT_ACTIONS` reaches a
+ * non-participant, so the channel needs its own rung.
+ *
+ * ## And why it is closed at the bottom
+ *
+ * Returning DENY rather than falling through for content is the same lesson rung 6a records
+ * at length. GLOBAL is the scope every seeder issues and the one the admin API offers
+ * first, so a fall-through would mean the lowest-privilege AGENT in the product could read
+ * and post in every private channel in the company. A channel's content is reachable by its
+ * policy or by an explicit, time-boxed, audited temporary grant, and by nothing else.
+ *
+ * ## The three nest
+ *
+ * Posting requires reading requires seeing. Enforced by construction here rather than by a
+ * rule somebody has to remember, and matching the enum shapes in `0031_channel_access.sql`.
+ */
+function decideChannel(
+  resource: ResourceContext,
+  action: Action,
+  isLiveParticipant: boolean,
+): ChannelVerdict {
+  const facts = resource.channel;
+  /*
+     No policy, no access. The loader is expected to read `conversation.channels` in the same
+     query as the conversation; if it did not, this is a bug, and the safe rendering of a bug
+     in an authorization input is a refusal. Defaulting to "open" would make a forgotten join
+     indistinguishable from a channel somebody deliberately opened to the company.
+  */
+  if (facts === undefined) return 'DENY';
+
+  /* Being in the room is knowing it exists, whatever the audience table says. */
+  const visible = facts.visibleToActor || isLiveParticipant;
+  const isAdmin = isLiveParticipant && isChannelAdminRole(resource.participant?.role);
+  const mayRead =
+    visible && (facts.policy.readAccess === 'ANYONE_WHO_CAN_SEE' || isLiveParticipant);
+  const mayPost =
+    mayRead &&
+    !facts.policy.archived &&
+    (facts.policy.postAccess === 'ANYONE_WHO_CAN_READ'
+      ? true
+      : facts.policy.postAccess === 'MEMBERS'
+        ? isLiveParticipant
+        : isAdmin);
+
+  if (CHANNEL_READ_ACTIONS.has(action)) return mayRead ? 'ALLOW' : 'DENY';
+  if (CHANNEL_POST_ACTIONS.has(action)) return mayPost ? 'ALLOW' : 'DENY';
+  /*
+     Reacting is a READER's act, not a poster's.
+
+     Same call the announcement makes, and for the same reason: an acknowledgement is not a
+     contribution, and a notice board where the audience may not respond at all is a worse
+     product than one where they may say they have seen it. Still refused on an ARCHIVED
+     channel, which accepts nothing new by definition.
+  */
+  if (action === 'conversation.message.react') {
+    return mayRead && !facts.policy.archived ? 'ALLOW' : 'DENY';
+  }
+  if (CHANNEL_ADMIN_ACTIONS.has(action)) return isAdmin ? 'ALLOW' : 'FALL_THROUGH';
+  return 'FALL_THROUGH';
+}
 
 function grantedByParticipationOn(conversationType: ConversationType, action: Action): boolean {
   return conversationType === 'INTERNAL_ANNOUNCEMENT'

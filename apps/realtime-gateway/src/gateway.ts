@@ -820,7 +820,31 @@ export class RealtimeGateway {
 
   start(): void {
     const interval = this.options.revalidateIntervalMs ?? 60_000;
+    /**
+     * One pass at a time.
+     *
+     * `setInterval` does not wait for the previous callback, so a sweep that takes
+     * longer than its own interval starts a second one on top of it, then a third.
+     * Each holds connections from the same small pool — the pool the in-process outbox
+     * relay also drains through — so the failure compounds: the slower the pass gets,
+     * the more passes are running, and realtime delivery stalls behind housekeeping.
+     * `sweeps.ts` has had exactly this guard since it was written; this timer did not.
+     *
+     * A skipped tick is the right outcome. The pass is idempotent and the next one is
+     * sixty seconds away, so nothing is lost by declining to start a second copy.
+     */
+    let sweeping = false;
     this.revalidateTimer = setInterval(() => {
+      if (sweeping) {
+        /* No `outcome`: the vocabulary is SUCCEEDED | REFUSED | FAILED and a skipped
+           tick is none of them. Calling it SUCCEEDED would be a lie in the one log line
+           that tells an operator the sweep is falling behind. */
+        this.options.logger.warn('revalidation still running, skipping this tick', {
+          operation: 'realtime.revalidate',
+        });
+        return;
+      }
+      sweeping = true;
       void this.options.connections.revalidateAll().then(({ doomed, revoked }) => {
         for (const connectionId of doomed) {
           this.options.logger.info('closing socket for revoked session', {
@@ -848,7 +872,20 @@ export class RealtimeGateway {
           });
           this.leaveChannel(socket, channelKey);
         }
-      });
+      })
+        .catch((cause: unknown) => {
+          /* A sweep that throws must not wedge the guard on forever — without this, one
+             failure would stop every later revalidation and the revocation control would
+             be silently off for the life of the process. */
+          this.options.logger.error('revalidation pass failed', {
+            operation: 'realtime.revalidate',
+            outcome: 'FAILED',
+            errorCode: cause instanceof Error ? cause.name : 'UNKNOWN',
+          });
+        })
+        .finally(() => {
+          sweeping = false;
+        });
     }, interval);
     // Never hold the process open for a housekeeping timer.
     this.revalidateTimer.unref?.();

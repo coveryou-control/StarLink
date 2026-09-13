@@ -7,7 +7,7 @@
  * without a database, while the same contract is exercised against real PostgreSQL in
  * integration tests.
  */
-import type { Mention } from '@starlink/conversation-domain';
+import type { ChannelFacts, Mention } from '@starlink/conversation-domain';
 import type {
   ConversationType,
   MessageVisibility,
@@ -137,6 +137,27 @@ export interface InsertMessage {
 export interface MessageWriteTransaction {
   loadConversationForUpdate(conversationId: UUID): Promise<ConversationRecord | undefined>;
   loadParticipant(conversationId: UUID, principalId: UUID): Promise<ParticipantRecord | undefined>;
+  /**
+   * An `INTERNAL_CHANNEL`'s access policy, and whether this sender is inside its audience.
+   *
+   * ## Why this is its own call and not part of the conversation record
+   *
+   * Half the answer depends on WHO is asking. `visibleToActor` resolves the audience against
+   * the sender's department, teams and principal id, and `loadConversationForUpdate` takes
+   * no principal — it locks a row, and adding a viewer to a lock is the wrong shape.
+   *
+   * ## And why it is required rather than optional
+   *
+   * An optional method would let a store omit it, and `decide()` would then refuse every
+   * channel send — which is the SAFE failure but a silent one, discovered by a user rather
+   * than by a compiler. Required means a store that forgets does not build.
+   *
+   * Called only for channels; every other conversation type ignores it.
+   */
+  loadChannelFacts(
+    conversationId: UUID,
+    principalId: UUID,
+  ): Promise<ChannelFacts | undefined>;
   /** Returns an existing message when this idempotency key has already been used. */
   findByClientMessageId(
     conversationId: UUID,
@@ -154,6 +175,25 @@ export interface MessageWriteTransaction {
   /** Allocates the next per-conversation sequence. Monotonic, gap-free within a thread. */
   nextSequence(conversationId: UUID): Promise<number>;
   insertMessage(message: InsertMessage & { seq: number }): Promise<MessageRecord>;
+  /**
+   * Brings a conversation back out of everyone's archive except the sender's.
+   *
+   * Archive was a one-way door. `archived_at` was written by the archive endpoint and
+   * cleared by nothing, and the conversation list partitions hard on it — so every later
+   * message from that colleague was invisible: no row, no unread badge, and no
+   * notification either, since an ordinary direct message raises none. The person who
+   * archived a thread stopped receiving from it permanently, and the person still
+   * writing into it had no way to know.
+   *
+   * Not the sender: archiving your own thread and then writing in it is a deliberate act
+   * that should not undo itself. Everyone else's archive is a statement about a
+   * conversation that had gone quiet, and it has just stopped being quiet.
+   *
+   * In the send transaction, so it is atomic with durability (rule 1). Doing it after
+   * the commit would mean a crash in between leaves the message durable and invisible,
+   * which is the bug rather than a smaller version of it.
+   */
+  unarchiveForOthers(conversationId: UUID, senderPrincipalId: UUID): Promise<number>;
   /** Written in the SAME transaction as the message; this is what forbids drift. */
   appendOutbox(row: OutboxRow): Promise<void>;
   touchConversation(conversationId: UUID, lastActivityAt: Timestamp, preview: string): Promise<void>;

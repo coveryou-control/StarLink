@@ -95,13 +95,30 @@ test('the employee surface is usable at phone and tablet widths (NFR-MOB-1, NFR-
         /*
            The controls a phone user actually needs must be reachable, not merely present.
 
-           Named by class rather than by role, because screen 08 draws TWO ways to compose
-           on a phone — one in the masthead and the floating one — and they carry the same
-           accessible name because they are the same action. The floating one is the
-           assertion that matters here: it is the thumb-reachable control, and it is the one
-           that sits above the bottom nav where a mis-set `bottom` would put it off-screen.
+           Width-aware, because the product deliberately provides a DIFFERENT compose
+           control at each width and there is no single element to assert.
+
+           At or below 860px the floating tile is it: the bottom bar has four destinations and
+           none of them is compose, so the tile is the whole action and it is the
+           thumb-reachable one. It is also the one a mis-set `bottom` would push off-screen,
+           which is what this assertion was originally written to catch — so that case keeps
+           its teeth and keeps naming the class.
+
+           Above 860px the tile is hidden on purpose: the sidebar carries "New chat" as a
+           LABELLED control, and an unlabelled coral tile six inches away was a second door
+           to the same room. Asserting the tile there failed a product that was working.
         */
-        await expect(employee.locator('.fab-new')).toBeVisible();
+        if (size.width <= 860) {
+          await expect(
+            employee.locator('.fab-new'),
+            `${size.name}: the floating compose tile is the only way to start a conversation here`,
+          ).toBeVisible();
+        } else {
+          await expect(
+            employee.getByRole('button', { name: 'New chat' }),
+            `${size.name}: the sidebar's labelled compose control is missing`,
+          ).toBeVisible();
+        }
         await expect(employee.getByRole('region', { name: /^Queue for/ })).toBeVisible();
 
         if (conversationUrl === undefined) {

@@ -234,3 +234,189 @@ describe('a role change reaches the person it affects', () => {
     expect(sent?.targetRef).toBeUndefined();
   });
 });
+
+describe('one message, at most one notification each', () => {
+  /**
+   * The property that makes group push bearable.
+   *
+   * A single message can qualify somebody three ways at once — they are a participant,
+   * they were mentioned, and it replies to something they wrote. Raising all three is
+   * three phone buzzes for one message, which is the noise §29.2's governing sentence
+   * exists to prevent, arriving by a mechanism that sentence never anticipated. Since
+   * 2026-09-11 group and channel messages push, so this stopped being theoretical.
+   */
+  const ALICE = '018f2c5a-5e5e-7000-8000-0000000000a1' as UUID;
+  const BOB = '018f2c5a-5e5e-7000-8000-0000000000b2' as UUID;
+  const CARA = '018f2c5a-5e5e-7000-8000-0000000000c3' as UUID;
+  const SENDER = '018f2c5a-5e5e-7000-8000-0000000000d4' as UUID;
+
+  const arrive = async (
+    service: FakeService,
+    over: Partial<Parameters<ConversationNotifier['messageArrived']>[0]> = {},
+  ): Promise<void> => {
+    await notifierWith(service).messageArrived({
+      conversationId: CONVERSATION,
+      conversationType: 'INTERNAL_GROUP',
+      messageId: MESSAGE,
+      senderId: SENDER,
+      participants: [SENDER, ALICE, BOB, CARA],
+      ...over,
+    });
+  };
+
+  it('tells every participant except the sender', async () => {
+    const service = new FakeService();
+    await arrive(service);
+
+    expect(recipientsOf(service, 'GROUP_MESSAGE').sort()).toEqual([ALICE, BOB, CARA].sort());
+  });
+
+  it('never tells the sender — §29.2 does not notify your own actions', async () => {
+    const service = new FakeService();
+    await arrive(service);
+
+    expect(service.sent.map((r) => r.recipientId)).not.toContain(SENDER);
+  });
+
+  it('gives a mentioned participant the MENTION and not also the message', async () => {
+    // `mentioned()` raises the mention on the same send, so raising a group message for
+    // the same person too would be the same event twice in two words.
+    const service = new FakeService();
+    await arrive(service, { mentioned: [ALICE] });
+
+    expect(recipientsOf(service, 'GROUP_MESSAGE').sort()).toEqual([BOB, CARA].sort());
+    expect(recipientsOf(service, 'MENTIONED')).toEqual([]);
+  });
+
+  it('gives the person replied to REPLIED_TO_YOU and not also the message', async () => {
+    const service = new FakeService();
+    await arrive(service, { repliedToAuthor: BOB });
+
+    expect(recipientsOf(service, 'REPLIED_TO_YOU')).toEqual([BOB]);
+    expect(recipientsOf(service, 'GROUP_MESSAGE').sort()).toEqual([ALICE, CARA].sort());
+  });
+
+  it('ranks a mention above a reply when both apply to the same person', async () => {
+    // Being named is more specific than being replied to, and one notification has to win.
+    const service = new FakeService();
+    await arrive(service, { mentioned: [BOB], repliedToAuthor: BOB });
+
+    expect(recipientsOf(service, 'REPLIED_TO_YOU')).toEqual([]);
+    expect(recipientsOf(service, 'GROUP_MESSAGE').sort()).toEqual([ALICE, CARA].sort());
+  });
+
+  it('sends exactly one notification per person, whatever combination applies', async () => {
+    const service = new FakeService();
+    await arrive(service, { mentioned: [ALICE], repliedToAuthor: BOB });
+
+    const perPerson = new Map<string, number>();
+    for (const row of service.sent) {
+      perPerson.set(row.recipientId, (perPerson.get(row.recipientId) ?? 0) + 1);
+    }
+    expect([...perPerson.values()].every((n) => n === 1)).toBe(true);
+    expect(perPerson.size).toBe(2); // Bob and Cara; Alice's mention comes from `mentioned()`
+  });
+
+  it('picks the event from the conversation TYPE', async () => {
+    for (const [type, event] of [
+      ['INTERNAL_DIRECT', 'DIRECT_MESSAGE'],
+      ['INTERNAL_GROUP', 'GROUP_MESSAGE'],
+      ['INTERNAL_CHANNEL', 'CHANNEL_MESSAGE'],
+      ['INTERNAL_ANNOUNCEMENT', 'ANNOUNCEMENT_POSTED'],
+    ] as const) {
+      const service = new FakeService();
+      await arrive(service, { conversationType: type });
+      expect(service.sent.map((r) => r.event), type).toEqual([event, event, event]);
+    }
+  });
+
+  it('raises nothing for a conversation type it has not been taught', async () => {
+    /* Fails closed. The alternative default — treat an unknown type as a group — would
+       page everybody in a kind of conversation nobody has decided the rules for. */
+    const service = new FakeService();
+    await arrive(service, { conversationType: 'SOMETHING_NEW' });
+
+    expect(service.sent).toEqual([]);
+  });
+
+  it('still notifies the person replied to in an unknown conversation type', async () => {
+    // The reply is about THEM, not about the room, so it does not depend on knowing how
+    // the room notifies.
+    const service = new FakeService();
+    await arrive(service, { conversationType: 'SOMETHING_NEW', repliedToAuthor: BOB });
+
+    expect(recipientsOf(service, 'REPLIED_TO_YOU')).toEqual([BOB]);
+  });
+
+  it('does not tell you that you replied to yourself', async () => {
+    const service = new FakeService();
+    await arrive(service, { repliedToAuthor: SENDER });
+
+    expect(recipientsOf(service, 'REPLIED_TO_YOU')).toEqual([]);
+  });
+});
+
+describe('reactions and participation', () => {
+  const AUTHOR = '018f2c5a-5e5e-7000-8000-0000000000e5' as UUID;
+  const REACTOR = '018f2c5a-5e5e-7000-8000-0000000000f6' as UUID;
+
+  it('tells the author somebody reacted to their message', async () => {
+    const service = new FakeService();
+    await notifierWith(service).reactedToYourMessage({
+      conversationId: CONVERSATION,
+      messageId: MESSAGE,
+      messageAuthorId: AUTHOR,
+      reactorId: REACTOR,
+    });
+
+    expect(recipientsOf(service, 'REACTED_TO_YOUR_MESSAGE')).toEqual([AUTHOR]);
+  });
+
+  it('says nothing when you react to your own message', async () => {
+    const service = new FakeService();
+    await notifierWith(service).reactedToYourMessage({
+      conversationId: CONVERSATION,
+      messageId: MESSAGE,
+      messageAuthorId: AUTHOR,
+      reactorId: AUTHOR,
+    });
+
+    expect(service.sent).toEqual([]);
+  });
+
+  it('tells the person added, and the person removed', async () => {
+    const service = new FakeService();
+    await notifierWith(service).participationChanged({
+      conversationId: CONVERSATION,
+      actorId: OWNER,
+      added: [AUTHOR],
+      removed: [REACTOR],
+    });
+
+    expect(recipientsOf(service, 'ADDED_TO_CONVERSATION')).toEqual([AUTHOR]);
+    expect(recipientsOf(service, 'REMOVED_FROM_CONVERSATION')).toEqual([REACTOR]);
+  });
+
+  it('tells the room nothing — participation is about the person', async () => {
+    const service = new FakeService();
+    await notifierWith(service).participationChanged({
+      conversationId: CONVERSATION,
+      actorId: OWNER,
+      added: [AUTHOR],
+    });
+
+    expect(service.sent).toHaveLength(1);
+  });
+
+  it('does not tell somebody they removed themselves', async () => {
+    // Leaving a group is your own action, and §29.2 does not notify those.
+    const service = new FakeService();
+    await notifierWith(service).participationChanged({
+      conversationId: CONVERSATION,
+      actorId: OWNER,
+      removed: [OWNER],
+    });
+
+    expect(service.sent).toEqual([]);
+  });
+});

@@ -13,8 +13,16 @@ import type { MessageView } from '../lib/api-client';
  * The hover bar carried a kebab, and a kebab is a button whose label is "there is more".
  * Right-clicking a message is what people already do — it is how every desktop application
  * and every desktop messenger offers the same list — and it costs no pixels beside every
- * message on the screen. The smiley and the reply arrow stay on hover, because those are
- * the two actions worth making visible; the rest lives here.
+ * message on the screen. Only the smiley stays on hover; everything else lives here,
+ * including Reply, which is why `message-list.tsx` also opens this menu on the ContextMenu
+ * key — a list where Reply needs a right-click is a list a keyboard cannot use.
+ *
+ * ## What is in it
+ *
+ * Message info, Copy, Reply, Star, Edit, Forward, Pin. There is no "Ask Meta AI"
+ * for the obvious reason. Edit and Delete
+ * appear only on your own messages — the server refuses both otherwise, and offering them
+ * would be offering a refusal.
  *
  * ## Why a portal, which is the actual bug fix
  *
@@ -39,20 +47,34 @@ export function MessageContextMenu({
   message,
   at,
   canEdit,
-  canDelete,
+  pinned,
   onReply,
   onEdit,
-  onDelete,
+  onTogglePin,
+  onForward,
+  onToggleStar,
+  onMessageInfo,
   onClose,
 }: {
   readonly message: MessageView;
   /** Viewport coordinates of the click that opened it. */
   readonly at: { readonly x: number; readonly y: number };
   readonly canEdit: boolean;
-  readonly canDelete: boolean;
+  /** Whether this message is currently pinned for everybody in the conversation. */
+  readonly pinned: boolean;
   readonly onReply?: ((message: MessageView) => void) | undefined;
   readonly onEdit?: ((message: MessageView) => void) | undefined;
-  readonly onDelete?: ((message: MessageView) => void) | undefined;
+  readonly onTogglePin?: ((message: MessageView, next: boolean) => void) | undefined;
+  readonly onForward?: ((message: MessageView) => void) | undefined;
+  /**
+   * Star or un-star, for the caller alone.
+   *
+   * Beside Reply rather than beside Pin, and the grouping is the point: a pin is visible
+   * to everybody in the thread, a star is visible to nobody. Putting them together would
+   * suggest they are two strengths of the same act.
+   */
+  readonly onToggleStar?: ((message: MessageView, next: boolean) => void) | undefined;
+  readonly onMessageInfo?: ((message: MessageView) => void) | undefined;
   readonly onClose: () => void;
 }): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null);
@@ -65,8 +87,11 @@ export function MessageContextMenu({
     const box = el.getBoundingClientRect();
     const margin = 8;
     setPosition({
-      x: Math.min(at.x, window.innerWidth - box.width - margin),
-      y: Math.min(at.y, window.innerHeight - box.height - margin),
+      /* Clamped at BOTH ends. `Math.min` alone puts the menu off the top of the screen
+         whenever it is taller than the space below the pointer — which on a phone is any
+         menu opened in the lower half of the thread. */
+      x: Math.max(margin, Math.min(at.x, window.innerWidth - box.width - margin)),
+      y: Math.max(margin, Math.min(at.y, window.innerHeight - box.height - margin)),
     });
   }, [at]);
 
@@ -124,6 +149,24 @@ export function MessageContextMenu({
          also be read as a click outside one. */
       onPointerDown={(event) => event.stopPropagation()}
     >
+      {/*
+        Message info first, as the reference draws it. It is the only item that ANSWERS a
+        question rather than performing an action, and putting it under the destructive
+        ones would bury it.
+      */}
+      {onMessageInfo !== undefined ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onMessageInfo(message);
+            onClose();
+          }}
+        >
+          Message info
+        </button>
+      ) : null}
+
       <button type="button" role="menuitem" onClick={() => void copy()}>
         {copied ? 'Copied' : 'Copy text'}
       </button>
@@ -139,6 +182,18 @@ export function MessageContextMenu({
           Reply
         </button>
       ) : null}
+      {onToggleStar !== undefined ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onToggleStar(message, message.starred !== true);
+            onClose();
+          }}
+        >
+          {message.starred === true ? 'Remove from favourites' : 'Add to favourites'}
+        </button>
+      ) : null}
       {canEdit && onEdit !== undefined ? (
         <button
           type="button"
@@ -151,19 +206,57 @@ export function MessageContextMenu({
           Edit
         </button>
       ) : null}
-      {canDelete && onDelete !== undefined ? (
+      {/*
+        Forward and Pin, between the personal actions and the destructive one.
+
+        Both act on the conversation rather than on your own copy: a pin is visible to
+        everybody in the thread, and a forward puts the text somewhere else entirely. They
+        sit after Copy and Reply because those are what people reach for, and before
+        Delete because a destructive item belongs last where a mis-click cannot find it.
+      */}
+      {onForward !== undefined ? (
         <button
           type="button"
           role="menuitem"
-          className="menu-danger"
           onClick={() => {
-            onDelete(message);
+            onForward(message);
             onClose();
           }}
         >
-          Delete
+          Forward
         </button>
       ) : null}
+
+      {onTogglePin !== undefined ? (
+        <button
+          type="button"
+          role="menuitem"
+          onClick={() => {
+            onTogglePin(message, !pinned);
+            onClose();
+          }}
+        >
+          {pinned ? 'Unpin' : 'Pin'}
+        </button>
+      ) : null}
+
+      {/*
+         There is no Delete, and there is not going to be one.
+
+         Decided on 2026-09-09: nobody deletes a message and nobody deletes a chat. Both
+         halves of what used to be here are gone with it - "delete for everyone", which
+         redacted the text for the whole thread, and "delete for me", which hid the row from
+         one reader.
+
+         ARCHIVE is what remains, and it is a different act: it takes a conversation out of
+         your list without taking anything away from anybody, and it is reversible. The
+         distinction is the point. An internal record that participants can remove is not a
+         record, and StarLink's audit posture (rule 8, an append-only ledger) does not sit
+         comfortably beside a thread anybody can quietly edit the history of.
+
+         The server refuses both routes as well - see `messages.controller.ts`. This is the
+         interface agreeing with the boundary, not standing in for it.
+      */}
     </div>,
     document.body,
   );

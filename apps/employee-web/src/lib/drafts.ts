@@ -93,6 +93,36 @@ export const DraftStore = {
   /** Called after a successful send: the text is now a message, not a draft. */
   async clear(principalId: string, conversationId: string, visibility: Draft['visibility']): Promise<void> {
     await withStore('readwrite', (store) => store.delete(draftKey(principalId, conversationId, visibility)));
+    /* Sending clears the draft, and the sidebar must stop saying "Draft:" at the same
+       moment the message appears — otherwise the row contradicts the thread. */
+    announceDraftChange();
+  },
+
+  /**
+   * Every conversation this person has unsent words in, and what they say.
+   *
+   * The sidebar shows "Draft: …" in place of the last message, which needs all of them at
+   * once — there was no way to ask for that, only for one draft at a time by conversation.
+   *
+   * Empty bodies are dropped rather than returned: clearing a composer leaves a row behind
+   * until the next write, and a row whose body is `''` is not a draft, it is the absence of
+   * one. Filtering here means no caller has to remember that.
+   *
+   * Reads every draft and filters in memory, as `clearAllFor` does. The store holds one
+   * row per conversation the person has typed in and never touched, so this is tens of
+   * rows, not thousands; an index on `principalId` would be a schema migration for a scan
+   * that costs nothing at this size.
+   */
+  async listFor(principalId: string): Promise<ReadonlyMap<string, string>> {
+    const all = await withStore<Draft[]>('readonly', (store) => store.getAll() as IDBRequest<Draft[]>);
+    const drafts = new Map<string, string>();
+    for (const draft of all) {
+      if (draft.principalId !== principalId) continue;
+      const body = draft.body.trim();
+      if (body === '') continue;
+      drafts.set(draft.conversationId, body);
+    }
+    return drafts;
   },
 
   /** Called on sign-out. One person's unsent words must not outlive their session. */
@@ -113,6 +143,19 @@ export const DraftStore = {
  * to a crash. A short debounce is the honest middle, and the same reasoning as
  * FR-READ-4's "must not write on every scroll event".
  */
+/**
+ * Fired when a draft is written, so anything rendering them can re-read.
+ *
+ * A window event rather than shared state: the composer and the sidebar sit on opposite
+ * sides of the tree with no common owner below the shell, and this carries no data — the
+ * answer still comes from the store. The same shape `announceAvatarChange` uses.
+ */
+export const DRAFT_CHANGED_EVENT = 'starlink:draft-changed';
+
+export function announceDraftChange(): void {
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event(DRAFT_CHANGED_EVENT));
+}
+
 export function createDraftAutosaver(delayMs = 400): {
   schedule: (draft: Omit<Draft, 'key' | 'updatedAt'>) => void;
   flush: () => Promise<void>;
@@ -126,6 +169,9 @@ export function createDraftAutosaver(delayMs = 400): {
     const draft = pending;
     pending = undefined;
     await DraftStore.save(draft);
+    /* The sidebar renders "Draft: …" from these and has no other way to learn one
+       changed — the store is IndexedDB, which notifies nobody. */
+    announceDraftChange();
   };
 
   return {

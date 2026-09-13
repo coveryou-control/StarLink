@@ -1,32 +1,50 @@
 'use client';
 
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 
-import { AppRail, RAIL_SECTIONS, type RailSection } from '../../components/app-rail';
+import {
+  AppRail,
+  CHAT_VIEWS,
+  RAIL_SECTIONS,
+  type RailSection,
+  type ChatView,
+} from '../../components/app-rail';
 import { useMediaQuery } from '../../lib/use-media-query';
 import { AnnouncementsPanel } from '../../components/announcements-panel';
+import { ChannelsPanel } from '../../components/channels-panel';
 import { ConversationList } from '../../components/conversation-list';
 import { ConversationSearch } from '../../components/conversation-search';
 import { SettingsPanel } from '../../components/settings-panel';
 import { StartConversation } from '../../components/start-conversation';
+import { NewChatPanel } from '../../components/new-chat-panel';
+import { FavouritesPanel } from '../../components/favourites-panel';
 import { TeamQueue } from '../../components/team-queue';
 import { TeamLoadPanel } from '../../components/team-load';
 import { Directory } from '../../components/directory';
 import { BrandMark } from '../../components/brand';
 import { useSession } from '../../components/session-provider';
-import { api, ApiError, type ConversationSummary } from '../../lib/api-client';
+import { api, ApiError, type ConversationSummary,
+  type ChannelSummary,
+} from '../../lib/api-client';
 import { customerWorkspaceEnabled } from '../../lib/runtime-origins';
 import { watchSystemTheme } from '../../lib/theme';
-import { onShellAction, requestNewConversation } from '../../lib/shell-actions';
+import { onShellAction } from '../../lib/shell-actions';
+import { registerForPush } from '../../lib/push-client';
 import { useNotifications } from '../../lib/use-notifications';
 import { usePresence } from '../../lib/use-presence';
+import { useDeclaredStatuses } from '../../lib/use-declared-status';
+import { useAvatarStamps } from '../../lib/use-avatar-stamps';
+import { useConversationTyping } from '../../lib/use-conversation-typing';
+import { useDrafts } from '../../lib/use-drafts';
+import { AvatarStampProvider } from '../../components/avatar-image';
 import { PresenceProvider } from '../../components/presence';
 import { ActiveConversationProvider } from '../../components/active-conversation';
+import { AppBoot } from '../../components/app-boot';
 
 export default function WorkspaceLayout({ children }: { children: ReactNode }): ReactNode {
-  const { state, signOut } = useSession();
+  const { state, signOut, onUnauthenticated } = useSession();
   const router = useRouter();
   const params = useParams<{ id?: string }>();
 
@@ -44,6 +62,36 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
    * other half of the screen. The rail switches the PANEL; the thread stays put.
    */
   const [section, setSection] = useState<RailSection>('chats');
+  /**
+   * Which slice of the chat list the sidebar has selected.
+   *
+   * Held here rather than in the list, because the sidebar names it and the list obeys —
+   * two components reading one fact, which is exactly what a shell is for.
+   */
+  const [chatView, setChatView] = useState<ChatView>('all');
+  /**
+   * Whether the new-chat panel is open, and on which step.
+   *
+   * The SHELL owns this, and that is the third arrangement. It was a counter compared
+   * against the previous render inside the dialog, which did nothing at all when the
+   * dialog mounted in the same render as the press — first press from Channels,
+   * Announcements or Connect opened nothing. Then a request the dialog cleared when it
+   * took it, which worked. Plain state is what became possible once the panel stopped
+   * owning its own visibility: two doors onto one place cannot keep the lock inside one
+   * of them.
+   */
+  const [compose, setCompose] = useState<{ readonly mode: 'chat' | 'group' } | undefined>(
+    undefined,
+  );
+  /*
+     The shell no longer holds a theme.
+
+     It did, to feed a cycling shortcut in the sidebar's foot. Appearance belongs in
+     Settings, where the three choices — light, dark, match system — are stated plainly
+     rather than compressed into one button that has to be labelled with its own current
+     state. `themeBootScript` still resolves it before the first paint; nothing about how
+     the theme is applied changed, only who offers it.
+  */
 
   /**
    * The announcements the panel has loaded, held here rather than only there.
@@ -52,6 +100,35 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
    * one thing — naming the thread column when the open conversation is an announcement.
    */
   const [announcements, setAnnouncements] = useState<readonly ConversationSummary[]>([]);
+
+  /**
+   * The channels the directory has loaded, held here for the same one reason.
+   *
+   * A channel is not in `conversations` — the chats list excludes them by scope, exactly as
+   * it excludes announcements — so without this the thread column has no name, no
+   * description and no member count for the room it is showing, and renders "Conversation"
+   * with a dot for an avatar.
+   *
+   * Mapped to the summary shape the header already understands rather than teaching the
+   * header a second one. The extra channel facts travel separately to the info panel, which
+   * is the only place that needs them.
+   */
+  const [channels, setChannels] = useState<readonly ChannelSummary[]>([]);
+  const channelSummaries = useMemo<readonly ConversationSummary[]>(
+    () =>
+      channels.map((channel) => ({
+        conversationId: channel.conversationId,
+        conversationType: 'INTERNAL_CHANNEL',
+        title: channel.name,
+        sensitivity: 'ORDINARY',
+        lastActivityAt: channel.lastActivityAt,
+        participantCount: channel.memberCount,
+        unreadCount: channel.unreadCount,
+        pinned: false,
+        participants: [],
+      })),
+    [channels],
+  );
 
   /* The one width question the MARKUP asks. Everything else responsive is the stylesheet's. */
   const onPhone = useMediaQuery('(max-width: 640px)');
@@ -78,7 +155,74 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
    * shell, so a person is told about a message regardless of which section they are looking
    * at — and only once, rather than once per panel that happened to want it.
    */
-  useNotifications(signedInId);
+  /*
+     Rebuilt only when a `mutedUntil` actually changes, not on every list poll.
+
+     The hook takes this map as a dependency of the effect that decides whether to make a
+     noise. A fresh Map on every render would re-run that effect on every poll, and the
+     "what arrived since last time" comparison inside it would then fire against an
+     unchanged list. Keyed on the joined values so the identity is stable while the facts
+     are.
+  */
+  const mutedKey = conversations
+    .filter((c) => c.mutedUntil !== undefined)
+    .map((c) => `${c.conversationId}:${c.mutedUntil}`)
+    .join('|');
+  const mutedUntil = useMemo(
+    () =>
+      new Map(
+        mutedKey === ''
+          ? []
+          : mutedKey.split('|').map((entry) => {
+              const at = entry.indexOf(':');
+              return [entry.slice(0, at), entry.slice(at + 1)] as const;
+            }),
+      ),
+    [mutedKey],
+  );
+
+  /*
+     The 401 escalation, CONNECTED.
+
+     `useNotifications` has always taken an `onUnauthenticated` callback, and its own
+     docblock describes exactly what happens without one: "an expired session left the
+     bell polling into the void behind a workspace the person could no longer use". This
+     call site passed `undefined`, so the mechanism was written, documented, and never
+     reached — the poll swallowed the 401 and returned every fifteen seconds to a session
+     that had ended.
+
+     The bell is the RIGHT place to notice. It polls on a timer, so it is the only thing
+     still talking to the server when somebody has left a tab open and gone to lunch;
+     every other request waits for a click that may never come.
+
+     `onUnauthenticated` from the session provider rather than a local redirect: it drops
+     the shell to signed-out AND wipes the drafts of the person whose access was just
+     withdrawn, which a bare `router.replace` does not.
+  */
+  useNotifications(signedInId, onUnauthenticated, mutedUntil);
+
+  /*
+     Register this device for push on every start-up, not only from the Settings panel.
+
+     `registerForPush` was called from `notification-settings.tsx` and NOWHERE else, so a
+     device registered the first time somebody opened that panel and at no other moment.
+     Grant permission once, never go back to Settings, and after FCM next rotates your
+     token you receive nothing — with no signal that anything changed. Its own docblock
+     has always said it is safe to call on every start-up; nothing did.
+
+     It cannot prompt: the function returns early unless permission is ALREADY granted,
+     because a permission dialog raised by page load is one nobody grants. So for anybody
+     who has not turned notifications on this is a no-op, and for everybody who has it is
+     the thing that keeps their registration alive.
+
+     Deliberately not awaited and deliberately silent — a device that cannot register is
+     a device that does not receive push, which the Settings panel reports. Failing the
+     whole workspace over it would be absurd.
+  */
+  useEffect(() => {
+    if (state.status !== 'SIGNED_IN') return;
+    void registerForPush().catch(() => undefined);
+  }, [state.status]);
 
   /**
    * Presence for everybody currently on screen, asked once for the whole surface.
@@ -92,7 +236,72 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
     () => conversations.flatMap((c) => (c.participants ?? []).map((participant) => participant.principalId)),
     [conversations],
   );
+  /*
+     The same faces, plus your own.
+
+     Your avatar is in the rail foot on every screen and at the top of Settings, but you
+     are not necessarily in this list — it is built from conversation PARTICIPANTS, and a
+     summary need not list the reader among them. The effect was that everybody else's
+     picture appeared and yours did not: you could upload one, watch it appear, reload, and
+     be back to initials with the bytes sitting in the database the whole time.
+  */
+  const stampedPrincipals = useMemo(
+    () => (signedInId === '' ? listedPrincipals : [signedInId, ...listedPrincipals]),
+    [signedInId, listedPrincipals],
+  );
   const online = usePresence(listedPrincipals);
+  /* The same faces, asked a different question — see `use-declared-status.ts` for why
+     presence and a declared status are never merged. */
+  const declaredStatuses = useDeclaredStatuses(listedPrincipals);
+  /*
+     Which of the faces on screen have a picture, asked once for all of them.
+
+     Thirty rows each firing a request to discover a 404 is thirty round trips to draw
+     initials. Same shape as presence: the shell asks, the tree reads.
+  */
+  const avatarStamps = useAvatarStamps(stampedPrincipals);
+  /*
+     Typing in conversations the person is NOT looking at, so the list row can say so.
+
+     The open thread has always had this; the list never subscribed to anything, which is
+     why the signal existed and appeared in exactly one place.
+  */
+  /*
+     A burst of messages is one re-read, not one per message.
+
+     `refresh` reloads the whole list, and a lively group can produce several frames a
+     second. Coalescing on a short timer means a conversation that is being typed into
+     rapidly costs one request rather than one per keystroke's worth of message, and the
+     row still moves within a blink.
+
+     A ref rather than state: this must not re-render anything by existing, and the timer
+     has to survive the renders that `refresh` itself causes.
+  */
+  const listRefreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  /* Assigned below, where `refresh` is declared — the subscription is set up above it, and
+     a ref is what lets the two be in either order. */
+  const refreshRef = useRef<() => Promise<void>>(async () => undefined);
+  const nudgeList = useCallback((): void => {
+    if (listRefreshTimer.current !== undefined) return;
+    listRefreshTimer.current = setTimeout(() => {
+      listRefreshTimer.current = undefined;
+      void refreshRef.current();
+    }, 400);
+  }, []);
+  useEffect(
+    () => () => {
+      if (listRefreshTimer.current !== undefined) clearTimeout(listRefreshTimer.current);
+    },
+    [],
+  );
+
+  /* Unsent text, for the sidebar's "Draft: …" row. */
+  const drafts = useDrafts(signedInId === '' ? undefined : signedInId);
+
+  const typingByConversation = useConversationTyping(
+    useMemo(() => conversations.map((c) => c.conversationId), [conversations]),
+    nudgeList,
+  );
 
   /**
    * The conversation the thread pane is showing, handed down so its header can name it.
@@ -110,7 +319,8 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   */
   const activeConversation =
     conversations.find((c) => c.conversationId === params.id) ??
-    announcements.find((c) => c.conversationId === params.id);
+    announcements.find((c) => c.conversationId === params.id) ??
+    channelSummaries.find((c) => c.conversationId === params.id);
 
   useEffect(() => {
     if (state.status === 'SIGNED_OUT') router.replace('/sign-in');
@@ -125,6 +335,18 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   useEffect(
     () =>
       onShellAction({
+        /*
+           The empty pane's "New chat", which used to be answered by the dialog itself.
+
+           `StartConversation` carried this listener while it owned the panel. It does not
+           any more, and the listener has to move with the state rather than be left behind
+           — a dispatch nobody handles is a button that silently does nothing, which is
+           exactly the failure this whole area has already produced once.
+        */
+        onNewConversation: (mode) => {
+          setSection('chats');
+          setCompose({ mode: mode ?? 'chat' });
+        },
         onBrowseDirectory: () => setSection('people'),
         /* The event carries a string; the rail's own list is what decides whether it names
            a destination. An unknown one is ignored rather than setting a section that does
@@ -151,7 +373,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const page = await api.conversations();
+      const page = await api.conversations(chatView === 'archive' ? { archived: true } : {});
       /**
        * Stage 1 shows internal threads only.
        *
@@ -175,15 +397,27 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
       setLoadError(undefined);
     } catch (cause) {
       if (cause instanceof ApiError && cause.isUnauthenticated) {
-        // The session has gone. Sign-in is the honest destination, not an empty list.
-        router.replace('/sign-in');
+        /* The session has gone. Sign-in is the honest destination, not an empty list.
+
+           Through the session provider rather than a bare `router.replace`, which is what
+           this did: the redirect alone leaves the shell believing it is signed in and
+           leaves the drafts of a possibly-revoked employee in this browser's IndexedDB.
+           `onUnauthenticated` drops the state and wipes them. The effect above sends the
+           person to sign-in once the state changes, so the navigation still happens. */
+        onUnauthenticated();
         return;
       }
       setLoadError('Your conversations could not be loaded. This is not the same as having none.');
     } finally {
       setLoading(false);
     }
-  }, [router, showCustomerWorkspace]);
+    /*
+       `chatView` is a dependency because `refresh` now reads it — the archive is a
+       different FETCH, not a different filter over the same page. Omitted, the callback
+       would close over the view it was created with and switching to Archive would
+       re-request the live list.
+    */
+  }, [onUnauthenticated, showCustomerWorkspace, chatView]);
 
   /**
    * Appends the next page. Deduplicated by id because a conversation can move to the
@@ -194,27 +428,61 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
     if (nextCursor === undefined || loadingMore) return;
     setLoadingMore(true);
     try {
-      const page = await api.conversations({ cursor: nextCursor });
+      /*
+         The SAME filter the first page was fetched with.
+
+         `refresh` sends `{ archived: true }` in the Archive view; this sent neither flag,
+         so "Load more" inside Archive appended LIVE conversations to the archived list,
+         indistinguishable from archived ones once they were on screen. Archiving one of
+         them then archived something the person had never chosen to archive — and
+         archiving used to be a one-way door.
+
+         Built from `chatView` exactly as `refresh` does rather than remembered from the
+         last request, so the two cannot answer the question differently.
+      */
+      const page = await api.conversations({
+        cursor: nextCursor,
+        ...(chatView === 'archive' ? { archived: true } : {}),
+      });
       setConversations((current) => {
         const seen = new Set(current.map((c) => c.conversationId));
         return [...current, ...page.conversations.filter((c) => !seen.has(c.conversationId))];
       });
       setNextCursor(page.nextCursor);
+    } catch (cause) {
+      /* Same reasoning as `refresh`: a 401 here is a session that has ended, and
+         swallowing it leaves somebody pressing a button that will never work again. */
+      if (cause instanceof ApiError && cause.isUnauthenticated) onUnauthenticated();
     } finally {
       setLoadingMore(false);
     }
-  }, [nextCursor, loadingMore]);
+  }, [nextCursor, loadingMore, chatView, onUnauthenticated]);
+  refreshRef.current = refresh;
 
   useEffect(() => {
     if (state.status === 'SIGNED_IN') void refresh();
   }, [state.status, refresh]);
 
   if (state.status !== 'SIGNED_IN') {
-    return <p style={{ padding: 24, color: 'var(--text-muted)' }}>Loading…</p>;
+    return <AppBoot />;
   }
 
+  /**
+   * What the chats column is currently a list OF.
+   *
+   * "All" would be a poor masthead — a column headed "All" says nothing about what it is
+   * all of — so the default slice keeps the section's own name and the other five take
+   * theirs from the rail. One table, so a slice added to `CHAT_VIEWS` cannot arrive with
+   * a masthead that still says "Chats".
+   */
+  const panelName =
+    chatView === 'all'
+      ? 'Chats'
+      : (CHAT_VIEWS.find((view) => view.id === chatView)?.label ?? 'Chats');
+
   return (
-    <PresenceProvider online={online}>
+    <PresenceProvider online={online} statuses={declaredStatuses}>
+      <AvatarStampProvider stamps={avatarStamps}>
     <div
       className="app-shell"
       data-section={section}
@@ -250,6 +518,12 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
         unreadChats={conversations.filter((c) => c.unreadCount > 0).length}
         displayName={state.me.displayName}
         onSignOut={() => void signOut()}
+        chatView={chatView}
+        onChatView={setChatView}
+        onNewChat={() => {
+          setSection('chats');
+          setCompose({ mode: 'chat' });
+        }}
       />
 
       {/*
@@ -275,34 +549,117 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
       <div className="app-body" data-conversation-open={params.id !== undefined ? 'true' : 'false'}>
         <aside className="sidebar">
           {section === 'chats' ? (
-            <section className="panel" aria-label="Chats">
+            <section className="panel" aria-label={panelName}>
+              {/*
+                The new-chat panel, over the list rather than over the page.
+
+                A sibling of the masthead and the list, absolutely positioned to cover
+                both — so the column it is about is the column it takes, and the thread
+                stays readable behind it. `.panel` is the positioning context; see the
+                stylesheet, which owns that.
+              */}
+              {compose !== undefined ? (
+                <NewChatPanel
+                  startAs={compose.mode}
+                  onClose={() => setCompose(undefined)}
+                  onStarted={(id) => {
+                    setCompose(undefined);
+                    void refresh();
+                    /*
+                       Back to the whole list, because that is the only slice the new
+                       conversation is certainly in. Starting a chat from Unread left the
+                       person in the thread with a list beside it that could not contain
+                       what they had just made — it has no unread messages for them, by
+                       definition, since they are the one who started it. Archived and
+                       Favourites are the same story.
+                    */
+                    setChatView('all');
+                    router.push(`/conversations/${id}`);
+                  }}
+                />
+              ) : null}
               <header className="panel-head">
                 {/*
-                  "Chats", at 20/600 — the reference's own masthead.
+                  The column says what the column holds — and until now it said "Chats"
+                  whichever of the six it held.
 
                   It said "Starlink" for a while, on the reasoning that a masthead is where
                   a product's name goes. The design disagrees and it is the source of truth:
                   the name lives on the rail's mark, which is on screen beside this at every
-                  width that has a rail, and the column says what the column holds. On a
-                  phone, where there is no rail, the mark comes back beside it — see the
-                  mobile masthead below.
+                  width that has a rail. On a phone, where there is no rail, the mark comes
+                  back beside it — see the mobile masthead below.
+
+                  What the design does NOT say is that six different lists share one word.
+                  Measured on all six: heading "Chats", `aria-label` "Chats", for All,
+                  Unread, Favourites, Groups, 1:1 and Archive alike — so the masthead of a
+                  list of starred MESSAGES read "Chats", and the only thing on screen
+                  saying which list you were looking at was a highlight in the rail. Both
+                  the visible word and the label a screen reader announces follow the slice
+                  now, because both were wrong in the same way.
                 */}
                 <h2 className="panel-title">
                   {onPhone ? <BrandMark size={30} /> : null}
-                  Chats
+                  {panelName}
                 </h2>
+
+                {/*
+                  Archive, at the top of the list rather than in the rail.
+
+                  It used to be the sixth row of the sidebar's chat destinations, which gave
+                  a list you visit rarely and deliberately the same weight as the ones you
+                  live in — and put it in the way of Unread. Here it is a toggle over the
+                  list it filters: press it to see what you have put away, press it again to
+                  come back. `aria-pressed` rather than a second button, because there is one
+                  state with two settings and a person needs to be able to see which they
+                  are in without reading the masthead.
+
+                  The box it returns to is All, not "whatever was open before". Coming back
+                  from the archive to Favourites — because that happened to be the last
+                  slice — would be the control undoing more than it did.
+                */}
+                <button
+                  type="button"
+                  className="panel-head-icon panel-head-archive"
+                  aria-pressed={chatView === 'archive'}
+                  aria-label={chatView === 'archive' ? 'Back to all chats' : 'Archived chats'}
+                  title={chatView === 'archive' ? 'Back to all chats' : 'Archived'}
+                  onClick={() => setChatView(chatView === 'archive' ? 'all' : 'archive')}
+                >
+                  {/* The same box the rail drew, so the thing did not change shape when it
+                      changed places. */}
+                  <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
+                    <rect
+                      x="3.5"
+                      y="5"
+                      width="17"
+                      height="4"
+                      rx="1.2"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                    />
+                    <path
+                      d="M5.2 9v9.2c0 .7.6 1.3 1.3 1.3h11c.7 0 1.3-.6 1.3-1.3V9"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                    />
+                    <path
+                      d="M10 13h4"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.7"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                </button>
                 {/*
                   Compose, in the masthead. Screen 02 puts a + here; screen 08 puts one here
                   AND a floating one at the foot of the list. Same element, and the
                   stylesheet gives it the floating treatment below 640px — the masthead's
                   phone twin is the button after the magnifier.
                 */}
-                <StartConversation
-                  onStarted={(id) => {
-                    void refresh();
-                    router.push(`/conversations/${id}`);
-                  }}
-                />
+                <StartConversation onOpen={() => setCompose({ mode: 'chat' })} />
 
                 {/*
                   Search, on a phone, behind a magnifier.
@@ -346,7 +703,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                     <button
                       type="button"
                       className="panel-head-icon"
-                      onClick={() => requestNewConversation()}
+                      onClick={() => setCompose({ mode: 'chat' })}
                       aria-label="New conversation"
                     >
                       {/* The same bubble-with-a-plus the masthead's other compose control
@@ -403,7 +760,24 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                 need the whole column to scroll, so the class is conditional rather than
                 a promise the customer workspace would break.
               */}
-              <div className={`panel-body${showCustomerWorkspace ? '' : ' chats-body'}`}>
+              {/*
+                `data-idle` while a search is up, and the stylesheet stops it claiming the
+                column.
+
+                Everything INSIDE this div is already unmounted while searching — the list
+                polls and pages, and a list behind a search is a list nobody can see doing
+                it. What stayed was the div: `flex: 1` on an empty box, holding 412 of the
+                panel's 900 pixels for nothing, so the results got half a column and
+                scrolled inside it while the other half sat blank underneath.
+
+                An attribute rather than not rendering it, because the wrapper is also where
+                the scroll position of the conversation list lives; unmounting it would send
+                a reader back to the top of their list every time they cleared a search.
+              */}
+              <div
+                className={`panel-body${showCustomerWorkspace ? '' : ' chats-body'}`}
+                data-idle={searching ? 'true' : 'false'}
+              >
                 {/*
                   Rendered ABOVE the list, not instead of it: a stale list plus an explicit
                   "this did not load" is more useful than either alone, and §34.4's rule is
@@ -421,7 +795,19 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                   Not mounted, rather than hidden: the list polls and pages, and a list
                   behind a search is a list nobody can see doing it.
                 */}
-                {searching ? null : (
+                {/*
+                  Favourites takes the list column, not the thread.
+
+                  It is a list of MESSAGES rather than of threads, but it is still a list of
+                  things to open — so it belongs where the reader is already looking for one,
+                  and opening an item hands the thread to the pane on the right exactly as a
+                  conversation row does.
+                */}
+                {searching ? null : chatView === 'favourites' ? (
+                  <FavouritesPanel
+                    onOpen={(conversationId) => router.push(`/conversations/${conversationId}`)}
+                  />
+                ) : (
                   <ConversationList
                     currentPrincipalId={state.me.principalId}
                     conversations={conversations}
@@ -429,6 +815,12 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
                     loading={loading}
                     loadingMore={loadingMore}
                     onLoadMore={nextCursor !== undefined ? () => void loadMore() : undefined}
+                    /* Pinned conversations sort first in the server's own ORDER BY, so a
+                       pin is a re-read rather than a local reorder. */
+                    onPinChanged={() => void refresh()}
+                    typing={typingByConversation}
+                    drafts={drafts}
+                    view={chatView}
                   />
                 )}
 
@@ -498,6 +890,23 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
             is, exactly as People and Notifications do — the rail switches the PANEL and the
             thread stays put.
           */}
+          {/*
+            Channels: a DIRECTORY, not a list of threads.
+
+            Same relation to the thread column as every other panel — the rail switches the
+            panel, opening a room moves the thread column, and the panel stays where it is.
+          */}
+          {section === 'channels' ? (
+            <ChannelsPanel
+              onLoaded={setChannels}
+              activeId={params.id}
+              onOpen={(id) => {
+                router.push(`/conversations/${id}`);
+                void refresh();
+              }}
+            />
+          ) : null}
+
           {section === 'announcements' ? (
             <AnnouncementsPanel
               onLoaded={setAnnouncements}
@@ -541,6 +950,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
         <main key={params.id ?? 'none'} className="thread-column">
           <ActiveConversationProvider
             conversation={activeConversation}
+            conversations={conversations}
             refreshConversations={() => void refresh()}
           >
             {children}
@@ -549,6 +959,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
       </div>
       )}
     </div>
+      </AvatarStampProvider>
     </PresenceProvider>
   );
 }

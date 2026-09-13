@@ -25,8 +25,12 @@
  * because the second would be a promise the product cannot keep.
  */
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+
+import { useRefreshConversations } from './active-conversation';
 import { initialsFor } from './conversation-naming';
 import { PresenceDot, useOnlineSet } from './presence';
+import { AvatarImage } from './avatar-image';
 import { useActiveConversation } from './active-conversation';
 import { useSession } from './session-provider';
 import { SEARCH_MINIMUM_TERM_LENGTH } from '@starlink/shared-contracts';
@@ -35,28 +39,17 @@ import { api, ApiError, type DirectoryEntry } from '../lib/api-client';
 export function Participants({
   conversationId,
   onChanged,
-  addOnly = false,
 }: {
   readonly conversationId: string;
   readonly onChanged: () => void;
-  /**
-   * Just the "add a colleague" half, for a one-to-one.
-   *
-   * On a direct message the information panel is about the person you are talking to — the
-   * member list would be the two of you, restating the identity block above it, and the
-   * rename is refused by the server anyway. What must NOT disappear with them is the way to
-   * add a third person: that is how a one-to-one becomes a group, and hiding it would take
-   * the capability away rather than tidy it.
-   *
-   * The section keeps its accessible name either way, so "reach membership in this
-   * conversation" is one question with one answer at both sizes.
-   */
-  readonly addOnly?: boolean;
 }): React.JSX.Element {
   const [term, setTerm] = useState('');
   const [found, setFound] = useState<readonly DirectoryEntry[]>([]);
   const [pending, setPending] = useState<DirectoryEntry | undefined>();
   const [busy, setBusy] = useState(false);
+  const [confirmingLeave, setConfirmingLeave] = useState(false);
+  const router = useRouter();
+  const refreshConversations = useRefreshConversations();
   const [message, setMessage] = useState<string | undefined>();
 
   /**
@@ -70,8 +63,27 @@ export function Participants({
   const { state: session } = useSession();
   const members = active?.participants ?? [];
   const meName = session.status === 'SIGNED_IN' ? session.me.displayName : 'You';
+  /** For your own avatar in the members list — the stamp map always carries the caller. */
+  const signedInId = session.status === 'SIGNED_IN' ? session.me.principalId : undefined;
   const isGroup = active?.conversationType === 'INTERNAL_GROUP';
-  const currentTitle = active?.title ?? '';
+
+  /**
+   * May this person remove members?
+   *
+   * In a group, only its creator (migration 0023). Everywhere else the previous rule
+   * stands — any participant may, and the domain's other guards (no customer, no self)
+   * still apply.
+   *
+   * `members` excludes the reader, so their own role is not in it. It is read from the
+   * conversation summary's participant list the other way round: if nobody visible holds
+   * CREATOR, the creator is either the reader or somebody beyond the six the summary
+   * carries. The first is the common case and the second cannot be distinguished here —
+   * so this asks the honest question instead, using the summary's own `participantCount`
+   * to notice when the list is truncated and falling back to letting the server decide.
+   */
+  const someoneElseIsAdmin = members.some((m) => m.role === 'CREATOR');
+  const listIsComplete = (active?.participantCount ?? 0) <= members.length + 1;
+  const canRemoveMembers = !isGroup || (listIsComplete && !someoneElseIsAdmin);
 
   /**
    * How many members hold a realtime lease.
@@ -84,39 +96,15 @@ export function Participants({
   const online = useOnlineSet();
   const onlineCount = members.filter((m) => online.has(m.principalId)).length;
 
-  const [title, setTitle] = useState(currentTitle);
-  const [renaming, setRenaming] = useState(false);
+  /*
+     The rename and the picture upload moved out with their controls.
 
-  /**
-   * The field follows the conversation when it changes underneath — somebody else renaming
-   * the group, or the reader opening a different one. Guarded on the field being untouched
-   * so it cannot overwrite what is being typed.
-   */
-  useEffect(() => {
-    setTitle(currentTitle);
-  }, [currentTitle, active?.conversationId]);
-
-  const rename = async (): Promise<void> => {
-    const next = title.trim();
-    if (next === '' || next === currentTitle) return;
-    setRenaming(true);
-    setMessage(undefined);
-    try {
-      await api.renameConversation(conversationId, next);
-      setMessage(`Renamed to “${next}”.`);
-      // The header and the sidebar are named from the SUMMARY, which only the shell
-      // reloads — without this the group keeps its old name until the next load.
-      onChanged();
-    } catch (cause) {
-      setMessage(
-        cause instanceof ApiError && cause.isRefusal
-          ? 'You cannot rename this conversation.'
-          : 'That did not go through.',
-      );
-    } finally {
-      setRenaming(false);
-    }
-  };
+     They lived here holding four pieces of state — a draft title, a saving flag, an
+     editing flag and an uploaded-at stamp — for two controls three sections above this
+     component's own content. `group-identity.tsx` owns them now, beside the avatar and the
+     name they change. Leaving the state here while the controls moved would have been a
+     component reaching across the panel to render into another one.
+  */
 
   /**
    * The directory, searched as you type.
@@ -187,6 +175,39 @@ export function Participants({
     }
   };
 
+  /**
+   * Leaving, asked for before it happens.
+   *
+   * Irreversible from this side: BR-05 requires a LIVE participant to grant participation,
+   * so somebody who walks out cannot walk back in — a colleague still inside has to add
+   * them, and that re-exposes the history under BR-07. Worth one question.
+   */
+  const leave = async (): Promise<void> => {
+    setBusy(true);
+    try {
+      await api.leaveConversation(conversationId);
+      /*
+         The LIST is refreshed, and the thread is not.
+
+         `router.refresh()` alone left the conversation sitting in the sidebar until a hard
+         reload — the list is client state fetched by the shell, not server-rendered markup
+         for Next to re-request. `refreshConversations` is what the shell exposes for
+         exactly this, and it is the same call the add and remove paths make.
+
+         Deliberately NOT `onChanged`, which the other handlers use: that also re-fetches
+         the CONVERSATION, and the conversation is the one thing that has just stopped
+         being ours to read. It would spend a request to be told 404 and flash a refusal on
+         a page already navigating away.
+      */
+      refreshConversations();
+      router.push('/conversations');
+    } catch {
+      setMessage('That did not go through. You are still in this group.');
+      setBusy(false);
+      setConfirmingLeave(false);
+    }
+  };
+
   const remove = async (principalId: string, name: string): Promise<void> => {
     setBusy(true);
     try {
@@ -219,30 +240,31 @@ export function Participants({
         that with something only one of the two chose — so a field here would be a control
         that always fails.
       */}
-      {isGroup && !addOnly ? (
-        <form
-          className="rename-group"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void rename();
-          }}
-        >
-          <label>
-            <span className="member-add-title">Group name</span>
-            <input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              maxLength={120}
-              placeholder="Name this group"
-            />
-          </label>
-          <button type="submit" disabled={renaming || title.trim() === '' || title.trim() === currentTitle}>
-            {renaming ? 'Saving…' : 'Save'}
-          </button>
-        </form>
-      ) : null}
+      {/*
+        The name, with a pencil — not a permanent text field.
 
-      {members.length > 0 && !addOnly ? (
+        An always-open input beside the group's name says "this is a form", and the panel
+        is not one: renaming happens rarely and reading the name happens every time. The
+        pencil turns a control that was competing for attention into one that is asked for.
+
+        `editingName` rather than an uncontrolled `contentEditable`: the field has to be
+        able to revert, and Escape reverting to the current title is the behaviour somebody
+        who opened it by accident expects.
+      */}
+      {/*
+        The group's picture and its name are edited from the IDENTITY BLOCK now.
+
+        Both used to live here: a labelled "Upload a picture" button with a paragraph under
+        it about 256px squares, and a name row with a pencil — three sections down the
+        panel from the avatar and the title they change. A control belongs beside the thing
+        it edits, so the camera is on the corner of the circle and the pencil is at the end
+        of the name, where the panel already draws both. See `details-identity` in
+        `conversations/[id]/page.tsx`.
+
+        What stays here is membership, which is what this component is for.
+      */}
+
+      {members.length > 0 ? (
         <div className="member-list">
           <h3>
             {members.length + 1} members
@@ -252,21 +274,44 @@ export function Participants({
           </h3>
           <ul>
             {/*
-              You, and no control beside you.
+              You, and no × beside you.
 
-              `removeParticipant` refuses self-removal in the DOMAIN, with a documented
-              reason: an owner who ends their own participation still holds
-              `current_owner_id` while dropping out of `listForPrincipal`, which is the
-              "owns work they cannot find" defect through a different door — and BR-05
-              stops them re-adding themselves. Leaving is a real thing to want and it is
-              not this operation.
+              `removeParticipant` refuses self-removal in the DOMAIN, and its reasons are
+              about OWNED conversations: an owner who ends their own participation still
+              holds `current_owner_id` while dropping out of `listForPrincipal`, which is
+              the "owns work they cannot find" defect through a different door.
+
+              Leaving is a real thing to want, and it is now a real thing to do — but as
+              "Leave group" at the foot of this panel, not as an × in the members list. An
+              × next to your own name is the same glyph that removes other people, and the
+              two acts are not the same act: one needs the group's admin, the other needs
+              nobody's permission at all.
             */}
             <li>
               <span className="row-avatar" aria-hidden="true">
                 {initialsFor(meName)}
+                {/*
+                   Your own picture, which this row alone was missing.
+
+                   Every other member below renders one and this did not, so the person
+                   whose photograph it is - the one person guaranteed to know they have set
+                   one - was the only member of the group shown as two letters. Reported
+                   from use on 2026-09-09.
+
+                   `signedInId` rather than a lookup: the stamp map always carries the
+                   caller (the shell adds them explicitly, because a summary need not list
+                   the reader among its own participants).
+                */}
+                <AvatarImage principalId={signedInId} alt="" />
               </span>
               <span className="person-name">
                 {meName} <span className="muted">(you)</span>
+                {/* The reader's own badge, which did not exist. `participants` excludes
+                    the caller, so their role was never in the list to check — the summary
+                    carries `createdBy` for exactly this. */}
+                {isGroup && active?.createdBy === signedInId ? (
+                  <span className="member-admin">Admin</span>
+                ) : null}
               </span>
             </li>
             {members.map((m) => (
@@ -274,10 +319,28 @@ export function Participants({
                 <span className="avatar-wrap">
                   <span className="row-avatar" aria-hidden="true">
                     {initialsFor(m.displayName)}
+                    <AvatarImage principalId={m.principalId} alt="" />
                   </span>
                   <PresenceDot principalId={m.principalId} />
                 </span>
-                <span className="person-name">{m.displayName}</span>
+                <span className="person-name">
+                  {m.displayName}
+                  {/*
+                     The admin, marked.
+
+                     `CREATOR` is the role the conversation has carried since it was made;
+                     migration 0023 explains why no second word was invented for it. The
+                     badge is text rather than an icon so it survives greyscale and so a
+                     screen reader reads it as part of the row (NFR-ACC-3).
+                  */}
+                  {/* Either signal: the participation ROLE, which is what migration 0023
+                      records, or the conversation's own `created_by`. They agree in every
+                      ordinary case; the column is what still answers when the summary's
+                      participant list is truncated past this person. */}
+                  {m.role === 'CREATOR' || (isGroup && active?.createdBy === m.principalId) ? (
+                    <span className="member-admin">Admin</span>
+                  ) : null}
+                </span>
                 {/*
                   Remove sits on the MEMBER, which is the only place it makes sense.
 
@@ -287,16 +350,27 @@ export function Participants({
                   server-side either way; this is about the control being where the thing
                   it acts on is.
                 */}
-                <button
-                  type="button"
-                  className="member-remove"
-                  onClick={() => void remove(m.principalId, m.displayName)}
-                  disabled={busy}
-                  aria-label={`Remove ${m.displayName}`}
-                  title={`Remove ${m.displayName}`}
-                >
-                  <span aria-hidden="true">×</span>
-                </button>
+                {/*
+                   Only the admin gets a remove control, and only in a group.
+
+                   Not hidden with CSS, and not disabled either: absent. A disabled button
+                   still puts the shape of a control in front of somebody who can never
+                   use it, and invites the question of why. The DOMAIN refuses the
+                   operation regardless (`NOT_THE_GROUP_ADMIN`) — this is the interface
+                   agreeing with the boundary, never standing in for it.
+                */}
+                {canRemoveMembers ? (
+                  <button
+                    type="button"
+                    className="member-remove"
+                    onClick={() => void remove(m.principalId, m.displayName)}
+                    disabled={busy}
+                    aria-label={`Remove ${m.displayName}`}
+                    title={`Remove ${m.displayName}`}
+                  >
+                    <span aria-hidden="true">×</span>
+                  </button>
+                ) : null}
               </li>
             ))}
           </ul>
@@ -356,6 +430,49 @@ export function Participants({
               Cancel
             </button>
           </div>
+        </div>
+      ) : null}
+
+      {/*
+        Leaving, and only from a group.
+
+        A one-to-one is refused by the server — leaving one leaves the other person talking
+        into a thread that can never be answered, and what somebody wants there is archive.
+        The control is absent rather than disabled for the same reason the remove control
+        is: a disabled button puts the shape of an action in front of somebody who can
+        never take it.
+
+        At the FOOT, and separated by a rule. It is the one thing on this panel that acts
+        on you rather than on the group, and it cannot be undone from your side.
+      */}
+      {isGroup ? (
+        <div className="member-leave">
+          {confirmingLeave ? (
+            <div className="history-warning" role="alertdialog" aria-label="Leave this group?">
+              <p>
+                You will stop receiving messages here, and the conversation leaves your list.
+                {/* Said plainly, because it is the part people do not expect. */} Someone
+                still in the group would have to add you back.
+              </p>
+              <div>
+                <button type="button" className="member-leave-go" onClick={() => void leave()} disabled={busy}>
+                  {busy ? 'Leaving…' : 'Leave group'}
+                </button>
+                <button type="button" onClick={() => setConfirmingLeave(false)} disabled={busy}>
+                  Stay
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="member-leave-open"
+              onClick={() => setConfirmingLeave(true)}
+              disabled={busy}
+            >
+              Leave group
+            </button>
+          )}
         </div>
       ) : null}
 

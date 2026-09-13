@@ -13,7 +13,13 @@ import {
   renameConversation,
   MAX_TITLE_LENGTH,
 } from './conversations.js';
-import type { ConversationStore, ConversationWriteTransaction, NewParticipant, OutboxRow } from './ports.js';
+import type {
+  ConversationStore,
+  ConversationWriteTransaction,
+  NewChannelPolicy,
+  NewParticipant,
+  OutboxRow,
+} from './ports.js';
 
 const ALICE = '018f2c5a-8888-7000-8000-00000000000a';
 const BOB = '018f2c5a-8888-7000-8000-00000000000b';
@@ -36,6 +42,8 @@ function createStore(seed: Conv[] = []) {
   const stampedAt: string[] = [];
   /** What the thread was told about its own membership. */
   const systemMessages: { conversationId: UUID; body: string }[] = [];
+  /** Channel policies written inside the create transaction. */
+  const channelPolicies: { conversationId: UUID; policy: NewChannelPolicy }[] = [];
 
   const store: ConversationStore = {
     async transaction(work) {
@@ -52,6 +60,18 @@ function createStore(seed: Conv[] = []) {
           if (found === undefined) return;
           found.messageCount += 1;
           systemMessages.push({ conversationId, body });
+        },
+        /* Only `leaveConversation` calls this, and only to hand a departing creator's role
+           on. Recorded on the participant so the group tests can see it happen. */
+        async setParticipantRole(conversationId, principalId, role) {
+          const found = conversations.get(conversationId);
+          if (found === undefined) return;
+          /* Replaced rather than mutated: `NewParticipant` is readonly, which is the point
+             of it — a role changes by writing a new row's worth of facts, not by reaching
+             into one the domain is holding. */
+          found.participants = found.participants.map((p) =>
+            p.principalId === principalId ? { ...p, role } : p,
+          );
         },
         async setTitle(conversationId, title) {
           const found = conversations.get(conversationId);
@@ -72,6 +92,11 @@ function createStore(seed: Conv[] = []) {
             if (ids.length === 2 && ids[0] === [a, b].sort()[0] && ids[1] === [a, b].sort()[1]) return c.id;
           }
           return undefined;
+        },
+        /* Recorded, so a channel test can assert the policy landed in the SAME transaction
+           as the room rather than in a second call the controller might skip. */
+        async insertChannelPolicy(conversationId, policy) {
+          channelPolicies.push({ conversationId, policy });
         },
         async insertConversation(conversation) {
           stampedAt.push(conversation.createdAt);
@@ -114,7 +139,7 @@ function createStore(seed: Conv[] = []) {
     },
   };
 
-  return { store, conversations, outbox, stampedAt, systemMessages };
+  return { store, conversations, outbox, stampedAt, systemMessages, channelPolicies };
 }
 
 const deps = (store: ConversationStore) => {

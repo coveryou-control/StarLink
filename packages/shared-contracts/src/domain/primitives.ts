@@ -132,6 +132,20 @@ export type ConversationType =
    * `conversation.announcement.post` does. See `decide()`.
    */
   | 'INTERNAL_ANNOUNCEMENT'
+  /**
+   * A persistent room for a department, a team or a project, with access decided per room.
+   *
+   * Internal, no customer, no lifecycle — a group in every structural sense. What differs is
+   * that a group's membership IS its access rule, and a channel's is not: a channel states
+   * separately who may find it, who may read it and who may post in it, and those three can
+   * be set to different answers. `ChannelAccessPolicy` carries them and `decide()` applies
+   * them; see `0031_channel_access.sql`.
+   *
+   * NOT the delivery `ChannelKind` below. That is a transport — WhatsApp, email, SMS. This
+   * is a room. The collision is unfortunate and deliberate to leave alone: renaming a
+   * shipped adapter contract is a larger change than this feature.
+   */
+  | 'INTERNAL_CHANNEL'
   | 'CUSTOMER_SERVICE'
   | 'CUSTOMER_SALES'
   | 'CUSTOMER_RENEWAL'
@@ -166,6 +180,61 @@ export type ConversationState =
   | 'WAITING_INTERNAL'
   | 'RESOLVED'
   | 'CLOSED';
+
+/**
+ * Who can even find an `INTERNAL_CHANNEL`.
+ *
+ * 'DEPARTMENTS' and 'SELECTED' are resolved against rows in `conversation.channel_audience`.
+ * A channel set to either with NO audience rows is visible to nobody — the unanswered
+ * question denies, which is rule 4 one level down.
+ */
+export type ChannelVisibility = 'EVERYONE' | 'DEPARTMENTS' | 'SELECTED';
+
+/**
+ * Who may read the messages, stated relative to who can SEE the channel.
+ *
+ * The two are separate so that a channel can be findable and closed at the same time —
+ * which is what makes joining something a person can ASK for rather than guess at.
+ */
+export type ChannelReadAccess = 'ANYONE_WHO_CAN_SEE' | 'MEMBERS';
+
+/** Who may post, stated relative to who may READ. */
+export type ChannelPostAccess = 'ANYONE_WHO_CAN_READ' | 'MEMBERS' | 'ADMINS';
+
+/**
+ * What the room is for. The directory's grouping and nothing else — no permission turns on
+ * it, and it is not a category taxonomy (rule 10).
+ */
+export type ChannelPurpose = 'DEPARTMENT' | 'TEAM' | 'PROJECT' | 'OTHER';
+
+/**
+ * The three answers, together.
+ *
+ * Carried into `decide()` on the resource rather than looked up inside it: `decide` is pure,
+ * and the loader that reads the conversation reads this in the same query. A channel whose
+ * policy did NOT arrive is denied rather than defaulted — see `decide()`.
+ */
+export interface ChannelAccessPolicy {
+  readonly visibility: ChannelVisibility;
+  readonly readAccess: ChannelReadAccess;
+  readonly postAccess: ChannelPostAccess;
+  /** Retired: out of the directory, refuses new posts, history intact (BR-09/§24.3). */
+  readonly archived: boolean;
+}
+
+/**
+ * The participant roles that administer a channel.
+ *
+ * TWO spellings, and unlike the case 0023 warned about they are not two names for one fact.
+ * 'CREATOR' is history — this person opened the room — and is written by
+ * `createInternalConversation` for every internal type. 'ADMIN' is authority somebody was
+ * GIVEN afterwards. A channel needs more than one administrator (a department room outlives
+ * the person who made it), so the predicate is what code reads, never the literals.
+ */
+export const CHANNEL_ADMIN_ROLES: readonly string[] = Object.freeze(['CREATOR', 'ADMIN']);
+
+export const isChannelAdminRole = (role: string | undefined): boolean =>
+  role !== undefined && CHANNEL_ADMIN_ROLES.includes(role);
 
 export type ChannelKind =
   | 'WEBSITE'

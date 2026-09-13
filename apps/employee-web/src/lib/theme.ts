@@ -30,7 +30,14 @@
  * `themeBootScript` is that read, inlined, running before the body renders.
  */
 
-const THEME_KEY = 'starlink.theme';
+/**
+ * Where the choice is remembered.
+ *
+ * Exported because three places now read it — this module, the settings panel and the
+ * sidebar's shortcut — and a fourth copy of the literal is how two of them end up writing
+ * to different keys and silently disagreeing about the theme.
+ */
+export const THEME_KEY = 'starlink.theme';
 
 export type Theme = 'system' | 'light' | 'dark';
 

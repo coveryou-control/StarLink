@@ -35,6 +35,7 @@ import {
   LOGGER,
   OBJECT_STORAGE,
 } from '../tokens.js';
+import { AttachmentScanSweep } from '@starlink/sweeps';
 import type { ApiConfig } from '../config.js';
 import { AuditWriter } from '../audit/audit-writer.js';
 import { AUDIT_WRITER } from '../tokens.js';
@@ -83,6 +84,9 @@ export class AttachmentService {
     declaredMime: string;
     declaredBytes: number;
     filename: string;
+    /* Voice notes only. Carried through to the row so a bubble can say "7:34" without
+       fetching the file — see migration 0029. */
+    durationMs?: number;
     correlationId: string;
   }): Promise<GrantOutcome> {
     const permitted = checkUploadIntent(DEFAULT_POLICY, {
@@ -130,6 +134,7 @@ export class AttachmentService {
     const attachmentId = crypto.randomUUID() as UUID;
     await this.store.grant({
       attachmentId,
+      ...(input.durationMs !== undefined ? { durationMs: input.durationMs } : {}),
       conversationId: input.conversationId,
       uploaderId: input.uploaderId,
       uploaderKind: input.uploaderKind,
@@ -158,16 +163,56 @@ export class AttachmentService {
    * is only a hint — the scan sweep would find an abandoned upload anyway through the
    * expiry path, and nothing here trusts the claim beyond moving it into the queue.
    */
-  async markUploaded(attachmentId: UUID, uploaderId: UUID): Promise<boolean> {
+  async markUploaded(attachmentId: UUID, uploaderId: UUID): Promise<string | undefined> {
     const record = await this.store.byId(attachmentId);
     // Only the uploader may announce their own upload, and only once.
-    if (record === undefined || record.uploaderId !== uploaderId) return false;
-    return this.store.transition({
+    if (record === undefined || record.uploaderId !== uploaderId) return undefined;
+    const moved = await this.store.transition({
       attachmentId,
       from: 'UPLOAD_GRANTED',
       to: 'QUARANTINED',
       at: new Date().toISOString() as Timestamp,
     });
+    if (!moved) return undefined;
+
+    /*
+       Scanned HERE, before the response, rather than up to ten seconds later by the sweep.
+
+       What a person was waiting through was never the check - it reads bytes already in
+       storage and takes milliseconds - it was the poll interval in front of it. A file that
+       has finished uploading is sendable the moment it has been looked at, and now it has
+       been by the time the announce returns.
+
+       Best effort, deliberately. A scanner outage must not fail the announce: the file stays
+       QUARANTINED, the periodic sweep retries it, and the composer's existing poll picks up
+       the verdict exactly as it did before. Degradation, not failure (§34).
+    */
+    await this.scanNow(attachmentId);
+    const after = await this.store.byId(attachmentId);
+    return after?.state ?? 'QUARANTINED';
+  }
+
+  /**
+   * Runs the scan for one attachment, swallowing anything that goes wrong.
+   *
+   * The SAME `AttachmentScanSweep` the periodic job uses, given one id - not a second
+   * implementation of the scan. It claims the row by transitioning QUARANTINED to SCANNING
+   * conditionally, so this and the sweep racing on one attachment still produce one winner
+   * and one verdict.
+   */
+  private async scanNow(attachmentId: UUID): Promise<void> {
+    try {
+      await new AttachmentScanSweep({
+        store: this.store,
+        scanner: this.scanner,
+        storage: this.storage,
+        policy: DEFAULT_POLICY,
+        logger: this.logger,
+      }).scanOne(attachmentId);
+    } catch {
+      /* The sweep will retry. Saying nothing here is correct: the caller's operation
+         succeeded, and the file's state is the honest answer to what happened to it. */
+    }
   }
 
   /**

@@ -43,20 +43,61 @@
  * longer claims otherwise — the chip says it is still being checked, and the composer
  * reports afterwards what did not go.
  */
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react';
-import { api, ApiError } from '../lib/api-client';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
+import { createPortal } from 'react-dom';
+import { api } from '../lib/api-client';
+import { uploadAttachment, type StagedAttachment } from '../lib/upload-attachment';
 
-export interface StagedAttachment {
-  readonly attachmentId: string;
-  readonly filename: string;
-  /** Carried so the optimistic message can render the file without a re-read. */
-  readonly declaredBytes: number;
-  /**
-   * UPLOADING — bytes in flight. SCANNING — uploaded, awaiting the verdict; NOT sendable.
-   * READY — CLEAN, and §28.1 will bind it. FAILED — it never will, and `problem` says why.
-   */
-  readonly state: 'UPLOADING' | 'SCANNING' | 'READY' | 'FAILED';
-  readonly problem?: string;
+/*
+   Defined in `upload-attachment.ts` and re-exported here.
+
+   The type used to live in this file, and when the transfer moved to the lib module the
+   two imported each other — a cycle that is harmless at runtime (it is type-only) and that
+   `pnpm boundaries` fails the build on anyway, correctly: a gate people learn to ignore
+   stops catching the cycles that are not harmless. The re-export keeps every existing
+   importer working.
+*/
+export type { StagedAttachment } from '../lib/upload-attachment';
+
+/**
+ * Which FAMILY of document a file belongs to, for the card that shows it.
+ *
+ * A PDF, a spreadsheet and a slide deck are three different things to somebody scanning a
+ * conversation for one of them, and a column of identical grey rectangles reading
+ * `PDF · 23 kB`, `XLSX · 4 MB`, `DOCX · 90 kB` makes that a reading task rather than a
+ * glance. Colour is what turns it back into a glance, and it is the same argument the
+ * attach menu's three tinted discs already make.
+ *
+ * Decided from the EXTENSION rather than the sniffed type, and that is a deliberate
+ * exception to the rule the thread follows. The sniffed type decides how bytes are
+ * INTERPRETED — whether they are handed to an `<img>`, which is an execution decision —
+ * and there the uploader must not get a vote. This decides what colour a rectangle is.
+ * The worst an uploader achieves by lying is a blue icon on a spreadsheet, and the
+ * extension is what a person reads in the filename anyway.
+ */
+export type DocumentFamily = 'pdf' | 'doc' | 'sheet' | 'slides' | 'text' | 'archive' | 'file';
+
+const FAMILIES: readonly { readonly family: DocumentFamily; readonly ext: readonly string[] }[] = [
+  { family: 'pdf', ext: ['pdf'] },
+  { family: 'doc', ext: ['doc', 'docx', 'odt', 'rtf', 'pages'] },
+  { family: 'sheet', ext: ['xls', 'xlsx', 'ods', 'csv', 'numbers'] },
+  { family: 'slides', ext: ['ppt', 'pptx', 'odp', 'key'] },
+  { family: 'text', ext: ['txt', 'md', 'log', 'json', 'xml', 'yml', 'yaml'] },
+  { family: 'archive', ext: ['zip', 'rar', '7z', 'tar', 'gz'] },
+];
+
+export function documentFamily(filename: string): DocumentFamily {
+  const dot = filename.lastIndexOf('.');
+  if (dot === -1) return 'file';
+  const ext = filename.slice(dot + 1).toLowerCase();
+  return FAMILIES.find((entry) => entry.ext.includes(ext))?.family ?? 'file';
 }
 
 /** How long to wait for a verdict before saying so rather than spinning for ever. */
@@ -106,10 +147,76 @@ const VERDICTS: Record<string, { state: 'READY' | 'FAILED' | 'GONE'; problem?: s
   EXPIRED: { state: 'FAILED', problem: 'This upload expired before it was sent. Attach it again.' },
 };
 
+/**
+ * What the paperclip offers, and what each choice will accept.
+ *
+ * The paperclip used to be a bare file input with no `accept` at all, so every press
+ * opened the operating system's browser on the whole disk and left the person to find
+ * their own way to a photograph. Naming the kind first is what every messenger does, and
+ * it is not decoration: `accept` is what makes the file dialog open filtered, which is the
+ * entire difference between "find your photo" and "here are your photos".
+ *
+ * ## `accept` is a hint, not a gate
+ *
+ * A person can still pick anything - every browser offers "All files" in that dialog, and
+ * a determined one can rename a file. So nothing here is a check. The real ones are where
+ * they have always been: the grant declares a type and a size, and section 28.1 refuses at
+ * the boundary when the bytes do not match what was declared. This list makes the common
+ * path short; it does not make the uncommon one safe, because it never could.
+ *
+ * ## Why extensions are listed as well as MIME types
+ *
+ * Windows reports no MIME type for several Office formats when the application that owns
+ * them is not installed, so an `accept` list of those MIME types silently shows an empty
+ * folder. The extension is what actually filters there.
+ */
+/** The menu's width before it has been measured, and the `min-width` the sheet gives it. */
+const MENU_WIDTH = 194;
+
+const ATTACH_KINDS = [
+  {
+    id: 'document',
+    label: 'Document',
+    accept:
+      '.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.ods,application/pdf,text/plain,text/csv',
+    icon: (
+      <>
+        <path d="M13.5 3.5H7.2A1.7 1.7 0 0 0 5.5 5.2v13.6a1.7 1.7 0 0 0 1.7 1.7h9.6a1.7 1.7 0 0 0 1.7-1.7V8.5Z" />
+        <path d="M13.5 3.5v5h5" />
+      </>
+    ),
+  },
+  {
+    id: 'media',
+    label: 'Photos & videos',
+    accept: 'image/*,video/*',
+    icon: (
+      <>
+        <rect x="3.5" y="5.5" width="17" height="13" rx="2.2" />
+        <path d="m4.6 16.2 4.2-4.2 3.1 3.1 3-3 4.5 4.5" />
+        <circle cx="9" cy="9.6" r="1.4" />
+      </>
+    ),
+  },
+  {
+    id: 'audio',
+    label: 'Audio',
+    accept: 'audio/*,.mp3,.m4a,.wav,.ogg,.aac,.flac',
+    icon: (
+      <>
+        <path d="M9 17.5V6.2l9-1.7v11" />
+        <circle cx="6.8" cy="17.6" r="2.3" />
+        <circle cx="15.8" cy="15.6" r="2.3" />
+      </>
+    ),
+  },
+] as const;
+
 export function AttachmentPicker({
   conversationId,
   staged,
   onStagedChange,
+  onPicked,
 }: {
   readonly conversationId: string;
   readonly staged: readonly StagedAttachment[];
@@ -123,9 +230,105 @@ export function AttachmentPicker({
    * attachments, and the functional form is what makes it unrepresentable.
    */
   readonly onStagedChange: Dispatch<SetStateAction<readonly StagedAttachment[]>>;
+  /**
+   * Told about the file the moment it is chosen, before a single byte has moved.
+   *
+   * Only the composer acts on this, and only for a picture or a video: those get shown
+   * before they are sent, because a filename does not describe one. It is deliberately not
+   * "onImagePicked" — this component has no business deciding which kinds are worth
+   * previewing, and the composer is where that list already lives.
+   */
+  readonly onPicked?: (file: File) => void;
 }): React.JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const [busy, setBusy] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  /** Where the portalled menu sits, in viewport coordinates. */
+  const [menuAt, setMenuAt] = useState<{ left: number; bottom: number } | undefined>(undefined);
+
+  /*
+     One input, re-pointed, rather than one per kind.
+
+     Three inputs would be three things to keep in step and three labels for assistive
+     technology to read out for what is one control. `accept` is set immediately before the
+     click, which every browser reads at open time.
+  */
+  const choose = (accept: string): void => {
+    const input = inputRef.current;
+    if (input === null) return;
+    input.accept = accept;
+    setMenuOpen(false);
+    input.click();
+  };
+
+  /**
+   * The menu is placed against the WINDOW, not against the paperclip's ancestors.
+   *
+   * It was an absolutely positioned child of the control, opening rightward from
+   * `left: 0`. The paperclip sits at the right-hand end of the composer's action row, so
+   * a 194px menu ran off the right edge at every desktop width — measured at 1440, 1100,
+   * 900 and 760, past the window on all four — and `main.thread-column` is
+   * `overflow: hidden`, so what a person saw was the menu cut through the middle of a
+   * word rather than a scrollbar.
+   *
+   * Clamping inside that column would have fixed the symptom and left the menu bounded by
+   * a box it has no reason to be inside. It is a menu: it belongs to the window. So it is
+   * portalled to the body, positioned from the trigger's own rect, and clamped to the
+   * viewport with a margin — which no ancestor's `overflow` can undo.
+   *
+   * Right-aligned to the trigger by preference, because that is the edge with room when a
+   * control is at the end of a row; the clamp catches the case where it is not.
+   */
+  useLayoutEffect(() => {
+    if (!menuOpen) {
+      setMenuAt(undefined);
+      return;
+    }
+    const place = (): void => {
+      const trigger = triggerRef.current;
+      if (trigger === null) return;
+      const box = trigger.getBoundingClientRect();
+      const width = menuRef.current?.getBoundingClientRect().width ?? MENU_WIDTH;
+      const MARGIN = 8;
+      const preferred = box.right - width;
+      const highest = window.innerWidth - MARGIN - width;
+      const left = Math.max(MARGIN, Math.min(preferred, highest));
+      setMenuAt({ left, bottom: window.innerHeight - box.top + MARGIN });
+    };
+    place();
+    /* A resize or a scroll moves the paperclip out from under the menu. Re-placing is
+       cheaper and less surprising than closing, which would lose a deliberate press. */
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [menuOpen]);
+
+  /* Escape and a press outside, the same two exits every other popover here has. */
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape') return;
+      setMenuOpen(false);
+      triggerRef.current?.focus();
+    };
+    const onDown = (event: MouseEvent): void => {
+      const target = event.target as Node;
+      if (menuRef.current?.contains(target) === true) return;
+      if (triggerRef.current?.contains(target) === true) return;
+      setMenuOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('mousedown', onDown, true);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('mousedown', onDown, true);
+    };
+  }, [menuOpen]);
 
   const update = (
     attachmentId: string,
@@ -136,67 +339,19 @@ export function AttachmentPicker({
     );
   };
 
+  /*
+     The transfer itself lives in `upload-attachment.ts`, because the paperclip is no longer
+     the only way to start one — a file dropped on the composer and a pasted screenshot take
+     the same four steps. This keeps the chips, the poll and the button; it no longer keeps
+     its own copy of the pipeline.
+  */
   const attach = async (file: File): Promise<void> => {
+    /* Before the upload, not after: the preview's whole point is that it is on screen
+       while the bytes are moving, rather than being one more thing to wait for. */
+    onPicked?.(file);
     setBusy(true);
-    let attachmentId: string | undefined;
     try {
-      // 1. The grant. Declared values only — the server verifies the real MIME by content
-      //    after upload, because SL-056's acceptance is "extension never trusted".
-      const grant = await api.requestUpload(conversationId, {
-        filename: file.name,
-        declaredMime: file.type || 'application/octet-stream',
-        declaredBytes: file.size,
-      });
-      attachmentId = grant.attachmentId;
-
-      onStagedChange((current) => [
-        ...current,
-        {
-          attachmentId: grant.attachmentId,
-          filename: file.name,
-          declaredBytes: file.size,
-          state: 'UPLOADING',
-        },
-      ]);
-
-      // 2. Direct to storage. The application never sees the bytes.
-      await api.uploadBytes(grant.uploadUrl, file);
-
-      // 3. "I finished" — moves it into scanning.
-      await api.markUploaded(grant.attachmentId);
-
-      // 4. Uploaded is NOT sendable. The poll below decides when it becomes so.
-      update(grant.attachmentId, { state: 'SCANNING' });
-    } catch (cause) {
-      /**
-       * §34.4 requires an upload to fail EXPLICITLY so "the user keeps their message and
-       * can retry". A 503 is storage being down and is worth saying plainly; a refusal is
-       * the uniform 404 and must not be guessed at (§27.3).
-       */
-      const problem =
-        cause instanceof ApiError && cause.status === 503
-          ? 'Storage is temporarily unavailable. Your message is safe — try the file again.'
-          : cause instanceof ApiError && cause.isRefusal
-            ? 'That file cannot be attached here.'
-            : 'The upload did not finish. Your message is safe.';
-
-      if (attachmentId !== undefined) {
-        update(attachmentId, { state: 'FAILED', problem });
-      } else {
-        // The grant itself was refused, so there is no id to key on. Keyed by name so the
-        // person still sees which file failed.
-        const failedId = `failed:${file.name}:${Date.now()}`;
-        onStagedChange((current) => [
-          ...current,
-          {
-            attachmentId: failedId,
-            filename: file.name,
-            declaredBytes: file.size,
-            state: 'FAILED',
-            problem,
-          },
-        ]);
-      }
+      await uploadAttachment(conversationId, file, onStagedChange);
     } finally {
       setBusy(false);
       if (inputRef.current !== null) inputRef.current.value = '';
@@ -297,23 +452,33 @@ export function AttachmentPicker({
   return (
     <div className="attachment-picker">
       {/*
-        A paperclip, with the real input laid transparently over it.
+        A paperclip that asks WHAT, and one file input behind it.
 
-        The browser's own file control renders "Choose File | No file chosen" — a
-        two-part, locale-dependent widget with a fixed label that no stylesheet can
-        change, and it looked exactly as out of place in a chat composer as it sounds.
+        It used to be the input itself, stretched transparently over the glyph — the
+        standard accessible pattern, and the reason for it still holds: the browser's own
+        control renders "Choose File | No file chosen", a locale-dependent widget with a
+        fixed label no stylesheet can change. What was wrong was not the technique but the
+        step it skipped. One press opened the whole disk, so attaching a photograph meant
+        navigating to it, and the product had nothing to say about the difference between a
+        photograph, a recording and a contract.
 
-        This is the standard accessible pattern rather than a trick: the `input` is still
-        an input, still focusable, still keyboard-operable, still carries its own
-        `aria-label`, and is what actually receives the click — it is stretched over the
-        glyph at zero opacity, not hidden. `visibility` and `display` are untouched, so it
-        remains present to assistive technology and to any test that asserts the control
-        is there. The glyph is `aria-hidden` decoration; the focus ring is drawn on the
-        wrapper via `:focus-within`, because the element that has focus is invisible.
+        So the glyph is a real button now and the input sits behind it, kept in the DOM and
+        kept labelled — `setInputFiles` and any assistive technology still reach it — while
+        the menu is what a person presses. The input is `hidden` rather than transparent
+        because there is nothing left to lay it over; the button is the control.
       */}
       <span className="attach-control">
-        <span className="attach-glyph" aria-hidden="true">
-          <svg viewBox="0 0 24 24" width="19" height="19" focusable="false">
+        <button
+          ref={triggerRef}
+          type="button"
+          className="attach-trigger"
+          aria-label="Attach"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
+          disabled={busy}
+          onClick={() => setMenuOpen((was) => !was)}
+        >
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" focusable="false">
             <path
               d="M20.5 11.5 12 20a5.5 5.5 0 0 1-7.8-7.8l8.5-8.5a3.7 3.7 0 0 1 5.2 5.2l-8.5 8.5a1.8 1.8 0 0 1-2.6-2.6l7.9-7.8"
               fill="none"
@@ -323,11 +488,59 @@ export function AttachmentPicker({
               strokeLinejoin="round"
             />
           </svg>
-        </span>
+        </button>
+
+        {menuOpen
+          ? createPortal(
+              <div
+                className="attach-menu"
+                role="menu"
+                aria-label="What to attach"
+                ref={menuRef}
+                /* Hidden for the one frame between mounting and being measured, rather
+                   than drawn in the wrong place and then moved. */
+                style={
+                  menuAt === undefined
+                    ? { visibility: 'hidden' }
+                    : { left: `${menuAt.left}px`, bottom: `${menuAt.bottom}px` }
+                }
+              >
+                {ATTACH_KINDS.map((kind) => (
+                  <button
+                    key={kind.id}
+                    type="button"
+                    role="menuitem"
+                    className="attach-menu-item"
+                    onClick={() => choose(kind.accept)}
+                  >
+                    <span className={`attach-menu-icon is-${kind.id}`} aria-hidden="true">
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="17"
+                        height="17"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.6"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        focusable="false"
+                      >
+                        {kind.icon}
+                      </svg>
+                    </span>
+                    {kind.label}
+                  </button>
+                ))}
+              </div>,
+              document.body,
+            )
+          : null}
+
         <input
           ref={inputRef}
           type="file"
           aria-label="Attach a file"
+          hidden
           disabled={busy}
           onChange={(e) => {
             const file = e.target.files?.[0];
@@ -369,11 +582,23 @@ export function AttachmentPicker({
                 <span className="muted"> · still being checked</span>
               ) : null}
               {/*
-                §28.1: an uploaded file is reachable by NOBODY until it is bound to a
-                message. Saying "ready to send" rather than "uploaded" keeps that true in
-                the person's head — the file is not shared yet.
+                READY says NOTHING, and that is the point.
+
+                It used to read "· ready to send". That caption made sense when a file spent
+                up to ten seconds in "still being checked" first: the pair told a person the
+                wait was over. The check now runs inside the announce and finishes in tens of
+                milliseconds — measured at 96ms from picking the file to a usable send — so
+                the two states no longer form a sequence anybody watches, and all the caption
+                does is narrate the normal case.
+
+                A chip that says the file is attached IS the message. §28.1's point — that an
+                uploaded file is reachable by nobody until it is bound — is still true and
+                still worth knowing, and it is not something to tell somebody on every
+                attachment; the send button being usable says the same thing more usefully.
+
+                The other three states keep their words, because each of them is a REASON the
+                thing a person expected has not happened.
               */}
-              {item.state === 'READY' ? <span className="muted"> · ready to send</span> : null}
               {item.state === 'FAILED' ? <span role="alert"> · {item.problem}</span> : null}
               <button
                 type="button"

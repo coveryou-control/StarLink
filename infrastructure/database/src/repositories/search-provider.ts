@@ -31,7 +31,7 @@ import type {
   Timestamp,
   UUID,
 } from '@starlink/shared-contracts';
-import { err, likePattern, ok } from '@starlink/shared-contracts';
+import { bodyMatchPattern, err, ok } from '@starlink/shared-contracts';
 
 /** Search is expensive and is the natural bulk-extraction surface (§27.5, FR-SRCH-3). */
 const MAX_RESULTS = 50;
@@ -113,19 +113,41 @@ export class PgSearchProvider implements SearchProvider {
     const term = query.trim();
     if (term === '') return ok({ items: [] });
 
-    // Escaped, so `%` is a percent sign rather than "everything" — see `likePattern`.
-    const params: unknown[] = [scope.principalId, term, likePattern(term)];
+    /* Escaped, and anchored to a word boundary when the term is short — see
+       `bodyMatchPattern` for the two cases that decided where the line goes. */
+    const params: unknown[] = [scope.principalId, term, bodyMatchPattern(term)];
 
     /*
-       Two ways to match, ORed.
+       Two ways to match, ORed — and both anchored to the start of a word.
 
-       The tsquery is anchored to token starts by construction — `:*` is a PREFIX operator,
-       so "pend" can never reach "happended" however the configuration is set. People and
-       files have always been `ILIKE '%term%'`, so one search box answered two different
-       ways depending on which facet you were looking at. The `ILIKE` puts messages on the
-       same footing; migration 0019's trigram index is what stops it being a scan.
+       The tsquery is anchored by construction: `:*` is a PREFIX operator, so "pend" can
+       never reach "happended" however the configuration is set. The second condition is what
+       reaches a fragment inside a word — "calculat" in "recalculated" — and it used to be
+       `ILIKE '%term%'` unconditionally.
+
+       Unconditional was the mistake. Two letters appear inside an enormous number of English
+       words, so searching "hi" matched "Arc-hi-t" and returned the membership history of the
+       company ahead of anything anybody had said. `bodyMatchPattern` anchors short terms to
+       a word boundary and leaves long ones free, which keeps the case the mid-word match
+       exists for and drops the case that made it useless. `~*` rather than ILIKE because a
+       boundary needs a regex; migration 0019's trigram index serves both.
     */
-    const conditions: string[] = [`(m.search_vector @@ ${PREFIX_QUERY} OR m.body ILIKE $3)`];
+    const conditions: string[] = [`(m.search_vector @@ ${PREFIX_QUERY} OR m.body ~* $3)`];
+
+    /*
+       A membership note is not something somebody said.
+
+       "Archit Bali added Rahul" is written BY THE SYSTEM to record a change, and the
+       conversation list already refuses to count these as unread on exactly that reasoning:
+       *a system note carries no sender - nobody said it*. Two parts of the product now agree
+       about what a message is.
+
+       They were also the loudest possible noise in search, because every one of them
+       contains two people's full names — so any search for a fragment of any colleague's
+       name returned the entire membership history of the company ahead of the messages that
+       actually mentioned them.
+    */
+    conditions.push(`m.message_class <> 'MEMBERSHIP'`);
 
     if (!scope.includeInternal) {
       // Customer paths never even query internal rows (ADR-021). Excluded here rather
@@ -189,6 +211,7 @@ export class PgSearchProvider implements SearchProvider {
                    system-authored message has no sender and must still be findable.
                 */
                 sender.display_name AS sender_display_name,
+                m.sender_principal_id AS sender_principal_id,
                 ts_headline('${FTS_CONFIG}', m.body, ${PREFIX_QUERY},
                             'MaxFragments=1, MaxWords=18, MinWords=5, StartSel=<<, StopSel=>>') AS snippet,
                 ts_rank(m.search_vector, ${PREFIX_QUERY}) AS rank
@@ -215,6 +238,9 @@ export class PgSearchProvider implements SearchProvider {
             createdAt: (row.created_at as Date).toISOString() as Timestamp,
             ...(row.sender_display_name !== null && row.sender_display_name !== undefined
               ? { senderDisplayName: row.sender_display_name as string }
+              : {}),
+            ...(row.sender_principal_id !== null && row.sender_principal_id !== undefined
+              ? { senderPrincipalId: row.sender_principal_id as string }
               : {}),
           }),
         ),

@@ -13,6 +13,7 @@ import type {
   ConversationParticipantRef,
   ConversationSummary,
   ConversationWriteTransaction,
+  NewChannelPolicy,
   NewConversation,
   NewParticipant,
   OutboxRow,
@@ -79,11 +80,57 @@ class PgConversationTransaction implements ConversationWriteTransaction {
     }
   }
 
+  /**
+   * A new channel's access policy, inside the create transaction.
+   *
+   * On `this.client`, not the pool - that is the whole reason this lives here rather than
+   * on `PgChannelStore`, which owns every other write to these tables. A channel whose
+   * conversation committed and whose policy did not is a room `decide()` refuses to let
+   * anybody into, including the person who just made it.
+   */
+  async insertChannelPolicy(conversationId: UUID, policy: NewChannelPolicy): Promise<void> {
+    await this.client.query(
+      `INSERT INTO conversation.channels
+         (conversation_id, purpose, description, visibility, read_access, post_access)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [
+        conversationId,
+        policy.purpose,
+        policy.description ?? null,
+        policy.visibility,
+        policy.readAccess,
+        policy.postAccess,
+      ],
+    );
+    for (const entry of policy.audience) {
+      /* Trimmed as well as CHECKed non-blank at the column: a scope of '  technology  '
+         equals nobody's department, which is a channel that silently reaches no one. */
+      const scopeId = entry.scopeId.trim();
+      if (scopeId === '') continue;
+      await this.client.query(
+        `INSERT INTO conversation.channel_audience (conversation_id, scope_kind, scope_id)
+         VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`,
+        [conversationId, entry.scopeKind, scopeId],
+      );
+    }
+  }
+
   async listParticipants(conversationId: UUID): Promise<readonly NewParticipant[]> {
     const result = await this.client.query(
+      /*
+         ORDERED, because one caller now depends on which row comes first.
+
+         When a group's creator leaves, the role passes to the longest-standing remaining
+         member, and "longest-standing" has to mean something a second run agrees with.
+         Postgres makes no promise about row order without an ORDER BY, so before this the
+         successor was whatever the planner happened to produce. `principal_id` breaks a
+         tie between two people added in the same statement — arbitrary, but stable, which
+         is the property that matters.
+      */
       `SELECT principal_id, principal_kind, role, reply_authority
          FROM conversation.participants
-        WHERE conversation_id = $1 AND effective_to IS NULL`,
+        WHERE conversation_id = $1 AND effective_to IS NULL
+        ORDER BY effective_from, principal_id`,
       [conversationId],
     );
     return result.rows.map((row) => ({
@@ -92,6 +139,18 @@ class PgConversationTransaction implements ConversationWriteTransaction {
       role: row.role,
       replyAuthority: row.reply_authority,
     }));
+  }
+
+  async setParticipantRole(conversationId: UUID, principalId: UUID, role: string): Promise<void> {
+    /* Live rows only. A dated-out participation is history (BR-09) and must not acquire a
+       role it never held — and the person leaving is dated out by the same transaction, so
+       without this the handover could land back on them. */
+    await this.client.query(
+      `UPDATE conversation.participants
+          SET role = $3
+        WHERE conversation_id = $1 AND principal_id = $2 AND effective_to IS NULL`,
+      [conversationId, principalId, role],
+    );
   }
 
   async addParticipant(
@@ -328,6 +387,79 @@ export class PgConversationReader implements ConversationReader {
   constructor(private readonly pool: pg.Pool) {}
 
   /**
+   * Holds an announcement at the top of the board for everybody, or lets it go.
+   *
+   * Idempotent in both directions: pinning twice is one row, unpinning something that was
+   * never pinned is not an error. A publisher pressing the control twice must not produce a
+   * failure, and two publishers pinning the same notice must not produce two rows.
+   *
+   * The AUTHORIZATION is not here. The controller decides, against the loaded conversation,
+   * with `decide()` - a store method that checked a permission would be a second place the
+   * rule lives (§38).
+   */
+  async setAnnouncementPinned(
+    conversationId: UUID,
+    pinnedBy: UUID,
+    pinned: boolean,
+  ): Promise<void> {
+    if (!pinned) {
+      await this.pool.query(
+        'DELETE FROM conversation.announcement_pins WHERE conversation_id = $1',
+        [conversationId],
+      );
+      return;
+    }
+    await this.pool.query(
+      `INSERT INTO conversation.announcement_pins (conversation_id, pinned_by)
+       VALUES ($1, $2)
+       ON CONFLICT (conversation_id) DO UPDATE
+         SET pinned_by = EXCLUDED.pinned_by, pinned_at = now()`,
+      [conversationId, pinnedBy],
+    );
+  }
+
+  /**
+   * Has this person ever been in a conversation at all?
+   *
+   * ## Why the LIST cannot answer this
+   *
+   * The empty inbox and the new joiner look identical from the client: both have nothing to
+   * show. They are not the same person. Somebody who archived their last thread this morning
+   * does not want to be welcomed to the product, and somebody on their first day does not
+   * want a shrug.
+   *
+   * ## What counts, and what deliberately does not
+   *
+   * Only INTERNAL_DIRECT and INTERNAL_GROUP - conversations somebody chose to be in.
+   *
+   * Announcements are excluded because every active employee is made a participant of every
+   * one at the moment it is posted (see 0014). A joiner who happened to arrive before an
+   * announcement would have "history" they had no part in, and the welcome would never be
+   * shown to anybody in a workspace that had ever posted one.
+   *
+   * Channels are excluded for a weaker version of the same reason: a department channel can
+   * carry membership somebody was given rather than sought. Joining one is a real act, but
+   * it is not the act this question is about, which is "have you talked to anybody here".
+   *
+   * ## Ended participation still counts
+   *
+   * No `effective_to` filter. Somebody who left every group they were in has still used the
+   * product, and re-welcoming them would be the product forgetting them.
+   */
+  async hasEverConversed(principalId: UUID): Promise<boolean> {
+    const result = await this.pool.query(
+      `SELECT 1
+         FROM conversation.participants p
+         JOIN conversation.conversations c ON c.conversation_id = p.conversation_id
+        WHERE p.principal_id = $1
+          AND c.conversation_type IN ('INTERNAL_DIRECT', 'INTERNAL_GROUP')
+        LIMIT 1`,
+      [principalId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  /**
    * The caller's threads.
    *
    * Scope is applied by JOINING participation, not by fetching everything and
@@ -352,7 +484,7 @@ export class PgConversationReader implements ConversationReader {
     principalId: UUID,
     limit: number,
     before?: { readonly lastActivityAt: string; readonly id: UUID },
-    scope: 'CHATS' | 'ANNOUNCEMENTS' = 'CHATS',
+    scope: 'CHATS' | 'ANNOUNCEMENTS' | 'CHANNELS' = 'CHATS',
   ): Promise<readonly ConversationSummary[]> {
     // Row-value keyset, matching the message pager. `(a, b) < ($3, $4)` stays an index
     // range scan; the equivalent OR-expansion does not, and OFFSET degrades linearly
@@ -360,11 +492,39 @@ export class PgConversationReader implements ConversationReader {
     // same millisecond — so the id is the tiebreaker that stops a row being skipped or
     // repeated across pages.
     const result = await this.pool.query(
+      /*
+         `created_by`, so the interface can say who the admin IS rather than deduce it.
+
+         The members list showed "Admin" beside a CREATOR role it could see, and the
+         summary's participant array excludes the caller — so the one person guaranteed to
+         know they made the group was the only member never labelled as its admin. The
+         inference already in `participants.tsx` ("nobody visible holds CREATOR, so it must
+         be me") is fine for deciding whether to OFFER a control the server will re-check,
+         and not fine for stating a fact: it is wrong for a group whose creator has left.
+
+         A column rather than a scalar subquery for the caller's own role: this runs for
+         every row of the conversation list, and `created_by` is already on the table.
+      */
       `SELECT c.conversation_id, c.conversation_type, c.title, c.state, c.sensitivity,
-              c.last_activity_at, c.last_message_preview, c.participant_count,
+              c.created_by, c.last_activity_at, c.last_message_preview, c.participant_count,
+              author.display_name AS publisher_name,
+              ap.pinned_at AS announcement_pinned_at,
+              /*
+                 Unread MESSAGES, which a membership note is not.
+
+                 sender_principal_id IS DISTINCT FROM $1 is true for NULL, and a system
+                 note carries no sender — so "Archit added Rishitt" counted as something
+                 unread. The preview lateral below deliberately yields nothing for the same
+                 row, on the stated grounds that nobody said it. The two disagreed, and the
+                 result was a row reading "No messages yet" beside a red 1.
+
+                 Excluding it here is the side that matches what the badge means to a
+                 reader: a number of things somebody said to them.
+              */
               COALESCE((SELECT count(*) FROM conversation.messages m
                          WHERE m.conversation_id = c.conversation_id
                            AND m.seq > COALESCE(rs.last_read_seq, 0)
+                           AND m.message_class <> 'MEMBERSHIP'
                            AND m.sender_principal_id IS DISTINCT FROM $1), 0)::int AS unread_count,
               /*
                  The second tick, on a list row.
@@ -396,7 +556,8 @@ export class PgConversationReader implements ConversationReader {
               c.last_seq,
               newest.sender_principal_id AS last_message_sender_id,
               others.names AS participant_names,
-              COALESCE(cp.pinned, false) AS pinned
+              COALESCE(cp.pinned, false) AS pinned,
+              cp.muted_until
          FROM conversation.conversations c
          JOIN conversation.participants p
            ON p.conversation_id = c.conversation_id
@@ -427,10 +588,14 @@ export class PgConversationReader implements ConversationReader {
          LEFT JOIN LATERAL (
               SELECT json_agg(json_build_object(
                        'principalId', ip.principal_id,
-                       'displayName', ip.display_name
+                       'displayName', ip.display_name,
+                       /* Carried so the members list can mark the group's admin without a
+                          second read. It is one text column on a row already being
+                          selected, and the alternative is a request per panel open. */
+                       'role', picked.role
                      ) ORDER BY ip.display_name) AS names
                 FROM (
-                  SELECT op.principal_id
+                  SELECT op.principal_id, op.role
                     FROM conversation.participants op
                    WHERE op.conversation_id = c.conversation_id
                      AND op.effective_to IS NULL
@@ -440,18 +605,69 @@ export class PgConversationReader implements ConversationReader {
                 ) picked
                 JOIN identity.principals ip ON ip.principal_id = picked.principal_id
          ) others ON c.conversation_type::text LIKE 'INTERNAL%'
+         /*
+            Who wrote the message the PREVIEW is showing - the same one, not merely the
+            newest row.
+
+            No backticks in here: this SQL is a JS template literal, and one would end the
+            string. The symptom is a parse error on the line AFTER the comment, which
+            points at innocent code.
+
+            last_message_preview is derived from the newest NON-REDACTED message (see
+            refreshPreview), and this lateral had no such filter. Delete the last message
+            in a group and the row then showed the previous message's text under the
+            deleter's name: a sentence one person wrote, attributed to another. The
+            attribution draws the "Name: text" prefix on a group row, so a wrong name is a
+            visible lie rather than a missing detail.
+
+            A system note (a membership change) carries no sender, so this yields NULL and
+            the row falls back to the bare preview. That is the honest outcome: nobody
+            said it.
+         */
          LEFT JOIN LATERAL (
               SELECT lm.sender_principal_id
                 FROM conversation.messages lm
                WHERE lm.conversation_id = c.conversation_id
+                 AND lm.redacted_at IS NULL
                ORDER BY lm.seq DESC
                LIMIT 1
          ) newest ON true
+         /*
+            Who PUBLISHED it, and whether it is pinned for everybody.
+
+            Both are announcement facts and both are joined unconditionally rather than
+            behind a CASE, because a LEFT JOIN on a primary key costs a lookup and a CASE in
+            the join condition costs a planner that cannot use the index. Every other
+            conversation type gets NULL in both, which is what the projection below reads.
+
+            created_by is the publisher rather than the newest sender on purpose: an
+            announcement is issued by somebody, and if a second person with the permission
+            replies in it the board must still say whose notice it is.
+         */
+         LEFT JOIN identity.principals author ON author.principal_id = c.created_by
+         LEFT JOIN conversation.announcement_pins ap ON ap.conversation_id = c.conversation_id
         WHERE ($3::timestamptz IS NULL
                OR (c.last_activity_at, c.conversation_id) < ($3::timestamptz, $4::uuid))
+          /*
+             Three lists, one query, and CHATS is defined by SUBTRACTION.
+
+             An announcement addressed to the whole company, or a channel the whole
+             department is in, would otherwise sit at the top of everybody's chat list every
+             time anybody posted - and a person looking for the thread they were in the
+             middle of would be reading a notice board. So each of the other two has its own
+             destination, and the inbox is what is left.
+
+             Subtraction rather than an explicit list of the chat types on purpose: a new
+             conversation type appears in the inbox until somebody decides otherwise, which
+             is the failure that gets noticed. The reverse - a type nobody can find because
+             no list claims it - is the one that does not.
+          */
           AND (CASE WHEN $5::text = 'ANNOUNCEMENTS'
                     THEN c.conversation_type = 'INTERNAL_ANNOUNCEMENT'
-                    ELSE c.conversation_type <> 'INTERNAL_ANNOUNCEMENT' END)
+                    WHEN $5::text = 'CHANNELS'
+                    THEN c.conversation_type = 'INTERNAL_CHANNEL'
+                    ELSE c.conversation_type NOT IN ('INTERNAL_ANNOUNCEMENT', 'INTERNAL_CHANNEL')
+               END)
         /*
            Pinned first, then newest activity — and the keyset above has to agree with it or
            paging skips rows. It does: the cursor is only ever taken from the LAST row of a
@@ -462,7 +678,26 @@ export class PgConversationReader implements ConversationReader {
            No backticks in here. This is a JS template literal, and one would end the string
            at the comment - see the platform note in CLAUDE.md.
         */
-        ORDER BY COALESCE(cp.pinned, false) DESC, c.last_activity_at DESC, c.conversation_id DESC
+        /*
+           Pinned announcements come first, and that is a THIRD sort key rather than a
+           replacement for either of the two below it.
+
+           cp.pinned is one person's own ordering of their chat list; ap.pinned_at is a
+           publisher holding a notice at the top of the board for the whole company. They
+
+           No backticks in here. This is a JS template literal and one would end the string
+           - the same platform note the preview lateral above carries.
+           never both apply to one row - an announcement is not in the chat list - so the
+           keys can share an ORDER BY without either weakening the other.
+
+           The keyset above still agrees with it: the cursor is only ever taken from the
+           LAST row of a page, so a boundary inside the pinned block compares pinned to
+           pinned and one after it compares unpinned to unpinned.
+        */
+        ORDER BY (ap.conversation_id IS NOT NULL) DESC,
+                 COALESCE(cp.pinned, false) DESC,
+                 c.last_activity_at DESC,
+                 c.conversation_id DESC
         LIMIT $2`,
       [principalId, limit, before?.lastActivityAt ?? null, before?.id ?? null, scope],
     );
@@ -477,10 +712,36 @@ export class PgConversationReader implements ConversationReader {
       ...(row.last_message_preview !== null ? { lastMessagePreview: row.last_message_preview } : {}),
       participantCount: row.participant_count,
       unreadCount: row.unread_count,
+      /* Absent rather than null when unknown, so a reader that does not use it cannot
+         accidentally render one. */
+      ...(row.created_by !== null ? { createdBy: row.created_by as string } : {}),
+      /* Announcement facts. Absent on every other type rather than null, so a reader that
+         does not know about them cannot accidentally render one. */
+      ...(row.publisher_name !== null && row.conversation_type === 'INTERNAL_ANNOUNCEMENT'
+        ? { publisherName: row.publisher_name as string }
+        : {}),
+      ...(row.announcement_pinned_at !== null
+        ? { pinnedForEveryone: (row.announcement_pinned_at as Date).toISOString() }
+        : {}),
       /* Always present, unlike most of this projection: false is a real answer here and
          "absent" would make every unset conversation indistinguishable from a query that
          did not ask. */
       pinned: row.pinned === true,
+      /*
+         Present only while the mute has not run out.
+
+         An expired row is left in the table on purpose — nothing has to sweep it, because
+         a mute whose instant has passed is indistinguishable from no mute at all. Filtered
+         here rather than in SQL so the comparison happens against the SAME clock that
+         every other effective period in this codebase is read against, rather than the
+         database's `now()`; the two have differed by a minute on a dev machine before, and
+         a mute that is over is not something to be wrong about in either direction.
+      */
+      ...(row.muted_until !== null &&
+      row.muted_until !== undefined &&
+      (row.muted_until as Date).getTime() > Date.now()
+        ? { mutedUntil: (row.muted_until as Date).toISOString() }
+        : {}),
       // `bigint` arrives from pg as a string; left as one, every comparison against a
       // message sequence would be lexicographic, and "9" > "10".
       readWatermark: Number(row.read_watermark),

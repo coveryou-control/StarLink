@@ -182,9 +182,20 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
          to decide, so a confirm press would be the product asking a question it already
          has the answer to.
       */
-      await employee.getByRole('button', { name: 'New conversation' }).click();
-      const panel = employee.getByRole('region', { name: 'Start a conversation' });
-      await panel.getByRole('button', { name: /New chat/ }).click();
+      /*
+         The panel opens ON the chat step, so there is no mode to choose first.
+
+         This used to press a "New chat" tab inside the dialog. Both the dialog and the
+         tabs are gone: it is a panel over the list column now, opening on the step that
+         answers the commonest question, with "New group" as a row you press to go
+         somewhere else. The region is named for the step it is on.
+      */
+      /* "New chat" on a desktop viewport, which is what this suite runs at. The
+         masthead's "New conversation" tile is a PHONE control — it is hidden above 640px,
+         where the sidebar carries a labelled "New chat" instead. The name pattern covers
+         both so this step does not care which width it is driven at. */
+      await employee.getByRole('button', { name: /^New (chat|conversation)$/ }).first().click();
+      const panel = employee.getByRole('region', { name: 'New chat' });
       await panel.getByPlaceholder(/name, department/i).fill('E2E Lead');
       await panel.getByRole('button', { name: /E2E Lead/ }).first().click();
       await expect(employee).toHaveURL(/\/conversations\/[0-9a-f-]{36}/, { timeout: 20_000 });
@@ -197,28 +208,26 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
       await expect(employee.getByRole('region', { name: 'Conversation actions' })).toHaveCount(0);
 
       /**
-       * Membership is in the information panel, and at this width the panel is a COLUMN.
+       * Membership is NOT shown on a one-to-one, and is one click away.
        *
-       * It used to be a labelled search field and a Find button in the chat header, then a
-       * drawer behind that header's control. The design's shell is four columns and the
-       * panel is the fourth, so it is open by default now and the header's control hides it
-       * — this step used to click that control to reveal the panel and, after the change,
-       * clicked it to close the panel it needed.
+       * It used to be permanent here. On a direct message the panel is about the person
+       * you are talking to, and a permanent search field under their face was asked to go
+       * — but deleting the control took the CAPABILITY with it, and BR-07 below is
+       * precisely about the act it removed: adding a third person to an EXISTING thread,
+       * where there is history for them to suddenly be able to read. Starting a new group
+       * is a different act with nothing to expose.
        *
-       * Asserted in all three states rather than just the one under test: visible without
-       * being asked for, gone when hidden, back when asked for again. BR-07 below is
-       * unchanged, and so is the §21.4 assertion above that an internal thread has no
-       * lifecycle panel.
+       * So this asserts both halves of the compromise: absent by default, present when
+       * asked for from the header's overflow.
        */
       const membership = employee.getByRole('region', { name: 'Participants' });
-      await expect(membership).toBeVisible();
+      await expect(
+        membership,
+        'a one-to-one should not carry a permanent membership section',
+      ).toHaveCount(0);
 
-      // The label follows the conversation kind — "Conversation details" for a 1:1, which
-      // is what this thread still is until the colleague below is added.
-      const detailsToggle = employee.getByRole('button', { name: /details$/i });
-      await detailsToggle.click();
-      await expect(membership).toHaveCount(0);
-      await detailsToggle.click();
+      await employee.getByRole('button', { name: 'More actions' }).click();
+      await employee.getByRole('menuitem', { name: 'Add people' }).click();
       await expect(membership).toBeVisible();
     });
 
@@ -291,8 +300,11 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
       // And what an employee chat SHOULD have.
       await expect(employee.getByLabel('Message', { exact: true })).toBeVisible();
       /*
-         The composer names the room it writes into — "Message # E2E Colleague, E2E Lead",
-         which is screens 02 and 03's own placeholder.
+         The composer names the room it writes into — "Message E2E Colleague, E2E Lead".
+
+         The `#?` in the pattern is deliberate slack, not an oversight: a group placeholder
+         carried a hash until 2026-09-08 and the assertion is about the SHAPE, not about
+         that character.
 
          It read "Type a message…" until the placeholder was addressed. The assertion is on
          the shape AND the conversation's name rather than on a fixed string, because what
@@ -303,9 +315,40 @@ test('adding a colleague to an internal thread asks BR-07 before exposing histor
         'placeholder',
         /^Message #? ?E2E /,
       );
-      await expect(employee.getByRole('button', { name: 'Send', exact: true })).toBeVisible();
-      // Attachments stay available on an internal thread (SL-054).
-      await expect(employee.getByLabel('Attach a file')).toBeVisible();
+      /*
+         An EMPTY internal composer offers a voice note; Send arrives with the words.
+
+         This asserted Send on an empty composer, which was true until voice notes landed.
+         `showSend` is now `!recordingVoice && (!iconSend || !empty)`, so the icon-style
+         composer an internal thread uses shows the microphone until there is something to
+         send — the same swap every messenger makes, and the reason the button was missing
+         rather than broken.
+
+         Asserting both halves is stronger than the original: it pins the swap itself, so a
+         regression that left the microphone showing over typed text would fail here too.
+      */
+      await expect(
+        employee.getByRole('button', { name: 'Record a voice note' }),
+        'an empty internal composer should offer a voice note',
+      ).toBeVisible();
+
+      await employee.getByLabel('Message', { exact: true }).fill('A word, so Send has something to do.');
+      await expect(
+        employee.getByRole('button', { name: 'Send', exact: true }),
+        'Send should appear once the composer has content',
+      ).toBeVisible();
+      await employee.getByLabel('Message', { exact: true }).fill('');
+      /*
+         Attachments stay available on an internal thread (SL-054).
+
+         The visible control is the paperclip BUTTON now, not the file input. The input is
+         still there and still labelled — `setInputFiles` in `attachments.spec.ts` reaches
+         it — but it is `hidden`, because it sits behind a menu asking which kind of file
+         rather than being stretched transparently over the glyph. Asserting on the input's
+         visibility would now be asserting the old mechanism rather than the capability.
+      */
+      await expect(employee.getByRole('button', { name: 'Attach', exact: true })).toBeVisible();
+      await expect(employee.getByLabel('Attach a file')).toBeAttached();
     });
 
     await test.step('and a message sent on that thread persists', async () => {

@@ -1,0 +1,35 @@
+-- Channels: a persistent team or department space, with access decided per channel.
+--
+-- ## Why a conversation type, again
+--
+-- The same argument 0014 makes for announcements, and it has not got weaker. A channel has
+-- messages, a sequence, read state, replies, reactions, mentions, attachments, search,
+-- mute, pins, realtime delivery and an audit trail. Every one of those exists, is tested,
+-- and is reached through `conversation_id`. A `channels` table with its own `channel_messages`
+-- would be a second, thinner copy of all of it, and the second copy is where the
+-- authorization check gets forgotten (§38).
+--
+-- What actually differs from a group is WHO MAY DO WHAT, and that is three policy columns
+-- and a decision in `decide()` — not a parallel messaging stack.
+--
+-- ## The word "channel" already meant something here
+--
+-- `ChannelKind`, `packages/channels`, `adapters/channel.ts` and `conversation.channel_sessions`
+-- are all the EXTERNAL DELIVERY channel: WhatsApp, email, SMS, the website widget. That is a
+-- transport. This is a room.
+--
+-- They are not renamed, because renaming a shipped adapter contract to make room for a new
+-- feature's vocabulary is a larger and riskier change than the feature. Instead every symbol
+-- this feature adds is qualified — the type is `INTERNAL_CHANNEL`, the table is
+-- `conversation.channels` beside the pre-existing `conversation.channel_sessions`, and the
+-- domain module is `channel-policy`. Anything named plainly `channel` in this codebase is
+-- still the transport.
+--
+-- ## Alone in its own migration, deliberately
+--
+-- `ALTER TYPE ... ADD VALUE` may run inside a transaction on PostgreSQL 12+ only while the
+-- new label is not USED in the same transaction, and the runner wraps each file in one. The
+-- constraint and the policy tables in 0031 compare against this literal, which is a use.
+-- 0014 and 0015 are split for exactly this reason.
+
+ALTER TYPE conversation.conversation_type ADD VALUE IF NOT EXISTS 'INTERNAL_CHANNEL';

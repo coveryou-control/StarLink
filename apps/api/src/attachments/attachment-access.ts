@@ -57,8 +57,20 @@ export type AccessRefusal =
   | 'NOT_REACHABLE';
 
 export interface AccessPorts {
-  /** Step 3: the SAME object check every other read path uses. */
-  mayReadConversation(principalId: UUID, conversationId: UUID): Promise<boolean>;
+  /**
+   * Step 3: the SAME object check every other path uses, asked about the ACTION this is.
+   *
+   * It used to ask `conversation.read` unconditionally. `conversation.attachment.download`
+   * exists in the vocabulary and is granted only by participation and ownership — no role
+   * grants it — so evaluating the action the operation actually is denies a non-participant
+   * the bytes independently of anything else. It would have denied the GLOBAL-scope hole on
+   * its own, which is the whole value of defence in depth: it was declared and not wired.
+   */
+  mayActOnConversation(
+    principalId: UUID,
+    conversationId: UUID,
+    action: 'conversation.read' | 'conversation.attachment.download',
+  ): Promise<boolean>;
   /** Step 4: the visibility of the message this attachment hangs off. */
   messageVisibility(messageId: UUID): Promise<string | undefined>;
 }
@@ -78,7 +90,15 @@ export async function decideAttachmentAccess(
 
   // [3] The object check. Access is derived ENTIRELY from the conversation, so this is
   // the same question `decide()` answers for a message — not a second, parallel rule.
-  if (!(await ports.mayReadConversation(actor.principalId, attachment.conversationId))) {
+  if (
+    !(await ports.mayActOnConversation(
+      actor.principalId,
+      attachment.conversationId,
+      /* The bytes, not the metadata. Participation and ownership grant this; a standing
+         scope grant does not. */
+      'conversation.attachment.download',
+    ))
+  ) {
     return { ok: false, refusal: 'NOT_FOUND_OR_NOT_PERMITTED' };
   }
 

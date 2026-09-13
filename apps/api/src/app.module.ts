@@ -16,6 +16,8 @@ import { LocalObjectStorage, MockObjectStorage, S3ObjectStorage } from '@starlin
 import { DevAttachmentScanner } from '@starlink/adapter-attachment-scanner';
 import {
   EmailNotificationTransport,
+  FcmSender,
+  PushNotificationTransport,
   InAppNotificationTransport,
   SmtpEmailSender,
   type EmailSender,
@@ -26,6 +28,7 @@ import {
   MockWorkOrchestrator,
 } from '@starlink/adapter-work-orchestrator';
 import {
+  PgDeviceTokenStore,
   PgAdminStore,
   PgAttachmentStore,
   PgAvailabilityReader,
@@ -35,6 +38,14 @@ import {
   PgConversationStore,
   PgMessageReader,
   PgReactionStore,
+  PgStarStore,
+  PgArchiveStore,
+  PgChannelStore,
+  PgPinStore,
+  PgMessageInfoStore,
+  PgStatusStore,
+  PgAvatarStore,
+  PgHiddenMessageStore,
   PgMessageStore,
   PgNotificationOutbox,
   PgNotificationPreferences,
@@ -58,6 +69,7 @@ import {
 } from '@starlink/security';
 import { createLogger } from '@starlink/observability';
 import { createRateLimiter } from '@starlink/search';
+import { createSignInThrottle } from './edge/sign-in-throttle.js';
 import type {
   EmployeeDirectoryProvider,
   IdentityAuthorizationClient,
@@ -89,7 +101,16 @@ import {
   LOGGER,
   MESSAGE_READER,
   REACTION_STORE,
+  STAR_STORE,
+  ARCHIVE_STORE,
+  PIN_STORE,
+  CHANNEL_STORE,
+  MESSAGE_INFO_STORE,
+  STATUS_STORE,
+  AVATAR_STORE,
+  HIDDEN_MESSAGE_STORE,
   MESSAGE_STORE,
+  DEVICE_TOKENS,
   NOTIFICATION_OUTBOX,
   NOTIFICATION_PREFERENCES,
   NOTIFICATION_RECIPIENTS,
@@ -102,6 +123,7 @@ import {
   CASE_STORE,
   AI_PROVIDER,
   SEARCH_RATE_LIMITER,
+  SIGN_IN_THROTTLE,
   SESSION_SERVICE,
   SLA_READER,
   WORK_ORCHESTRATOR,
@@ -113,8 +135,12 @@ import { SessionGuard } from './edge/session.guard.js';
 import { EmployeeAuthController } from './employee/auth.controller.js';
 import { EmployeeAdminController } from './employee/admin.controller.js';
 import { EmployeeConversationsController } from './employee/conversations.controller.js';
+import { EmployeeChannelsController } from './employee/channels.controller.js';
 import { EmployeeMessagesController } from './employee/messages.controller.js';
 import { EmployeeDirectoryController } from './employee/directory.controller.js';
+import { StarredController } from './employee/starred.controller.js';
+import { StatusController } from './employee/status.controller.js';
+import { AvatarController } from './employee/avatar.controller.js';
 import { EmployeeSearchController } from './employee/search.controller.js';
 import { EmployeeRoutingController } from './employee/routing.controller.js';
 import { EmployeeLifecycleController } from './employee/lifecycle.controller.js';
@@ -125,6 +151,7 @@ import { SweepHost } from './sweeps.host.js';
 import { NotificationService } from './notifications/notification-service.js';
 import { NotificationRecipients } from './notifications/recipients.js';
 import { ConversationNotifier } from './notifications/conversation-notifier.js';
+import { DevicesController } from './notifications/devices.controller.js';
 import { NotificationAdminController } from './notifications/notification-admin.controller.js';
 import { EmployeeNotificationsController } from './notifications/notifications.controller.js';
 import { AttachmentService } from './attachments/attachment-service.js';
@@ -222,6 +249,14 @@ const providers: Provider[] = [
   { provide: MESSAGE_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgMessageStore(pool) },
   { provide: MESSAGE_READER, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgMessageReader(pool) },
   { provide: REACTION_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgReactionStore(pool) },
+  { provide: STAR_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgStarStore(pool) },
+  { provide: ARCHIVE_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgArchiveStore(pool) },
+  { provide: PIN_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgPinStore(pool) },
+  { provide: CHANNEL_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgChannelStore(pool) },
+  { provide: MESSAGE_INFO_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgMessageInfoStore(pool) },
+  { provide: STATUS_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgStatusStore(pool) },
+  { provide: AVATAR_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgAvatarStore(pool) },
+  { provide: HIDDEN_MESSAGE_STORE, inject: [DATABASE], useFactory: (pool: pg.Pool) => new PgHiddenMessageStore(pool) },
   {
     provide: CONVERSATION_STORE,
     inject: [DATABASE],
@@ -334,6 +369,19 @@ const providers: Provider[] = [
     useFactory: () => createRateLimiter({ maxRequests: 30, windowMs: 60_000 }),
   },
   {
+    provide: SIGN_IN_THROTTLE,
+    /*
+       Eight failed attempts on one account in ten minutes, then that username is refused
+       until the window rolls. Generous for somebody who has forgotten which of two
+       passwords it is, and far too small to work through a list.
+
+       In-process for the same reason and with the same trigger as the search limiter:
+       §14.2 sanctions it for V1, and the moment a second instance exists it has to move to
+       a shared store or an attacker simply spreads their guesses across replicas.
+    */
+    useFactory: () => createSignInThrottle({ maxFailures: 8, windowMs: 600_000 }),
+  },
+  {
     provide: AUDIT_WRITER,
     inject: [DATABASE, LOGGER],
     useFactory: (pool: pg.Pool, logger: ReturnType<typeof createLogger>) => new AuditWriter(pool, logger),
@@ -355,7 +403,10 @@ const providers: Provider[] = [
   },
   {
     provide: NOTIFICATION_TRANSPORTS,
-    inject: [CONFIG, EMPLOYEE_DIRECTORY, LOGGER],
+    /* DATABASE joins the list because the push transport needs the token store - it is
+       the one transport whose address book is StarLink's own table rather than the
+       directory's. */
+    inject: [CONFIG, EMPLOYEE_DIRECTORY, LOGGER, DATABASE],
     /**
      * One transport per channel (§29.3). A channel absent from this map is not an error —
      * the worker leaves its rows queued rather than discarding them, which is what keeps
@@ -365,6 +416,7 @@ const providers: Provider[] = [
       config: ApiConfig,
       directory: EmployeeDirectoryProvider,
       logger: ReturnType<typeof createLogger>,
+      pool: pg.Pool,
     ): ReadonlyMap<string, NotificationTransport> => {
       /**
        * The relay, or nothing at all.
@@ -448,11 +500,46 @@ const providers: Provider[] = [
           }),
       ];
 
+      /*
+         Push, on the same terms as email: configured or absent, never a stub.
+
+         All three settings or none. A project id with no key would build a sender that
+         fails every send, and §29.6's "provider outage — rows accumulate as pending and
+         drain on recovery" only behaves as designed when an unconfigured channel has no
+         sender at all.
+      */
+      const fcm =
+        config.SL_NOTIFY_PUSH_PROJECT_ID !== undefined &&
+        config.SL_NOTIFY_PUSH_CLIENT_EMAIL !== undefined &&
+        config.SL_NOTIFY_PUSH_PRIVATE_KEY !== undefined
+          ? new FcmSender({
+              projectId: config.SL_NOTIFY_PUSH_PROJECT_ID,
+              clientEmail: config.SL_NOTIFY_PUSH_CLIENT_EMAIL,
+              privateKey: config.SL_NOTIFY_PUSH_PRIVATE_KEY,
+            })
+          : undefined;
+
+      const pushTransport: [string, NotificationTransport] = [
+        'PUSH',
+        new PushNotificationTransport({
+          ...(fcm !== undefined ? { sender: fcm } : {}),
+          tokens: new PgDeviceTokenStore(pool),
+          /* The deep link is a path; the worker needs an absolute URL to open. */
+          webOrigin: config.SL_WEB_EMPLOYEE_ORIGIN,
+        }),
+      ];
+
       const enabled = new Set(config.SL_NOTIFY_TRANSPORTS);
       if (enabled.has('EMAIL')) entries.push(emailTransport);
+      if (enabled.has('PUSH')) entries.push(pushTransport);
 
       return new Map<string, NotificationTransport>(entries);
     },
+  },
+  {
+    provide: DEVICE_TOKENS,
+    inject: [DATABASE],
+    useFactory: (pool: pg.Pool) => new PgDeviceTokenStore(pool),
   },
   {
     provide: NOTIFICATION_RECIPIENTS,
@@ -516,8 +603,26 @@ const providers: Provider[] = [
      * The production scanner is N-06 and carries a recurring cost that D-07's answer
      * ("claims only") commits us to.
      */
-    useFactory: (storage: ObjectStorageProvider) =>
-      new DevAttachmentScanner({
+    useFactory: (storage: ObjectStorageProvider) => {
+      const candidate = (storage as { readQuarantine?: unknown }).readQuarantine;
+      /**
+       * A driver with no way to hand the scanner its bytes cannot be scanned against, and
+       * that must be a refusal at startup rather than a scan loop that never promotes.
+       * Every driver in the tree has one; a new one that forgets will stop here with its
+       * name attached instead of failing silently in production.
+       */
+      if (typeof candidate !== 'function') {
+        throw new Error(
+          `StarLink API refused to start:
+  - the attachment scanner has no way to read ` +
+            `bytes from ${storage.constructor.name}. It needs a readQuarantine(key) method; ` +
+            'without one every scan reports the object missing and no attachment is ever ' +
+            'promoted to BOUND.',
+        );
+      }
+      const reader = candidate.bind(storage) as (key: string) => Promise<Uint8Array | undefined>;
+
+      return new DevAttachmentScanner({
         /**
          * Where the scanner gets its bytes.
          *
@@ -529,10 +634,25 @@ const providers: Provider[] = [
          * returning undefined at runtime.
          */
         storage: {
-          read: async (key) =>
-            storage instanceof MockObjectStorage ? storage.readQuarantine(key) : undefined,
+          /**
+           * Found by CAPABILITY, not by concrete class.
+           *
+           * This was `storage instanceof MockObjectStorage ? … : undefined`, and the
+           * comment above claimed the narrowing made a driver without the method fail to
+           * compile. It did not. `LocalObjectStorage` extends the mock so dev worked;
+           * `S3ObjectStorage` does not, so under the only deployable driver every read
+           * returned `undefined`, every scan reported QUARANTINE_OBJECT_MISSING, and no
+           * attachment was ever promoted to BOUND. Fail-closed — nothing unscanned became
+           * reachable — but no attachment would have been downloadable either, and nothing
+           * said so.
+           *
+           * Asking whether the driver HAS a reader is the check that survives a new driver
+           * being added, which is what the `instanceof` was reaching for.
+           */
+          read: async (key) => reader(key),
         },
-      }),
+      });
+    },
   },
   AttachmentService,
   {
@@ -650,23 +770,66 @@ const providers: Provider[] = [
   SweepHost,
 ];
 
+/**
+ * Whether the Stage-2 customer surface is mounted at all.
+ *
+ * ## The flag meant two different things on the two surfaces
+ *
+ * `employee-web` already reads `SL_CUSTOMER_WORKSPACE_ENABLED` and hides the customer
+ * workspace unless it is exactly `'true'`. The API read it nowhere: all three customer
+ * controllers were registered unconditionally, so a Stage 1 deployment — one whose whole
+ * premise is that customer work is not happening — served the entire customer tree. The
+ * flag meant "hide the interface", which is precisely the posture the channels work
+ * rejected: hiding a control is not disabling a feature.
+ *
+ * ## Why it matters more than an unused route usually would
+ *
+ * `POST /v1/customer/auth/session` is `@Public()` by necessity — it is the door — and its
+ * own comment says the per-IP limit "belongs at the edge (§27.5) and is not pretended at
+ * here". There is no edge in this repository. Unauthenticated and unthrottled, each call
+ * writes a row to `identity.principals`, issues a cookie, and records to the audit
+ * ledger, which rule 8 makes APPEND-ONLY — so the one table nothing is allowed to clean
+ * up could be inflated without limit by anyone who could reach the port.
+ *
+ * Nothing is deleted: the controllers, their tests and Stage 2 are untouched, and one
+ * setting mounts them. Off by default because Stage 1 is what ships, and because the
+ * customer surface has never been security-reviewed.
+ *
+ * Read from `process.env` rather than the validated config because `@Module` is evaluated
+ * at class-decoration time, before any provider exists. Compared against the exact string
+ * for the reason stated on the web side: `Boolean('false')` is `true`, and a flag that
+ * turns itself on when somebody writes "false" is worse than no flag.
+ */
+export const customerSurfaceEnabled = (
+  env: NodeJS.ProcessEnv = process.env,
+): boolean => env.SL_CUSTOMER_WORKSPACE_ENABLED === 'true';
+
+/** The Stage-2 controllers, mounted only when the surface is switched on. */
+export const CUSTOMER_CONTROLLERS = customerSurfaceEnabled()
+  ? [CustomerAuthController, CustomerConversationsController, CustomerAttachmentsController]
+  : [];
+
 @Module({
   controllers: [
     HealthController,
     EmployeeAuthController,
     EmployeeAdminController,
+    DevicesController,
     NotificationAdminController,
     EmployeeNotificationsController,
     EmployeeConversationsController,
+    EmployeeChannelsController,
     EmployeeMessagesController,
     EmployeeSearchController,
     EmployeeDirectoryController,
+    StarredController,
+    StatusController,
+    AvatarController,
     EmployeeRoutingController,
     EmployeeLifecycleController,
     EmployeeAttachmentsController,
-    CustomerAuthController,
-    CustomerConversationsController,
-    CustomerAttachmentsController,
+    // Stage 2, and absent unless switched on — see `customerSurfaceEnabled` above.
+    ...CUSTOMER_CONTROLLERS,
     // Dev-only, and it refuses to work outside SL_ENV=dev|test. Real uploads go direct
     // to object storage and never touch the API (ADR-012) — see the file header.
     DevUploadController,

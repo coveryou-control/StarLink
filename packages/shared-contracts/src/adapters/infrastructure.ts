@@ -163,6 +163,20 @@ export interface SearchHit {
    */
   readonly createdAt: Timestamp;
   readonly senderDisplayName?: string;
+  /**
+   * Who wrote it, by id, so a result can carry their face and not just their letters.
+   *
+   * Optional for the same reason the name is: a system-authored message has no sender and
+   * must still be findable.
+   *
+   * It discloses nothing the name does not. A hit is only reachable through the readable
+   * scope resolved in the CTE above the query - conversations the caller participates in or
+   * currently owns - so anybody who can see this result can already list that person from
+   * the thread's own membership. What the id adds is that the client can ask the avatar map
+   * it is already holding, rather than drawing initials for somebody whose picture is on
+   * screen three inches away in the sidebar.
+   */
+  readonly senderPrincipalId?: string;
 }
 
 export interface SearchProvider extends HealthReporting {
@@ -182,6 +196,20 @@ export interface RenderedNotification {
   readonly subject?: string;
   readonly body: string;
   readonly deepLink?: string;
+  /**
+   * A short second line, for a channel that cannot carry `body`.
+   *
+   * `body` is shaped for a mailbox: it repeats the subject, prints the link as text,
+   * and ends with "This is an automated notification. Replies are not read." On a lock
+   * screen that last sentence is nonsense — nothing can be replied to — and the link is
+   * redundant, because tapping the notification is what opens the thread. The first push
+   * StarLink ever delivered carried all three, which is how this was noticed.
+   *
+   * Carries only what the SUBJECT does not already say, so a push can use the subject as
+   * its title and this as its body without printing the same sentence twice. Absent when
+   * there is nothing to add, which is the common case.
+   */
+  readonly detail?: string;
 }
 
 export type DeliveryVerdict = 'DELIVERED' | 'RETRYABLE' | 'PERMANENT_FAILURE';

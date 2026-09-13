@@ -85,11 +85,22 @@ export function renderNotification(
     '\n\nThis is an automated notification. Replies are not read.',
   ].join('');
 
+  /*
+     What a push adds BELOW its title, which is the subject.
+
+     Everything in `body` after its first line is mailbox plumbing — the link as text,
+     and the warning that replies go nowhere — and both are wrong on a lock screen. The
+     first line is the subject, which a push already shows as its title. So the only
+     thing left worth carrying is the coalescing count, and only when there is one.
+  */
+  const detail = total > 1 ? `${total} updates` : undefined;
+
   return {
     recipientPrincipalId: row.recipientId as RenderedNotification['recipientPrincipalId'],
     channel: row.channel as RenderedNotification['channel'],
     subject,
     body,
+    ...(detail !== undefined ? { detail } : {}),
     ...(link !== undefined ? { deepLink: link } : {}),
   };
 }

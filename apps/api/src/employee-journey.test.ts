@@ -160,6 +160,10 @@ beforeAll(async () => {
       SL_API_PORT: String(PORT),
       SL_DATABASE_URL: CONNECTION,
       SL_SESSION_SECRET: SESSION_SECRET,
+      /* Stage 2 is off by default now (see `customerSurfaceEnabled` in app.module.ts):
+         the customer controllers are not mounted unless this says so. This suite drives
+         the customer surface, so it turns it on explicitly. */
+      SL_CUSTOMER_WORKSPACE_ENABLED: 'true',
       SL_CURSOR_SECRET: 'employee-journey-cursor-secret-0123456',
       /**
        * A deliberately odd session lifetime, so the cookie assertion below cannot pass by
@@ -785,7 +789,8 @@ describe('internal chat: rename, reactions, mentions', () => {
     expect(first.status).toBe(201);
     expect(await first.json()).toEqual({ changed: true });
 
-    // Pressing it twice is one row, not an error: the primary key is the whole tuple.
+    // Pressing the SAME one twice is one row and not an error, and reports no change — so
+    // a double tap on a slow network does not push a realtime frame to the conversation.
     const again = await post(
       employeeRoutes.conversations.reactions(conversationId, messageId),
       cookie,
@@ -797,10 +802,31 @@ describe('internal chat: rename, reactions, mentions', () => {
     const message = messages.find((m) => m.messageId === messageId);
     expect(message?.reactions).toEqual([{ emoji: '👍', count: 1, mine: true }]);
 
+    /*
+       A DIFFERENT emoji replaces it. One person has one reaction to a message.
+
+       Before migration 0027 the primary key was `(message, principal, emoji)`, so this
+       second call added a row and the message showed "👍 1  ❤️ 1" from one colleague. The
+       key is `(message, principal)` now, which makes the stack impossible to store rather
+       than merely unusual — a read-then-write in the route would be a race between two
+       taps on two devices.
+    */
+    const swapped = await post(
+      employeeRoutes.conversations.reactions(conversationId, messageId),
+      cookie,
+      { emoji: '❤️' },
+    );
+    expect(await swapped.json()).toEqual({ changed: true });
+
+    const afterSwap = await messagesOf(cookie, conversationId);
+    expect(afterSwap.find((m) => m.messageId === messageId)?.reactions).toEqual([
+      { emoji: '❤️', count: 1, mine: true },
+    ]);
+
     const gone = await del(
       employeeRoutes.conversations.reactions(conversationId, messageId),
       cookie,
-      { emoji: '👍' },
+      { emoji: '❤️' },
     );
     expect(await gone.json()).toEqual({ changed: true });
     const after = await messagesOf(cookie, conversationId);
@@ -998,7 +1024,23 @@ describe('internal chat: rename, reactions, mentions', () => {
     ).toBe('mine to write');
   });
 
-  withDb('deletes a message: the row survives, the text does not', async () => {
+  withDb('refuses to delete a message, from anybody, including its author', async () => {
+    /**
+     * Deletion was WITHDRAWN on 2026-09-09. This case used to assert the redaction worked.
+     *
+     * The decision: no user deletes a message and no user deletes a chat. Archive remains
+     * and is a different act - it takes a conversation out of your own list without taking
+     * anything from anybody, and it is reversible. An internal record its participants can
+     * remove is not a record, and it sat badly beside an append-only audit ledger (rule 8)
+     * and participation that is dated out rather than deleted (BR-09/§24.3).
+     *
+     * The test is INVERTED rather than deleted, deliberately. A removed test is a rule
+     * nobody is checking; this one now fails the moment deletion comes back without the
+     * decision being revisited, and it says where the reasoning lives.
+     *
+     * Asserted for the AUTHOR, which is the strongest form: the one person the old route
+     * permitted is now refused like everybody else.
+     */
     const cookie = await signIn('agent');
     const conversationId = await makeGroup(cookie);
     const sent = await post(employeeRoutes.conversations.messages(conversationId), cookie, {
@@ -1012,73 +1054,22 @@ describe('internal chat: rename, reactions, mentions', () => {
       cookie,
       {},
     );
-    expect(removed.status).toBe(200);
+    expect(removed.status, 'the author was allowed to delete their own message').toBe(404);
 
-    /**
-     * The ROW survives. Deleting it would leave a gap in the per-conversation sequence,
-     * which the client's gap detector reads as a missed message and re-fetches forever.
-     */
+    /* And nothing happened to it. A refusal that redacted anyway would be the worst of both. */
     const messages = await messagesOf(cookie, conversationId);
     const message = messages.find((m) => m.messageId === messageId) as
       | (PageMessage & { body?: string; redactedAt?: string })
       | undefined;
-    expect(message, 'the message row was removed from the thread').toBeDefined();
-    expect(message?.redactedAt).toBeDefined();
-    expect(message?.body).toBe('');
-
-    const gone = await pool!.query(
-      `SELECT search_vector @@ plainto_tsquery('english', 'rhinoceros') AS found
-         FROM conversation.messages WHERE message_id = $1`,
-      [messageId],
-    );
-    expect(gone.rows[0].found, 'a deleted message is still findable by its text').toBe(false);
+    expect(message?.body).toBe('a rhinoceros slipped into this sentence');
+    expect(message?.redactedAt, 'the message was redacted by a route that refused').toBeUndefined();
 
     const history = await pool!.query(
-      `SELECT revision_kind, previous_body FROM conversation.message_revisions
-        WHERE message_id = $1`,
+      `SELECT count(*)::int AS revisions FROM conversation.message_revisions
+        WHERE message_id = $1 AND revision_kind = 'REDACTION'`,
       [messageId],
     );
-    expect(history.rows[0].revision_kind).toBe('REDACTION');
-    expect(history.rows[0].previous_body).toBe('a rhinoceros slipped into this sentence');
-
-    /**
-     * And the conversation-list preview no longer carries the deleted words.
-     *
-     * The preview is denormalised onto the conversation, so without a refresh the deleted
-     * text stays on every sidebar showing this thread — which is the one place a colleague
-     * is most likely to see it, and defeats the deletion entirely.
-     */
-    const preview = await pool!.query(
-      'SELECT last_message_preview FROM conversation.conversations WHERE conversation_id = $1',
-      [conversationId],
-    );
-    expect(
-      preview.rows[0].last_message_preview,
-      'the deleted text is still in the conversation-list preview',
-    ).not.toContain('rhinoceros');
+    expect(history.rows[0].revisions, 'a refused delete still wrote a redaction').toBe(0);
   });
 
-  withDb('refuses deleting somebody else’s message', async () => {
-    // Deleting another person's message is moderation — a policy nobody has decided.
-    const owner = await signIn('agent');
-    const conversationId = await makeGroup(owner);
-    const sent = await post(employeeRoutes.conversations.messages(conversationId), owner, {
-      body: 'still here',
-      visibility: 'INTERNAL',
-    });
-    const { messageId } = (await sent.json()) as { messageId: string };
-
-    const colleague = await signIn('colleague');
-    const refused = await del(
-      employeeRoutes.conversations.message(conversationId, messageId),
-      colleague,
-      {},
-    );
-    expect(refused.status).toBe(404);
-
-    const messages = await messagesOf(owner, conversationId);
-    expect(
-      (messages.find((m) => m.messageId === messageId) as { body?: string } | undefined)?.body,
-    ).toBe('still here');
-  });
 });

@@ -42,6 +42,8 @@ interface DirectoryRow {
   /* Nullable in the table and nullable here — see `toDisplay` for why absent and empty
      are kept apart. */
   employee_id: string | null;
+  /* The handle. Nullable in the table — a seeded principal may have none. */
+  username: string | null;
   branch: string | null;
   timezone: string | null;
   reports_to: string | null;
@@ -54,6 +56,9 @@ const toDisplay = (row: DirectoryRow): EmployeeDisplay => ({
   teams: row.teams ?? [],
   status: row.status as EmployeeDisplay['status'],
   authority: 'TEMPORARY_AUTHORITY',
+  /* Absent rather than empty when the column is NULL — the same rule the panel fields
+     below follow, and the reason `toDisplay` spreads instead of assigning. */
+  ...(row.username !== null ? { username: row.username } : {}),
   /*
      Absent rather than empty when the column is NULL.
 
@@ -82,7 +87,7 @@ export class LocalEmployeeDirectory implements EmployeeDirectoryProvider {
 
   async getEmployee(principalId: UUID): Promise<Result<EmployeeDisplay>> {
     const result = await this.pool.query(
-      `SELECT p.principal_id, p.display_name, p.department, p.status,
+      `SELECT p.principal_id, p.display_name, p.department, p.status, p.username,
          p.employee_id, p.branch, p.timezone,
          (SELECT m.display_name FROM identity.principals m WHERE m.principal_id = p.manager_id) AS reports_to, ${TEAMS_SUBQUERY}
          FROM identity.principals p
@@ -115,6 +120,11 @@ export class LocalEmployeeDirectory implements EmployeeDirectoryProvider {
        limit. A single letter returns one page of people this caller is already entitled to
        look up — the same thing two letters returns, only sooner. See
        `SEARCH_MINIMUM_TERM_LENGTH`.
+
+       The EMPTY term stays refused (FR-SRCH-5). It is not a search, it is a request for the
+       list, and the list is not a thing this endpoint hands out. A picker that wants people
+       on screen before anybody types asks `listColleagues` for the caller's own team, which
+       is a bounded set they are already entitled to see.
     */
     if (term.length < SEARCH_MINIMUM_TERM_LENGTH) {
       return err({
@@ -146,7 +156,11 @@ export class LocalEmployeeDirectory implements EmployeeDirectoryProvider {
     const conditions = [
       `p.kind = 'EMPLOYEE'`,
       `p.status = 'ACTIVE'`,
+      /* The handle is matched too, because the picker's field offers it: "Search name or
+         @username". A field that names what it matches and then does not match it is the
+         same defect the department clause was added to fix. */
       `(p.display_name ILIKE $1
+        OR p.username ILIKE $1
         OR p.department ILIKE $1
         OR p.employee_id ILIKE $1
         OR p.branch ILIKE $1)`,
@@ -178,7 +192,7 @@ export class LocalEmployeeDirectory implements EmployeeDirectoryProvider {
     params.push(limit + 1);
 
     const result = await this.pool.query(
-      `SELECT p.principal_id, p.display_name, p.department, p.status,
+      `SELECT p.principal_id, p.display_name, p.department, p.status, p.username,
          p.employee_id, p.branch, p.timezone,
          (SELECT m.display_name FROM identity.principals m WHERE m.principal_id = p.manager_id) AS reports_to, ${TEAMS_SUBQUERY}
          FROM identity.principals p
@@ -209,7 +223,7 @@ export class LocalEmployeeDirectory implements EmployeeDirectoryProvider {
    */
   async listActiveEmployees(): Promise<Result<readonly EmployeeDisplay[]>> {
     const result = await this.pool.query(
-      `SELECT p.principal_id, p.display_name, p.department, p.status,
+      `SELECT p.principal_id, p.display_name, p.department, p.status, p.username,
          p.employee_id, p.branch, p.timezone,
          (SELECT m.display_name FROM identity.principals m WHERE m.principal_id = p.manager_id) AS reports_to, ${TEAMS_SUBQUERY}
          FROM identity.principals p
@@ -223,7 +237,7 @@ export class LocalEmployeeDirectory implements EmployeeDirectoryProvider {
 
   async listTeamMembers(teamId: string): Promise<Result<readonly EmployeeDisplay[]>> {
     const result = await this.pool.query(
-      `SELECT p.principal_id, p.display_name, p.department, p.status,
+      `SELECT p.principal_id, p.display_name, p.department, p.status, p.username,
          p.employee_id, p.branch, p.timezone,
          (SELECT m.display_name FROM identity.principals m WHERE m.principal_id = p.manager_id) AS reports_to, ${TEAMS_SUBQUERY}
          FROM identity.principals p

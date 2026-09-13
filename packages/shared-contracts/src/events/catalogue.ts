@@ -165,6 +165,35 @@ const messageRevisedV1 = z.object({
   kind: z.enum(['CORRECTION', 'REDACTION', 'TOMBSTONE']),
 });
 
+/**
+ * Somebody added, changed or removed a reaction.
+ *
+ * ## Why this exists
+ *
+ * Reactions were durable and invisible: the row committed, and nobody else's open thread
+ * ever heard about it. Two people reacting to the same message each saw only their own
+ * until one of them re-fetched for an unrelated reason, which reads as the feature being
+ * broken rather than as a missing frame.
+ *
+ * ## Why it carries no emoji and no count
+ *
+ * Invariant 9 — realtime is additive; no state exists only in an event, and recovery is a
+ * re-fetch. This frame says WHICH message changed and nothing about how, so a client that
+ * misses it, misreads it or arrives late is in exactly the same position as one that
+ * receives it: it asks the API. Putting the emoji here would create a second, unversioned
+ * copy of the reaction set that the two ends could disagree about.
+ *
+ * It is also the reason this event carries no `seq`. A reaction does not advance the
+ * conversation's message sequence — nothing is inserted into the thread — so it is not
+ * part of the ordered stream and must not be classified against it. A client that tried
+ * would either discard it as already-seen or tear a hole in its own paging.
+ */
+const messageReactedV1 = z.object({
+  messageId: uuid,
+  conversationId: uuid,
+  actorPrincipalId: uuid,
+});
+
 const messageReadV1 = z.object({
   conversationId: uuid,
   principalRef: z.string(),
@@ -234,6 +263,7 @@ export const EVENT_CATALOGUE = {
   'message.created.v1': messageCreatedV1,
   'message.mentioned.v1': messageMentionedV1,
   'message.revised.v1': messageRevisedV1,
+  'message.reacted.v1': messageReactedV1,
   'message.read.v1': messageReadV1,
   'customer.reply.received.v1': customerReplyReceivedV1,
   'attachment.ready.v1': attachmentReadyV1,

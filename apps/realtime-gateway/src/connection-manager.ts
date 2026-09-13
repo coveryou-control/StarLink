@@ -69,6 +69,25 @@ export interface RevalidationOutcome {
   readonly revoked: readonly { readonly connectionId: string; readonly channelKey: string }[];
 }
 
+/**
+ * Reads memoised for exactly one `revalidateAll` sweep, then discarded.
+ *
+ * Not a cache in the usual sense — it has no TTL and no invalidation, because it does
+ * not outlive the pass that created it. That is what makes it safe: a sweep is one
+ * moment, and asking the same question thirty times inside one moment cannot produce
+ * thirty different right answers.
+ */
+interface PassCache {
+  readonly sessionVersions: Map<string, number | undefined>;
+  readonly actors: Map<string, ActorContext | undefined>;
+  readonly resources: Map<string, ResourceForAuthorization>;
+}
+
+/** What the authz reader hands back, named so the cache can be typed without `unknown`. */
+type ResourceForAuthorization = Awaited<
+  ReturnType<ConversationAuthzReader['loadForAuthorization']>
+>;
+
 export interface ConnectionManagerDeps {
   readonly authz: ConversationAuthzReader;
   /** Builds the actor context; the same mapping the HTTP layer uses. */
@@ -167,12 +186,21 @@ export class ConnectionManager {
    * The session is re-validated here rather than only at handshake, because a
    * long-lived socket outlives the moment it connected — and a reconnect after a
    * revocation is exactly the case that must not resume (§20.9).
+   *
+   * `pass` is supplied only by `revalidateAll`, and only memoises reads WITHIN one
+   * sweep — see the note there. A live join passes nothing and reads everything fresh,
+   * which is the behaviour that must not change: a single subscribe is the moment the
+   * answer has to be current.
    */
-  async authorizeJoin(connectionId: string, channel: RealtimeChannel): Promise<JoinOutcome> {
+  async authorizeJoin(
+    connectionId: string,
+    channel: RealtimeChannel,
+    pass?: PassCache,
+  ): Promise<JoinOutcome> {
     const identity = this.connections.get(connectionId);
     if (identity === undefined) return { ok: false, reason: 'SESSION_REVOKED' };
 
-    const liveVersion = await this.deps.sessionVersionFor(identity.principalId);
+    const liveVersion = await this.cachedSessionVersion(identity.principalId, pass);
     if (liveVersion === undefined || liveVersion !== identity.sessionVersion) {
       return { ok: false, reason: 'SESSION_REVOKED' };
     }
@@ -191,15 +219,16 @@ export class ConnectionManager {
 
       case 'CONVERSATION': {
         const at = this.now().toISOString();
-        const resource = await this.deps.authz.loadForAuthorization(
+        const resource = await this.cachedResource(
           channel.conversationId,
           identity.principalId,
           at,
+          pass,
         );
         // Absent and forbidden are the same answer — existence is not disclosed (§27.3).
         if (resource === undefined) return { ok: false, reason: 'NOT_AUTHORIZED' };
 
-        const resolved = await this.deps.actorFor(identity.principalId);
+        const resolved = await this.cachedActor(identity.principalId, pass);
         if (resolved === undefined) return { ok: false, reason: 'NOT_AUTHORIZED' };
 
         // Assurance comes from the SESSION, not the principal record — the same value
@@ -336,12 +365,95 @@ export class ConnectionManager {
    * gateway that only ever learned about revocation from an event would keep a socket
    * alive indefinitely if that event were lost. Re-checking is the belt to that braces.
    */
+  /**
+   * Reads memoised for the duration of ONE revalidation sweep.
+   *
+   * `undefined` results are cached too — via the `has` check rather than a truthiness
+   * test — because "this principal could not be resolved" is an answer worth not asking
+   * for thirty more times, and it is the answer that revokes.
+   */
+  private async cachedSessionVersion(
+    principalId: string,
+    pass?: PassCache,
+  ): Promise<number | undefined> {
+    if (pass === undefined) return this.deps.sessionVersionFor(principalId);
+    if (!pass.sessionVersions.has(principalId)) {
+      pass.sessionVersions.set(principalId, await this.deps.sessionVersionFor(principalId));
+    }
+    return pass.sessionVersions.get(principalId);
+  }
+
+  private async cachedActor(
+    principalId: string,
+    pass?: PassCache,
+  ): Promise<ActorContext | undefined> {
+    if (pass === undefined) return this.deps.actorFor(principalId);
+    if (!pass.actors.has(principalId)) {
+      pass.actors.set(principalId, await this.deps.actorFor(principalId));
+    }
+    return pass.actors.get(principalId);
+  }
+
+  private async cachedResource(
+    conversationId: string,
+    principalId: string,
+    at: string,
+    pass?: PassCache,
+  ): Promise<ResourceForAuthorization> {
+    if (pass === undefined) {
+      return this.deps.authz.loadForAuthorization(conversationId, principalId, at);
+    }
+    /* Keyed by both ids: the same conversation authorises differently for two people,
+       and one person can hold the same conversation open on several sockets. */
+    const key = `${conversationId}\u0000${principalId}`;
+    if (!pass.resources.has(key)) {
+      pass.resources.set(
+        key,
+        await this.deps.authz.loadForAuthorization(conversationId, principalId, at),
+      );
+    }
+    return pass.resources.get(key);
+  }
+
+  /**
+   * Re-authorize every joined channel on every connection.
+   *
+   * ## What this cost before, and why it mattered
+   *
+   * Nothing was memoised. Each channel re-ran `sessionVersionFor` (already read once per
+   * connection just above), `loadForAuthorization`, and `actorFor` — and `actorFor` is
+   * `resolvePrincipal`: a principal SELECT plus teams, roles, delegations and a manager
+   * chain walked one level at a time. Seven or more queries per channel, with the same
+   * principal resolved from scratch for every one of their channels, all strictly
+   * serial, inside a 60-second timer with no guard against the previous pass still
+   * running.
+   *
+   * At a few hundred employees with a sidebar of channels each, a pass cannot finish
+   * inside its own interval. Two things then fail silently and neither raises an error:
+   * the revocation this loop exists to perform — rule 4 of this file's docblock, "force
+   * out of the room when participation ends" — effectively stops happening, and stacked
+   * passes monopolise a small pool the in-process outbox relay shares.
+   *
+   * ## Why a per-pass cache is safe here and not in general
+   *
+   * A sweep is one moment. Reading a principal's roles once and applying that answer to
+   * their thirty channels is the same decision `decide()` would make thirty times with
+   * the same inputs — it is not a weaker check, it is the identical check without
+   * thirty identical round trips. `at` is already stamped once per channel from the
+   * application clock, and the cache does not outlive the pass, so nothing is carried
+   * between sweeps. A live join still reads everything fresh.
+   */
   async revalidateAll(): Promise<RevalidationOutcome> {
     const doomed: string[] = [];
     const revoked: { connectionId: string; channelKey: string }[] = [];
+    const pass: PassCache = {
+      sessionVersions: new Map(),
+      actors: new Map(),
+      resources: new Map(),
+    };
 
     for (const [connectionId, identity] of this.connections) {
-      const liveVersion = await this.deps.sessionVersionFor(identity.principalId);
+      const liveVersion = await this.cachedSessionVersion(identity.principalId, pass);
       if (liveVersion === undefined || liveVersion !== identity.sessionVersion) {
         doomed.push(connectionId);
         // No point re-authorizing channels on a socket that is about to be closed.
@@ -369,7 +481,7 @@ export class ConnectionManager {
        * come to disagree (§38).
        */
       for (const [channelKey, channel] of this.joined.get(connectionId) ?? []) {
-        const decision = await this.authorizeJoin(connectionId, channel);
+        const decision = await this.authorizeJoin(connectionId, channel, pass);
         if (!decision.ok) revoked.push({ connectionId, channelKey });
       }
     }

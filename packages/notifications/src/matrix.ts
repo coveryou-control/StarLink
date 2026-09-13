@@ -36,7 +36,15 @@ import type { PrincipalKind } from '@starlink/shared-contracts';
 /** The transports §29.3's diagram names, with the phase each belongs to. */
 export type NotificationChannel = 'INAPP' | 'EMAIL' | 'PUSH' | 'CUSTOMER_CHANNEL';
 
-/** Every event §29.2 says is worth telling somebody about. */
+/**
+ * Everything worth telling somebody about.
+ *
+ * The first block is §29.2's, transcribed. The second is STAGE 1 INTERNAL CHAT, which
+ * §29.2 does not cover at all — it was written for customer conversations and predates
+ * employee-to-employee messaging entirely. Those rows are a business decision taken on
+ * 2026-09-11 and recorded in `STARLINK_OPEN_QUESTIONS.md`; they are not transcriptions
+ * and `delivery.test.ts` names every one of them so a tenth cannot appear quietly.
+ */
 export type NotifiableEvent =
   | 'CONVERSATION_ASSIGNED'
   | 'WAITING_BEYOND_STANDARD'
@@ -45,10 +53,18 @@ export type NotifiableEvent =
   | 'COVER_NEEDED'
   | 'CUSTOMER_REPLIED'
   | 'ROLE_OR_ACCESS_CHANGED'
-  /** Engineering's, not §29.2's — see the rule below for why and what it does not relax. */
-  | 'MENTIONED'
   | 'NEW_IN_TEAM_QUEUE'
-  | 'CUSTOMER_CONVERSATION_ANSWERED';
+  | 'CUSTOMER_CONVERSATION_ANSWERED'
+  /* ---- Stage 1 internal chat, decided 2026-09-11 -------------------------------- */
+  | 'MENTIONED'
+  | 'DIRECT_MESSAGE'
+  | 'GROUP_MESSAGE'
+  | 'CHANNEL_MESSAGE'
+  | 'REPLIED_TO_YOU'
+  | 'REACTED_TO_YOUR_MESSAGE'
+  | 'ADDED_TO_CONVERSATION'
+  | 'REMOVED_FROM_CONVERSATION'
+  | 'ANNOUNCEMENT_POSTED';
 
 export type Recipient =
   | 'OWNER'
@@ -57,6 +73,23 @@ export type Recipient =
   | 'BOTH_PARTIES'
   | 'TEAM'
   | 'PRINCIPAL'
+  /**
+   * Every live participant except whoever caused the event.
+   *
+   * Resolved from the conversation at the moment of the event, not carried in it: who is
+   * in a thread is a property of the thread, and a list captured earlier would notify
+   * somebody who has since left. The actor is excluded because rule 10 of §29.2's
+   * "Not notified" list is one's own actions.
+   */
+  | 'OTHER_PARTICIPANTS'
+  /**
+   * The author of the message that was replied to, or reacted to.
+   *
+   * Carried in the event rather than derived, because it is a property of THAT message
+   * and the notifier would otherwise have to read message content to find it — which
+   * rule 2 makes the wrong shape: authorization decides before content is read.
+   */
+  | 'MESSAGE_AUTHOR'
   /**
    * The principals a message named, resolved at send time.
    *
@@ -97,19 +130,34 @@ export interface NotificationRule {
   readonly externalIfAway: boolean;
   /** §29.2's "In-app + external" with no away qualifier: important enough to push out. */
   readonly externalAlways: boolean;
+  /**
+   * Reaches a device whose browser is closed.
+   *
+   * A separate axis from `externalIfAway`, and deliberately not folded into it. "External
+   * if away" means email once presence can answer the away question, and it currently
+   * cannot — `isAway()` returns false until presence crosses processes, so every rule
+   * carrying it resolves to in-app only. Push has no such dependency: FCM holds the
+   * message and the device collects it, which is the same behaviour whether the person
+   * is at their desk or not.
+   *
+   * False on every §29.2 row. Those describe customer-conversation work and Stage 2 is
+   * not running; switching them on would page people about a workflow that does not
+   * happen yet.
+   */
+  readonly push: boolean;
 }
 
 /** §29.2's table. Order preserved so it can be diffed against the source. */
 export const NOTIFICATION_RULES: readonly NotificationRule[] = Object.freeze([
-  { event: 'CONVERSATION_ASSIGNED', subject: 'A customer conversation assigned to you', recipients: ['OWNER'], inApp: true, externalIfAway: true, externalAlways: false },
+  { event: 'CONVERSATION_ASSIGNED', subject: 'A customer conversation assigned to you', recipients: ['OWNER'], inApp: true, externalIfAway: true, externalAlways: false, push: false },
   // "A conversation waiting beyond a service standard | Owner, then lead | In-app + external"
-  { event: 'WAITING_BEYOND_STANDARD', subject: 'A conversation waiting beyond a service standard', recipients: ['OWNER', 'LEAD'], inApp: true, externalIfAway: false, externalAlways: true },
-  { event: 'ESCALATED_TO_YOUR_FUNCTION', subject: 'Escalation to your function', recipients: ['RECEIVING_OFFICER', 'LEAD'], inApp: true, externalIfAway: false, externalAlways: true },
-  { event: 'TRANSFERRED', subject: 'Transfer into or out of your ownership', recipients: ['BOTH_PARTIES'], inApp: true, externalIfAway: false, externalAlways: true },
+  { event: 'WAITING_BEYOND_STANDARD', subject: 'A conversation waiting beyond a service standard', recipients: ['OWNER', 'LEAD'], inApp: true, externalIfAway: false, externalAlways: true, push: false },
+  { event: 'ESCALATED_TO_YOUR_FUNCTION', subject: 'Escalation to your function', recipients: ['RECEIVING_OFFICER', 'LEAD'], inApp: true, externalIfAway: false, externalAlways: true, push: false },
+  { event: 'TRANSFERRED', subject: 'Transfer into or out of your ownership', recipients: ['BOTH_PARTIES'], inApp: true, externalIfAway: false, externalAlways: true, push: false },
   // "Cover needed on your team | Team | In-app" — no external. Cover is a team-scope
   // nudge, and paging everyone's phone for it is how a team mutes the product.
-  { event: 'COVER_NEEDED', subject: 'Cover needed on your team', recipients: ['TEAM'], inApp: true, externalIfAway: false, externalAlways: false },
-  { event: 'CUSTOMER_REPLIED', subject: 'A customer replied to a thread you own', recipients: ['OWNER'], inApp: true, externalIfAway: true, externalAlways: false },
+  { event: 'COVER_NEEDED', subject: 'Cover needed on your team', recipients: ['TEAM'], inApp: true, externalIfAway: false, externalAlways: false, push: false },
+  { event: 'CUSTOMER_REPLIED', subject: 'A customer replied to a thread you own', recipients: ['OWNER'], inApp: true, externalIfAway: true, externalAlways: false, push: false },
   /**
    * MENTIONED — added 2026-09-01, engineering's, NOT a transcription of §29.2.
    *
@@ -133,12 +181,48 @@ export const NOTIFICATION_RULES: readonly NotificationRule[] = Object.freeze([
    * email for one is a decision about interrupting people outside work, and that is
    * exactly the kind of thing this file must not decide on its own.
    */
-  { event: 'MENTIONED', subject: 'You were mentioned in a conversation', recipients: ['MENTIONED_PRINCIPALS'], inApp: true, externalIfAway: false, externalAlways: false },
-  { event: 'ROLE_OR_ACCESS_CHANGED', subject: 'Your role or access changed', recipients: ['PRINCIPAL'], inApp: true, externalIfAway: false, externalAlways: true },
-  { event: 'NEW_IN_TEAM_QUEUE', subject: 'A new conversation in your team\'s queue', recipients: ['TEAM'], inApp: true, externalIfAway: false, externalAlways: false },
+  { event: 'MENTIONED', subject: 'You were mentioned in a conversation', recipients: ['MENTIONED_PRINCIPALS'], inApp: true, externalIfAway: false, externalAlways: false, push: true },
+  { event: 'ROLE_OR_ACCESS_CHANGED', subject: 'Your role or access changed', recipients: ['PRINCIPAL'], inApp: true, externalIfAway: false, externalAlways: true, push: false },
+  { event: 'NEW_IN_TEAM_QUEUE', subject: 'A new conversation in your team\'s queue', recipients: ['TEAM'], inApp: true, externalIfAway: false, externalAlways: false, push: false },
   // The only customer-facing row. D-12 chose email (2026-08-28); it resolves to no
   // channel until D-31 gives it an address and N-07 gives it a provider.
-  { event: 'CUSTOMER_CONVERSATION_ANSWERED', subject: 'A customer\'s conversation was answered / resolved', recipients: ['CUSTOMER'], inApp: false, externalIfAway: false, externalAlways: false },
+  { event: 'CUSTOMER_CONVERSATION_ANSWERED', subject: 'A customer\'s conversation was answered / resolved', recipients: ['CUSTOMER'], inApp: false, externalIfAway: false, externalAlways: false, push: false },
+
+  /* =================================================================================
+     STAGE 1 — internal chat. Decided 2026-09-11; see N-56 in STARLINK_OPEN_QUESTIONS.
+
+     None of these is a transcription. §29.2 was written for customer conversations and
+     has no row for a colleague messaging a colleague, so every rule below is a product
+     decision taken with the business rather than copied from the document.
+
+     They are `push: true` and `externalAlways: false`: reaching a closed browser is the
+     whole point, and email is a different conversation — nobody asked for an inbox full
+     of chat. In-app is unconditional on all of them (§29.6 makes it the unread
+     mechanism, not a preference).
+
+     ## On GROUP_MESSAGE and CHANNEL_MESSAGE specifically
+
+     These two sit against §29.2's `MESSAGE_IN_INTERNAL_GROUP`, which the "Not notified"
+     list contains and which stays in `NEVER_NOTIFIED` below for the IN-APP meaning it
+     was written with. The tension is real and is resolved by the business rather than by
+     engineering reinterpreting the document: a chat product whose group messages never
+     reach a closed laptop is not a chat product, and the mitigation §29.2's governing
+     sentence is actually worried about — noise — exists here in two forms that did not
+     when it was written: per-conversation mute, and per-device quiet hours.
+
+     Recorded rather than smoothed over, because the next person reading §29.2 will
+     notice the same conflict and deserves to find the reasoning rather than rediscover
+     the argument.
+     ================================================================================= */
+
+  { event: 'DIRECT_MESSAGE', subject: 'A new message', recipients: ['OTHER_PARTICIPANTS'], inApp: true, externalIfAway: false, externalAlways: false, push: true },
+  { event: 'GROUP_MESSAGE', subject: 'A new message in a group', recipients: ['OTHER_PARTICIPANTS'], inApp: true, externalIfAway: false, externalAlways: false, push: true },
+  { event: 'CHANNEL_MESSAGE', subject: 'A new message in a channel', recipients: ['OTHER_PARTICIPANTS'], inApp: true, externalIfAway: false, externalAlways: false, push: true },
+  { event: 'REPLIED_TO_YOU', subject: 'Someone replied to your message', recipients: ['MESSAGE_AUTHOR'], inApp: true, externalIfAway: false, externalAlways: false, push: true },
+  { event: 'REACTED_TO_YOUR_MESSAGE', subject: 'Someone reacted to your message', recipients: ['MESSAGE_AUTHOR'], inApp: true, externalIfAway: false, externalAlways: false, push: true },
+  { event: 'ADDED_TO_CONVERSATION', subject: 'You were added to a conversation', recipients: ['PRINCIPAL'], inApp: true, externalIfAway: false, externalAlways: false, push: true },
+  { event: 'REMOVED_FROM_CONVERSATION', subject: 'You were removed from a conversation', recipients: ['PRINCIPAL'], inApp: true, externalIfAway: false, externalAlways: false, push: true },
+  { event: 'ANNOUNCEMENT_POSTED', subject: 'A new company announcement', recipients: ['OTHER_PARTICIPANTS'], inApp: true, externalIfAway: false, externalAlways: false, push: true },
 ]);
 
 /**
@@ -209,6 +293,22 @@ export function channelsFor(
 
   const wantsExternal = rule.externalAlways || (rule.externalIfAway && recipient.away);
   if (wantsExternal && !recipient.optedOutOf.includes('EMAIL')) channels.push('EMAIL');
+
+  /*
+     PUSH, which nothing could reach until 2026-09-11.
+
+     `PUSH` had been in the channel union with no rule pointing at it since the type was
+     written — N-22's "correct dormant state" while web push was FUTURE. The transport,
+     the sender, the device-token table and the service worker all landed on 2026-09-10
+     and were proven end to end, and still nothing routed here, so a fully working
+     delivery path carried nothing. This line is what connects them.
+
+     Unlike email it does not consult `away`: reaching a device whose browser is closed
+     is the entire purpose, and `isAway()` cannot answer the question anyway. Opting out
+     is honoured exactly as email's is — §29.6 makes in-app the only channel that is not
+     a preference.
+  */
+  if (rule.push && !recipient.optedOutOf.includes('PUSH')) channels.push('PUSH');
 
   return channels;
 }

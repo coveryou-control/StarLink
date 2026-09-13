@@ -1,7 +1,7 @@
 'use client';
 
 import { useParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { TypingFrame } from '@starlink/shared-contracts/realtime';
 
@@ -10,20 +10,38 @@ import { ConversationActions } from '../../../components/conversation-actions';
 import { Participants } from '../../../components/participants';
 import { MessageList } from '../../../components/message-list';
 import { useSession } from '../../../components/session-provider';
-import { ApiError, api, type MessageView } from '../../../lib/api-client';
+import {
+  ApiError,
+  api,
+  type ChannelAudienceEntry,
+  type ChannelSummary,
+  type MessageView,
+  type PinnedMessage,
+} from '../../../lib/api-client';
+import { ChannelInfo } from '../../../components/channel-info';
+import { AvatarImage, ConversationAvatarImage } from '../../../components/avatar-image';
 import { useRealtime } from '../../../lib/use-realtime';
 import { ChatHeader } from '../../../components/chat-header';
-import { avatarFor, conversationLabel } from '../../../components/conversation-naming';
+import {
+  avatarFor,
+  conversationLabel,
+  initialsFor,
+} from '../../../components/conversation-naming';
 import {
   ColleagueRole,
-  ConversationControls,
   EmployeeDetails,
   SharedFiles,
 } from '../../../components/conversation-info';
 import { ConversationSearch } from '../../../components/conversation-search';
+import { GroupGlyph } from '../../../components/group-glyph';
+import { GroupIdentity } from '../../../components/group-identity';
+import { PinnedBar } from '../../../components/pinned-bar';
+import { ForwardDialog } from '../../../components/forward-dialog';
+import { MessageInfoPanel } from '../../../components/message-info-panel';
 import { useMediaQuery } from '../../../lib/use-media-query';
 import {
   useActiveConversation,
+  useLoadedConversations,
   useRefreshConversations,
 } from '../../../components/active-conversation';
 import { customerWorkspaceEnabled } from '../../../lib/runtime-origins';
@@ -46,7 +64,52 @@ export default function ThreadPage(): ReactNode {
 
   const [messages, setMessages] = useState<readonly MessageView[]>([]);
   const [lifecycleState, setLifecycleState] = useState<string | undefined>(undefined);
-  const [typing, setTyping] = useState<TypingFrame | undefined>(undefined);
+  /**
+   * Everybody currently composing, keyed by principal.
+   *
+   * A single frame could only ever describe one person, so in a group the second typist
+   * overwrote the first and one expiry cleared them both. A map is the smallest thing that
+   * can hold "Rahul and Priya", and each entry is forgotten on its own clock.
+   */
+  const [typists, setTypists] = useState<ReadonlyMap<string, 'INTERNAL' | 'CUSTOMER_VISIBLE'>>(
+    new Map(),
+  );
+  const typistTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  /* Timers outlive a render; without this every open thread leaks one per keystroke. */
+  useEffect(() => {
+    const pending = typistTimers.current;
+    return () => {
+      for (const timer of pending.values()) clearTimeout(timer);
+      pending.clear();
+    };
+  }, []);
+
+  const noteTypist = useCallback((frame: TypingFrame): void => {
+    setTypists((current) => {
+      const next = new Map(current);
+      next.set(frame.principalId, frame.visibility);
+      return next;
+    });
+    const timers = typistTimers.current;
+    const running = timers.get(frame.principalId);
+    if (running !== undefined) clearTimeout(running);
+    timers.set(
+      frame.principalId,
+      setTimeout(
+        () => {
+          timers.delete(frame.principalId);
+          setTypists((current) => {
+            if (!current.has(frame.principalId)) return current;
+            const next = new Map(current);
+            next.delete(frame.principalId);
+            return next;
+          });
+        },
+        Math.max(1, frame.expiresInSeconds) * 1000,
+      ),
+    );
+  }, []);
   const [olderCursor, setOlderCursor] = useState<string | undefined>(undefined);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [pending, setPending] = useState<readonly PendingSend[]>([]);
@@ -70,6 +133,8 @@ export default function ThreadPage(): ReactNode {
   /** Supplied by the shell, which already loaded it for the sidebar. */
   const activeConversation = useActiveConversation();
   const refreshConversations = useRefreshConversations();
+  /* For the forward dialog: somewhere to forward TO, from the list the shell already has. */
+  const conversations = useLoadedConversations();
   /**
    * Closed by default, and closed again whenever the conversation changes.
    *
@@ -79,15 +144,20 @@ export default function ThreadPage(): ReactNode {
   /**
    * Two states, because the panel has two behaviours and one flag cannot hold both.
    *
-   * As a COLUMN it is part of the composition and is there unless you hid it. As an OVERLAY
-   * it covers the conversation, so it is absent unless you asked for it. A single
-   * `detailsOpen` defaulting to true gave the second the first's default, and a tablet
-   * opened every thread with the information panel on top of the messages.
+   * As a COLUMN it sits beside the conversation; as an OVERLAY it covers it. They are kept
+   * apart rather than reset on resize, so hiding the panel on a wide screen and then
+   * narrowing the window does not open it, and vice versa.
    *
-   * Kept apart rather than reset on resize: hiding the panel on a wide screen and then
-   * narrowing the window should not open it, and vice versa.
+   * BOTH start closed. The column used to start open, on the reasoning that it was part of
+   * the composition — but opening a conversation is a request to read the conversation, and
+   * the panel took a third of the width to answer a question nobody had asked yet. It is
+   * one click away in the header, and the thread is what the click was for.
+   *
+   * The thread column is keyed by conversation, so this remounts per thread: the panel
+   * closes again when you move to the next one, which is the same rule stated once rather
+   * than a reset that has to be remembered.
    */
-  const [columnHidden, setColumnHidden] = useState(false);
+  const [columnHidden, setColumnHidden] = useState(true);
   const [overlayOpen, setOverlayOpen] = useState(false);
 
   /** The header's magnifier: the same search, narrowed to this thread. */
@@ -109,6 +179,21 @@ export default function ThreadPage(): ReactNode {
     unreadOnOpen.current = activeConversation.unreadCount;
   }
   const scrollRef = useRef<HTMLDivElement>(null);
+  /**
+   * Was the reader at the bottom of the thread when it last moved?
+   *
+   * The follow-the-bottom effect below used to fire on every change to `messages`, and
+   * `messages` is replaced wholesale by a refetch — which reacting to a message triggers.
+   * So reacting to something forty messages up threw the reader back to the newest message.
+   * The same was true of a colleague's reaction, an edit, or any other refetch.
+   *
+   * Starts true, because a thread opens at the bottom.
+   */
+  const atBottom = useRef(true);
+  /** Monotonic ticket for `refetch`, so a superseded response is discarded. */
+  const requestSeq = useRef(0);
+  /** True while a scroll this component caused is in flight. See `pinToBottom`. */
+  const programmaticScroll = useRef(false);
   const trackerRef = useRef<{ reset: (id: string, seq: number) => void } | undefined>(undefined);
 
   // Highest seq already reported as read, so a debounce firing with nothing new does
@@ -131,8 +216,26 @@ export default function ThreadPage(): ReactNode {
    * a sequence gap is detected — realtime is a hint, this is the truth (FR-RT-1).
    */
   const refetch = useCallback(async () => {
+    /**
+     * A ticket, so a slow response cannot overwrite a newer one.
+     *
+     * Nine call sites fire this — mount, every socket connect, a sequence gap, a reaction
+     * frame, sending, editing, deleting, the list nudge — with no coalescing. A burst
+     * issues several `GET /messages` in parallel and whichever lands LAST won, so the
+     * thread could revert to a snapshot taken before the newest message existed. This is
+     * also the one surface with no polling fallback, so nothing corrected it until the
+     * next event happened to arrive.
+     *
+     * The pattern is lifted from `customer-web/chat.tsx`, which has had it since it was
+     * written; the employee thread never got it.
+     */
+    const ticket = requestSeq.current + 1;
+    requestSeq.current = ticket;
+
     try {
       const page = await api.messages(conversationId);
+      /* Superseded while this was in flight: discard rather than apply late. */
+      if (ticket !== requestSeq.current) return;
       // The API returns newest-first for paging; the thread reads oldest-first.
       const ordered = [...page.messages].sort((a, b) => a.seq - b.seq);
       setMessages(ordered);
@@ -149,6 +252,9 @@ export default function ThreadPage(): ReactNode {
       const newest = ordered.at(-1);
       if (newest !== undefined) trackerRef.current?.reset(conversationId, newest.seq);
     } catch (cause) {
+      /* A superseded request's failure is not this thread's failure — reporting it would
+         replace a good render with an error the reader cannot act on. */
+      if (ticket !== requestSeq.current) return;
       if (cause instanceof ApiError && cause.isUnauthenticated) {
         onUnauthenticated();
         return;
@@ -159,7 +265,9 @@ export default function ThreadPage(): ReactNode {
           : 'Could not load this conversation.',
       );
     } finally {
-      setLoading(false);
+      /* Cleared regardless: the newest request owns the spinner, and an early return above
+         has already handed ownership to it. */
+      if (ticket === requestSeq.current) setLoading(false);
     }
   }, [conversationId, onUnauthenticated]);
 
@@ -200,33 +308,42 @@ export default function ThreadPage(): ReactNode {
   );
 
   /**
-   * Corrects one of your own messages.
+   * Corrects one of your own messages, in the message.
    *
-   * `window.prompt` rather than an inline editor, deliberately and temporarily. An inline
-   * editor inside a message bubble is a real piece of work — it has to grow, keep the
-   * caret, handle Escape and Enter, preserve mentions across the edit and reconcile with
-   * the optimistic row — and doing it badly is worse than a plain dialog. The API, the
-   * revision history and the permission are all real; only the input surface is plain.
+   * `window.prompt` used to do this, and its own note called that deliberate and temporary.
+   * What it cost was worse than the editor it avoided: a modal drawn by the BROWSER, titled
+   * with the origin — "localhost:3010 says" — which blocks the page, cannot be styled, and
+   * reads to a person exactly like the alert a website shows when something has broken.
+   *
+   * The menu item now opens the bubble for editing and this commits it. Mentions survive
+   * because the server re-parses them from the text, which is the part that looked
+   * expensive and never was.
    */
-  const editMessage = useCallback(
-    (message: MessageView) => {
-      const next = window.prompt('Edit this message', message.body);
-      if (next === null || next.trim() === '' || next.trim() === message.body) return;
+  const [editingMessageId, setEditingMessageId] = useState<string | undefined>();
+
+  const submitEdit = useCallback(
+    (message: MessageView, body: string) => {
+      setEditingMessageId(undefined);
+      if (body === '' || body === message.body) return;
       // Optimistic, then reconciled: the same shape as reacting, for the same reason.
       setMessages((current) =>
         current.map((m) =>
           m.messageId === message.messageId
-            ? { ...m, body: next.trim(), editedAt: new Date().toISOString() }
+            ? { ...m, body, editedAt: new Date().toISOString() }
             : m,
         ),
       );
       void api
-        .editMessage(conversationId, message.messageId, next.trim())
+        .editMessage(conversationId, message.messageId, body)
         .catch(() => undefined)
         .then(() => refetch());
     },
     [conversationId, refetch],
   );
+
+  const editMessage = useCallback((message: MessageView) => {
+    setEditingMessageId(message.messageId);
+  }, []);
 
   /**
    * Deletes one of your own messages.
@@ -235,23 +352,95 @@ export default function ThreadPage(): ReactNode {
    * in `message_revisions` for an investigation, but nothing in the product puts it back.
    * The row stays in the thread with its text gone, so nothing shifts under the reader.
    */
-  const deleteMessage = useCallback(
-    (message: MessageView) => {
-      if (!window.confirm('Delete this message? The text will be removed for everyone.')) return;
-      setMessages((current) =>
-        current.map((m) =>
-          m.messageId === message.messageId
-            ? { ...m, body: '', redactedAt: new Date().toISOString() }
-            : m,
-        ),
-      );
-      void api
-        .deleteMessage(conversationId, message.messageId)
-        .catch(() => undefined)
-        .then(() => refetch());
+  /** The message a forward has been started for, and the one an info panel is open on. */
+  const [forwarding, setForwarding] = useState<MessageView | undefined>();
+
+  /*
+     Nothing here deletes a message, and nothing here hides one.
+
+     `hideMessage` ("delete for me") and `deleteMessage` ("delete for everyone") both lived
+     here and both are gone, decided on 2026-09-09: no user deletes a message and no user
+     deletes a chat. ARCHIVE is what remains and it is a different act - it takes a
+     conversation out of your own list without taking anything from anybody, and it is
+     reversible.
+
+     The routes refuse as well; this is not a hidden control. See `messages.controller.ts`.
+  */
+  const [inspecting, setInspecting] = useState<MessageView | undefined>();
+  /**
+   * Whether the membership section is showing on a ONE-TO-ONE.
+   *
+   * A group shows it always. A direct message does not — the panel there is about the
+   * person you are talking to, and a permanent search field under their face is the
+   * clutter that was asked to go.
+   *
+   * But the CAPABILITY had to stay. Adding a third person to an existing thread is not
+   * the same act as starting a new group: the new group has no history, and BR-07 is
+   * entirely about the history the new arrival can suddenly read — the server refuses
+   * until the interface has said how many messages that is and had it acknowledged. With
+   * the control deleted, that rule was unreachable from a one-to-one, which the browser
+   * journey caught.
+   *
+   * So it is one click away, from the header's overflow, and closes with the panel.
+   */
+  const [addPeopleOpen, setAddPeopleOpen] = useState(false);
+
+  /**
+   * What is pinned here, for everybody.
+   *
+   * Loaded once per conversation and re-read after a pin moves rather than kept in sync
+   * optimistically: a pin is shared, so the local guess is wrong the moment somebody else
+   * sets one, and the list is at most a handful of rows.
+   */
+  const [pins, setPins] = useState<readonly PinnedMessage[]>([]);
+
+  const refreshPins = useCallback(() => {
+    void api
+      .pins(conversationId)
+      .then((result) => setPins(result.pins))
+      /* A conversation whose pins cannot be read is still a conversation you can use.
+         An empty bar is the right degradation; an error banner above the thread is not. */
+      .catch(() => setPins([]));
+  }, [conversationId]);
+
+  useEffect(() => refreshPins(), [refreshPins]);
+
+  const togglePin = useCallback(
+    (message: MessageView, next: boolean) => {
+      void (next
+        ? api.pinMessage(conversationId, message.messageId)
+        : api.unpinMessage(conversationId, message.messageId)
+      )
+        .then(() => refreshPins())
+        .catch(() => undefined);
     },
-    [conversationId, refetch],
+    [conversationId, refreshPins],
   );
+
+  /**
+   * Scrolls to a pinned message, and says so when it cannot.
+   *
+   * Only the loaded page can be jumped to — a pin older than the oldest message in hand
+   * has no element to scroll to. Returning false lets the bar explain that instead of
+   * appearing broken.
+   */
+  /* A Set, so the row's "is this pinned" is a hash lookup rather than a scan of the pin
+     list once per message on a page of fifty. */
+  const pinnedIds = useMemo(
+    () => new Set(pins.map((pin) => pin.messageId)),
+    [pins],
+  );
+
+  const jumpToMessage = useCallback((messageId: string): boolean => {
+    const element = document.querySelector(`[data-message-id="${messageId}"]`);
+    if (element === null) return false;
+    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    /* A brief highlight, because a smooth scroll that lands mid-thread leaves the eye
+       with no idea which of the visible messages it was aiming at. */
+    element.classList.add('message-jumped');
+    setTimeout(() => element.classList.remove('message-jumped'), 1_600);
+    return true;
+  }, []);
 
   /**
    * Loads the page BEFORE the oldest message currently shown.
@@ -301,7 +490,7 @@ export default function ThreadPage(): ReactNode {
     onSessionRevoked: onUnauthenticated,
     // SL-010. Ephemeral by design — held in component state, never persisted, and
     // cleared by its own TTL rather than by a "stopped" message that may not arrive.
-    onTyping: setTyping,
+    onTyping: noteTypist,
   });
   trackerRef.current = tracker;
 
@@ -311,11 +500,125 @@ export default function ThreadPage(): ReactNode {
     void refetch();
   }, [refetch]);
 
-  // Follow the bottom of the thread as messages arrive.
+  /*
+     Follow the bottom of the thread as messages arrive — but only for a reader who is
+     ALREADY there.
+
+     Unconditional, this is the bug where reacting to an old message scrolls you away from
+     it. "At the bottom" is within 80px rather than exactly zero: a reader sitting at the
+     newest message is a few pixels off it as often as not, and a threshold that only
+     matches exact equality stops following for people who meant to be following.
+  */
+  /**
+   * Pin to the bottom, and mark the scroll as OURS.
+   *
+   * Assigning `scrollTop` fires a `scroll` event indistinguishable from a person dragging
+   * the bar, and the handler recomputes `atBottom` from it. When the content had grown
+   * since the assignment — a picture arriving is the usual way — the gap it measured was
+   * already past the 80px threshold, so the reader's own act of opening the thread latched
+   * `atBottom` to FALSE. Every later re-pin was then skipped, and the thread quietly
+   * stopped following new messages for the rest of the session.
+   *
+   * The flag is cleared on the next frame rather than by the handler, so an assignment
+   * that changes nothing (already at the bottom, no event fired) cannot leave it set and
+   * swallow the reader's next real scroll.
+   */
+  const pinToBottom = useCallback((): void => {
+    const element = scrollRef.current;
+    if (element === null) return;
+    programmaticScroll.current = true;
+    element.scrollTop = element.scrollHeight;
+    requestAnimationFrame(() => {
+      programmaticScroll.current = false;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (loadingOlder) return;
+    if (!atBottom.current) return;
+    pinToBottom();
+  }, [messages, pending, loadingOlder, pinToBottom]);
+
+  /**
+   * Stay at the bottom while the thread is still growing.
+   *
+   * The effect above pins to the bottom when the MESSAGE LIST changes, which is the wrong
+   * moment for anything whose height is not known at that point. An image has no reserved
+   * space until its bytes arrive, so a thread ending in a photograph pinned correctly and
+   * then grew underneath the pin: measured at 180px short on one conversation and 102px on
+   * another, with the newest bubble left behind the composer. A thread of pure text landed
+   * at exactly zero.
+   *
+   * It compounds, which is what makes it worth a `ResizeObserver` rather than a shrug: the
+   * scroll handler latches `atBottom` to false once the gap passes 80px, so after one
+   * late-loading image the thread also stops following NEW messages for the rest of the
+   * session. The reader is then silently no longer being shown what arrives.
+   *
+   * Observing the scroller's content means this covers late fonts and expanding quotes too,
+   * without any of them having to know about it. It re-pins only while `atBottom` is still
+   * true, so it cannot yank a reader who has scrolled up to read something — the same rule
+   * the effect above follows, applied at the other moment.
+   */
   useEffect(() => {
     const element = scrollRef.current;
-    if (element !== null && !loadingOlder) element.scrollTop = element.scrollHeight;
-  }, [messages, pending, loadingOlder]);
+    if (element === null || typeof ResizeObserver !== 'function') return;
+
+    /*
+       `loading` is in the deps because the scroller is CONDITIONALLY RENDERED. The first
+       draft used `[]`, ran once while the pane was still the loading state, found
+       `scrollRef.current === null` and returned — so the observer was never attached and
+       the gap it exists to close stayed exactly where it was. Re-running when the pane
+       swaps is what puts it on the real element.
+    */
+    /*
+       The MESSAGE LIST, found by selector rather than by position.
+
+       `firstElementChild` looked obvious and was wrong: when a thread has older pages the
+       scroller's first child is the 34px "load earlier" control, and the list is its
+       sibling. So the observer sat on an element that never changes size and the whole
+       mechanism did nothing on exactly the long threads it was written for. Confirmed by
+       attaching an independent observer from outside the app:
+
+           [ro] attaching to DIV.        <- the load-earlier control
+           [ro] RESIZE DIV. h=34         <- its only observation, ever
+    */
+    const content = element.querySelector('ol.thread') ?? element.firstElementChild ?? element;
+
+    /*
+       The decision is made from the PREVIOUS height, not from the `atBottom` latch.
+
+       Watching a real thread open showed why. The content settles in three steps — it
+       loads at 10408, SHRINKS to 10114 as something above collapses, then grows back to
+       10216 as the pictures arrive:
+
+           +225ms  scrollH=10408  pin -> gap 0
+                   SCROLL EVENT           <- the browser clamping scrollTop to the new,
+           +336ms  scrollH=10165  gap 51     smaller maximum
+           +351ms  scrollH=10216  gap 102
+
+       That clamp is a scroll event nobody asked for, and the handler treated it as the
+       reader moving. `atBottom` latched false and the two growths that followed were
+       skipped, leaving the newest message 102px behind the composer — permanently, since
+       nothing re-pins afterwards.
+
+       Comparing against the height we last saw sidesteps the whole question of who caused
+       a scroll: if the reader was at the bottom of the OLD content, they still want to be
+       at the bottom of the new content. A reader who had genuinely scrolled up has a large
+       previous gap and is left exactly where they were.
+    */
+    let lastHeight = element.scrollHeight;
+    const observer = new ResizeObserver(() => {
+      const wasAtBottom = lastHeight - element.scrollTop - element.clientHeight < 80;
+      lastHeight = element.scrollHeight;
+      if (!wasAtBottom) return;
+      /* Assigning past the maximum is clamped by the browser, so this is "the bottom"
+         rather than a computed position that could be stale by a pixel. */
+      pinToBottom();
+      atBottom.current = true;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [loading, conversationId, pinToBottom]);
 
   // Debounced read marking.
   useEffect(() => {
@@ -415,6 +718,16 @@ export default function ThreadPage(): ReactNode {
    * owns the lifecycle, including the failed case, and two writers to one list is how a
    * retry loses its text.
    */
+  /*
+     The composer's retry, held so the thread can offer it on a failed bubble.
+
+     `MessageList` renders the Retry button only when it is given an `onRetry`, and
+     nothing ever gave it one — so the button existed in the code and in no state of the
+     running product. A ref rather than state because receiving it must not re-render
+     the thread, and the composer republishes it whenever its own `send` changes.
+  */
+  const retrySend = useRef<((localId: string) => void) | undefined>(undefined);
+
   const confirmedClientIds = new Set(
     messages.map((message) => message.clientMessageId).filter((id): id is string => id !== undefined),
   );
@@ -423,6 +736,8 @@ export default function ThreadPage(): ReactNode {
   const canOpenDetails = lifecycleState === undefined;
   const others = activeConversation?.participants ?? [];
   const isAnnouncement = conversationType === 'INTERNAL_ANNOUNCEMENT';
+  const isChannel = conversationType === 'INTERNAL_CHANNEL';
+
   const isGroup = !isAnnouncement && (conversationType === 'INTERNAL_GROUP' || others.length > 1);
   /* Exactly one other person, and not a broadcast: the only shape with a colleague to
      describe. `others` is empty until the summary loads, which is neither. */
@@ -431,19 +746,32 @@ export default function ThreadPage(): ReactNode {
   /* Below four columns the panel is a sheet over the conversation rather than a column
      beside it, and only then does it carry a header of its own. */
   const panelOverlays = useMediaQuery('(max-width: 1024px)');
+  /*
+     One pane at a time — the same 860px the stylesheet switches the shell at.
+
+     Kept as a media QUERY rather than as a CSS rule because what changes here is which
+     controls are in the document: a control that is not on the screen must not be in the
+     tab order either, and `display: none` on a header button leaves a keyboard user
+     tabbing to something nobody can see.
+  */
+  const oneAtATime = useMediaQuery('(max-width: 860px)');
   const onPhone = useMediaQuery('(max-width: 640px)');
 
   /**
-   * The composer says WHERE the message is going: "Message Riya", "Message # Ops standup".
+   * The composer says WHERE the message is going: "Message Riya", "Message Ops standup".
    *
    * Screens 02 and 03 both address the placeholder, and it is the cheapest guard there is
    * against the thing this product must never do — writing into the wrong conversation. It
    * costs no pixels, it is read exactly at the moment of typing, and it names the room in
    * the same words the header does.
    *
-   * A first name in a one-to-one, because that is what screen 02 draws and because a full
-   * name in a two-person thread reads like a form field. The hash stays on a group: it is
-   * how the whole product spells "this is a room, not a person".
+   * A first name in a one-to-one, because a full name in a two-person thread reads like a
+   * form field.
+   *
+   * No hash on a group. It was there to spell "this is a room, not a person", borrowed from
+   * products where a channel really is addressed by a `#name` you can type. StarLink has no
+   * such syntax — the hash named nothing, and beside a group called "hie" it read as a
+   * stray character rather than as punctuation.
    *
    * Only on an internal conversation. A customer thread's placeholder is carrying ADR-021's
    * mode — "Note for colleagues only…" versus "Reply to the customer…" — and that says
@@ -460,7 +788,7 @@ export default function ThreadPage(): ReactNode {
         onPhone
         ? 'Message'
         : isGroup
-          ? `Message # ${conversationLabel(activeConversation)}`
+          ? `Message ${conversationLabel(activeConversation)}`
           : `Message ${conversationLabel(activeConversation).split(' ')[0] ?? ''}`.trimEnd();
 
   /**
@@ -492,6 +820,61 @@ export default function ThreadPage(): ReactNode {
    * than showing it a beat late, and false is also the safe answer if the request fails.
    */
   const [mayAnnounce, setMayAnnounce] = useState(false);
+
+  /**
+   * The channel this thread is, when it is one.
+   *
+   * ## Why this is fetched rather than derived
+   *
+   * Whether somebody may post here is a function of the room's policy, their membership and
+   * their role — the same three inputs `decide()` uses. Working it out in the browser would
+   * be re-implementing the decision in a second language against a copy of the data, which
+   * is exactly the divergence §38 records. So the server answers, and this holds the answer.
+   *
+   * `mayPost === false` is what hides the composer. Not a disabled one: a composer that
+   * refuses on submit teaches people the product is unreliable, and a disabled one still
+   * puts a text field in front of somebody with nothing to do with it. The same call the
+   * announcement above makes, for the same reason.
+   */
+  const [channel, setChannel] = useState<ChannelSummary | undefined>();
+  const [channelAudience, setChannelAudience] = useState<
+    readonly ChannelAudienceEntry[] | undefined
+  >();
+  const [joining, setJoining] = useState(false);
+
+  const refreshChannel = useCallback(async (): Promise<void> => {
+    try {
+      const result = await api.channel(conversationId);
+      setChannel(result.channel);
+      setChannelAudience(result.audience);
+    } catch {
+      /* Fail CLOSED. A policy we could not read is not a policy that permits: the composer
+         stays away and the thread renders read-only rather than offering a send that the
+         server will refuse. */
+      setChannel(undefined);
+      setChannelAudience(undefined);
+    }
+  }, [conversationId]);
+
+  useEffect(() => {
+    if (conversationType !== 'INTERNAL_CHANNEL') {
+      setChannel(undefined);
+      setChannelAudience(undefined);
+      return;
+    }
+    void refreshChannel();
+  }, [conversationType, refreshChannel]);
+
+  /*
+     Read-only until the server says otherwise, including while the policy is still in
+     flight. A composer that appears and then vanishes a moment later is worse than one
+     that appears a moment late, and the other direction - offered before we know - is a
+     send that 404s.
+
+     Declared HERE rather than beside `isChannel`, because it reads state that is declared
+     further down the component; the compiler said so, which is the useful kind of review.
+  */
+  const channelReadOnly = isChannel && channel?.mayPost !== true;
   useEffect(() => {
     if (!isAnnouncement) {
       setMayAnnounce(false);
@@ -511,9 +894,30 @@ export default function ThreadPage(): ReactNode {
     };
   }, [isAnnouncement]);
 
+  /*
+     Search, message info and details share the right column, in that order of precedence.
+
+     They are the same slot deliberately. Search-in-conversation is a temporary task with
+     an obvious end, details is a reference panel — stacking them would give the thread a
+     third column at 1400px and none at 1200px, and putting search OVER the messages is
+     the thing specifically ruled out: they have to stay visible. Dismissing search
+     returns the details panel to whatever it was doing before.
+
+     Message info joined them on 2026-09-09, from a modal. "Who has read this" is a question
+     ABOUT a message and the answer is only useful while the message is still on screen, so
+     a centred box over a dimmed thread hid the one thing being asked about. It sits ahead of
+     details for the same reason search does: it was asked for just now, about one message,
+     and it has an obvious end.
+  */
+  const rightColumn =
+    searchOpen ? 'search'
+    : inspecting !== undefined ? 'message-info'
+    : showDetails ? 'details'
+    : undefined;
+
   return (
     <div
-      className={`thread-stage${showDetails ? ' details-open' : ' details-hidden'}`}
+      className={`thread-stage${rightColumn !== undefined ? ' details-open' : ' details-hidden'}`}
     >
     {/*
       `one-to-one` on the pane, so the stylesheet can drop the per-message avatar on a phone.
@@ -523,7 +927,24 @@ export default function ThreadPage(): ReactNode {
       incoming line is 40px the words could have had. A group keeps them at every width —
       there the picture is the only thing saying who is talking.
     */}
-    <div className={`thread-pane${isOneToOne ? ' one-to-one' : ''}`}>
+    {/*
+       `channel` on the pane, so the stylesheet can treat a channel's reading surface
+       differently from a chat's. See `.thread-pane.channel .thread-scroll` — the
+       wallpaper comes off in here.
+
+       BRACED, and the braces are the whole point. Written as a bare block comment it sat
+       in JSX child position and rendered as visible text across the top of every
+       conversation — which is what a comment is outside braces, and which measuring the
+       CSS could never have caught.
+
+       This note may not spell that comment out: the closing sequence inside a JSX comment
+       ends it early, and the first attempt at this sentence broke the build for exactly
+       that reason. Same family as the backtick-inside-a-template-literal trap the
+       platform notes already carry.
+    */}
+    <div
+      className={`thread-pane${isOneToOne ? ' one-to-one' : ''}${isChannel ? ' channel' : ''}`}
+    >
       {/*
         The header answers "who is this", which nothing on this screen used to. The
         connection state moved inside it: realtime health is a property of the conversation
@@ -532,12 +953,31 @@ export default function ThreadPage(): ReactNode {
       <ChatHeader
         conversation={activeConversation}
         conversationType={conversationType}
+        {...(channel?.description !== undefined ? { channelDescription: channel.description } : {})}
         connection={<ConnectionBadge status={status} />}
         detailsOpen={showDetails}
         onToggleDetails={canOpenDetails ? toggleDetails : undefined}
         compact={panelOverlays}
+        narrow={oneAtATime}
         searchOpen={searchOpen}
         onToggleSearch={() => setSearchOpen((was) => !was)}
+        /* The duration is sent, never the instant: the server dates the lease against its
+           own clock, so a browser running fast cannot ask to be quietened until a moment
+           already past. `refreshConversations` because `mutedUntil` lives on the summary,
+           and the shell hands that to the notification hook — a mute the list does not
+           know about is a mute that still makes a noise. */
+        /* Reveals membership on a one-to-one, and opens the panel it lives in — asking
+           for it from a header whose panel is closed would otherwise do nothing visible. */
+        onAddPeople={() => {
+          setAddPeopleOpen(true);
+          if (!showDetails) toggleDetails();
+        }}
+        onMute={(minutes) => {
+          void api
+            .setConversationPreferences(conversationId, { muteMinutes: minutes })
+            .then(() => refreshConversations())
+            .catch(() => undefined);
+        }}
       />
 
       {/*
@@ -568,7 +1008,33 @@ export default function ThreadPage(): ReactNode {
         />
       ) : null}
 
-      <div ref={scrollRef} className="thread-scroll">
+      {/*
+        Pinned messages, above the thread and below the header — where the thing they are
+        "held above" actually is. Inside the scroller they would scroll away, which is the
+        one thing a pin must not do.
+      */}
+      <PinnedBar
+        pins={pins}
+        onJump={jumpToMessage}
+        onUnpin={(messageId) => {
+          void api
+            .unpinMessage(conversationId, messageId)
+            .then(() => refreshPins())
+            .catch(() => undefined);
+        }}
+      />
+
+      <div
+        ref={scrollRef}
+        className="thread-scroll"
+        onScroll={(event) => {
+          /* Ours, not the reader's — see `pinToBottom`. Recomputing from a scroll we
+             caused is what used to latch `atBottom` off and stop the thread following. */
+          if (programmaticScroll.current) return;
+          const el = event.currentTarget;
+          atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
+      >
         {/*
           A skeleton, not the word "Loading".
 
@@ -617,9 +1083,23 @@ export default function ThreadPage(): ReactNode {
               </div>
             ) : null}
             <MessageList
+              /* Only for a channel, and only when the server has told us what it is —
+                 an intro built from a half-loaded record would name the room "Conversation". */
+              {...(channel !== undefined
+                ? {
+                    channelIntro: {
+                      name: channel.name,
+                      memberCount: channel.memberCount,
+                      ...(channel.description !== undefined
+                        ? { description: channel.description }
+                        : {}),
+                    },
+                  }
+                : {})}
               onReply={setReplyingTo}
               messages={messages}
               pending={stillPending}
+              onRetry={(localId) => retrySend.current?.(localId)}
               currentPrincipalId={state.me.principalId}
               /* Positive test, so an unresolved kind keeps the note marking. */
               conversationIsInternal={conversationType?.startsWith('INTERNAL') === true}
@@ -627,8 +1107,44 @@ export default function ThreadPage(): ReactNode {
               unreadOnOpen={unreadOnOpen.current}
               readWatermark={readWatermark}
               onReact={react}
+              editingMessageId={editingMessageId}
+              onSubmitEdit={submitEdit}
+              onCancelEdit={() => setEditingMessageId(undefined)}
+              conversationId={conversationId}
+              /* The detail panel resolves reactor ids against these rather than asking the
+                 server for names it would only be re-deriving. */
+              participants={activeConversation?.participants ?? []}
               onEdit={editMessage}
-              onDelete={deleteMessage}
+              pinnedIds={pinnedIds}
+              onTogglePin={togglePin}
+              onForward={setForwarding}
+              /*
+                 Optimistic, then reconciled by the refetch.
+
+                 A star is the reader's own private mark, so there is no other party whose
+                 view could disagree and nothing to broadcast. Waiting for the round trip
+                 would make the one control in the product people press absent-mindedly
+                 feel slow for no gain — and if the write fails the refetch puts the
+                 message back the way the server says it is.
+              */
+              onToggleStar={(message, next) => {
+                setMessages((current) =>
+                  current.map((m) =>
+                    m.messageId === message.messageId ? { ...m, starred: next } : m,
+                  ),
+                );
+                void (async () => {
+                  try {
+                    if (next) await api.star(conversationId, message.messageId);
+                    else await api.unstar(conversationId, message.messageId);
+                  } catch (cause) {
+                    if (cause instanceof ApiError && cause.isUnauthenticated) onUnauthenticated();
+                  } finally {
+                    void refetch();
+                  }
+                })();
+              }}
+              onMessageInfo={setInspecting}
             />
           </>
         ) : null}
@@ -640,15 +1156,27 @@ export default function ThreadPage(): ReactNode {
         The same component the list uses, given a conversation — the server has accepted a
         conversation scope since the route was written, and nothing ever sent one.
       */}
-      {searchOpen ? (
-        <div className="thread-search">
-          <ConversationSearch
-            conversationId={conversationId}
-            conversations={activeConversation === undefined ? [] : [activeConversation]}
-            onOpenConversation={() => setSearchOpen(false)}
-          />
-        </div>
+      {forwarding !== undefined ? (
+        <ForwardDialog
+          message={forwarding}
+          conversations={conversations}
+          excludeConversationId={conversationId}
+          onForward={(toConversationId) => {
+            void api
+              .forwardMessage(conversationId, forwarding.messageId, toConversationId)
+              .then(() => {
+                setForwarding(undefined);
+                /* The destination's row needs its preview and its ordering re-read; the
+                   thread we are looking at is unchanged. */
+                refreshConversations();
+              })
+              .catch(() => setForwarding(undefined));
+          }}
+          onCancel={() => setForwarding(undefined)}
+        />
       ) : null}
+
+
 
       {/*
         SL-010's typing signal, with the colleague's NAME when we already have it.
@@ -663,19 +1191,82 @@ export default function ThreadPage(): ReactNode {
         Sits directly above the composer, which is where a chat application puts it and
         where the eye already is while waiting for a reply.
       */}
-      {typing !== undefined ? (
-        <p className="typing-line" aria-live="polite">
-          <span className="typing-dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-          {(activeConversation?.participants ?? []).find(
-            (person) => person.principalId === typing.principalId,
-          )?.displayName ?? 'Someone'}{' '}
-          is {typing.visibility === 'INTERNAL' ? 'writing a note' : 'replying'}…
-        </p>
-      ) : null}
+      {typists.size > 0
+        ? (() => {
+            const people = (activeConversation?.participants ?? []);
+            const names = [...typists.keys()].map(
+              (id) => people.find((person) => person.principalId === id)?.displayName,
+            );
+            const known = names.filter((name): name is string => name !== undefined);
+
+            /*
+               How several people typing is worded.
+
+               One name reads as a fact, two as a pair, and beyond that a list stops being
+               information and becomes a wall that reflows on every keystroke. Three or more
+               therefore names the first two and counts the rest — the same shape a mail
+               client uses for recipients, and stable in width while people come and go.
+
+               "Someone" only when the summary does not list them, which is honest rather
+               than a guess; a group where nobody resolves says how many, not who.
+            */
+            const label =
+              known.length === 0
+                ? typists.size === 1
+                  ? 'Someone is typing'
+                  : `${typists.size} people are typing`
+                : known.length === 1
+                  ? `${known[0]} is typing`
+                  : known.length === 2
+                    ? `${known[0]} and ${known[1]} are typing`
+                    : `${known[0]}, ${known[1]} and ${known.length - 2} ${
+                        known.length - 2 === 1 ? 'other' : 'others'
+                      } are typing`;
+
+            /*
+               "Writing a note" is kept for a CUSTOMER thread only.
+
+               The wording exists so somebody watching a customer conversation knows which
+               of the two things is coming — an internal note, or a reply the customer will
+               see. In an internal thread every message is a note, so saying so each time
+               told the reader nothing and read oddly beside a colleague's name.
+            */
+            const isCustomerThread = conversationType?.startsWith('CUSTOMER') === true;
+            const composingNote =
+              isCustomerThread && [...typists.values()].every((v) => v === 'INTERNAL');
+
+            return (
+              <p className="typing-line" aria-live="polite">
+                {/*
+                   In a group, whose face it is comes FIRST.
+
+                   Up to three, because that is where a row of 20px discs stops being
+                   recognisable and starts being a smudge — and the label already carries
+                   the count beyond that.
+                */}
+                {isGroup && known.length > 0 ? (
+                  <span className="typing-faces" aria-hidden="true">
+                    {known.slice(0, 3).map((name) => (
+                      <span key={name} className="typing-avatar">
+                        {initialsFor(name)}
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
+
+                <span className="typing-dots" aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
+                </span>
+
+                <span className="typing-what">
+                  {composingNote ? `${label.replace(/ typing$/, ' writing a note')}` : label}
+                </span>
+              </p>
+            );
+          })()
+        : null}
 
       {/* Not rendered until the kind is known: the composer picks its default
           visibility once, at mount, so mounting it early would leave a customer
@@ -694,7 +1285,49 @@ export default function ThreadPage(): ReactNode {
         </p>
       ) : null}
 
-      {error === undefined && conversationType !== undefined && !(isAnnouncement && !mayAnnounce) ? (
+      {/*
+        Why there is no composer, and what to do about it.
+
+        Three different reasons, three different sentences, because "you cannot post here"
+        is not useful and the three situations have genuinely different next steps: join,
+        ask an administrator, or nothing (it is archived). A silent absence would read as a
+        page that failed to finish loading.
+      */}
+      {channelReadOnly && channel !== undefined ? (
+        <p className="channel-readonly">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">
+            <rect x="5" y="10.5" width="14" height="9" rx="2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+            <path d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" fill="none" stroke="currentColor" strokeWidth="1.6" />
+          </svg>
+          {channel.archived
+            ? 'This channel is archived. Its history stays here and nothing new can be posted.'
+            : channel.membership === 'NONE'
+              ? 'You are reading this channel without being in it. Join to post.'
+              : 'Only channel admins can post here. You can still read and react.'}
+          {channel.mayJoin ? (
+            <button
+              type="button"
+              disabled={joining}
+              onClick={() => {
+                setJoining(true);
+                void api
+                  .joinChannel(conversationId)
+                  .then(() => refreshChannel())
+                  .then(() => refreshConversations())
+                  .catch(() => undefined)
+                  .finally(() => setJoining(false));
+              }}
+            >
+              {joining ? 'Joining…' : 'Join'}
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+
+      {error === undefined &&
+      conversationType !== undefined &&
+      !(isAnnouncement && !mayAnnounce) &&
+      !channelReadOnly ? (
         <Composer
           replyingTo={replyingTo}
           onCancelReply={() => setReplyingTo(undefined)}
@@ -714,7 +1347,24 @@ export default function ThreadPage(): ReactNode {
           canReplyToCustomer={conversationType !== undefined && !conversationType.startsWith('INTERNAL')}
           {...(addressedPlaceholder !== undefined ? { placeholder: addressedPlaceholder } : {})}
           onSent={onSent}
-          onPendingChange={setPending}
+          onRetryReady={(retry) => {
+            retrySend.current = retry;
+          }}
+          onPendingChange={(next) => {
+            /*
+               Sending returns you to the bottom, wherever you were reading.
+
+               The follow-the-bottom effect only fires for a reader already there, which is
+               what stops a reaction from yanking the thread — but posting a message is an
+               explicit request to add to the END of it, and not being shown your own
+               message is worse than losing your place. Setting the flag rather than
+               scrolling here lets the existing effect do it once the row exists.
+            */
+            setPending((current) => {
+              if (next.length > current.length) atBottom.current = true;
+              return next;
+            });
+          }}
           onTyping={notifyTyping}
         />
       ) : null}
@@ -734,7 +1384,55 @@ export default function ThreadPage(): ReactNode {
       It opens with the thing it is about: the avatar at size and the conversation's name.
       A details panel that opens with a search field is a form.
     */}
-    {showDetails ? (
+    {/*
+      Search inside this conversation, in the column beside it.
+
+      It used to render between the message list and the composer, inside a
+      `.thread-search` div the stylesheet had no rule for at all — so it pushed the thread
+      up, took the composer with it, and was laid out by whatever the cascade happened to
+      give a bare div. As a panel it sits still and the messages stay exactly where they
+      were, which is the whole of the request.
+
+      The same component the list uses, given a conversation — the server has accepted a
+      conversation scope since the route was written, and nothing ever sent one.
+    */}
+    {searchOpen ? (
+      <aside className="details-drawer" aria-label="Search this conversation">
+        <header className="details-head">
+          <h2>Search</h2>
+          <button
+            type="button"
+            className="details-dismiss"
+            onClick={() => setSearchOpen(false)}
+            aria-label="Close search"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path
+                d="M6 6l12 12M18 6L6 18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        </header>
+        <div className="details-body">
+          <ConversationSearch
+            conversationId={conversationId}
+            conversations={activeConversation === undefined ? [] : [activeConversation]}
+            onOpenConversation={() => setSearchOpen(false)}
+          />
+        </div>
+      </aside>
+    ) : inspecting !== undefined ? (
+      <MessageInfoPanel
+        message={inspecting}
+        conversationId={conversationId}
+        overlaid={panelOverlays}
+        onClose={() => setInspecting(undefined)}
+      />
+    ) : showDetails ? (
       <aside className="details-drawer" aria-label={detailsTitle}>
         {/*
           The panel has no header of its own in the design — it is a column, and a column
@@ -773,18 +1471,103 @@ export default function ThreadPage(): ReactNode {
             </button>
             <h2>{detailsTitle}</h2>
           </header>
-        ) : null}
+        ) : (
+          /*
+             At column width the panel used to have no dismiss at all: it was opened from
+             the chat header and closed from the same control, which means the way out is a
+             button in a different part of the screen from the thing being closed. Every
+             panel that can be opened needs a cross where panels keep one — its own
+             top-right corner — and this is that cross.
+
+             Absolute rather than a header row: the panel deliberately opens with the
+             avatar and the name (see above), and giving it a title bar to hang a button
+             from would undo that. It floats over the identity block's top padding, which
+             is empty space in every state.
+          */
+          <button
+            type="button"
+            className="details-dismiss"
+            onClick={() => setColumnHidden(true)}
+            aria-label={`Close ${detailsTitle.toLowerCase()}`}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path
+                d="M6 6l12 12M18 6L6 18"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              />
+            </svg>
+          </button>
+        )}
 
         <div className="details-body">
         <div className="details-identity">
-          <span className={`chat-avatar${isGroup ? ' group' : ''}`} aria-hidden="true">
-            {activeConversation !== undefined ? avatarFor(activeConversation).text : '\u00b7'}
+        {/*
+          A group's picture and name carry their own controls; everything else does not.
+
+          `GroupIdentity` wraps the avatar to hang a camera off its corner and renders the
+          name with a pencil after it. A one-to-one is named after a person and a channel
+          is renamed from its own settings, so neither takes it — and an announcement has
+          no name anybody may change at all.
+        */}
+        {isGroup ? (
+          <GroupIdentity
+            conversationId={conversationId}
+            title={activeConversation !== undefined ? conversationLabel(activeConversation) : 'Group'}
+            onChanged={() => {
+              void refetch();
+              refreshConversations();
+            }}
+          >
+            <span className="chat-avatar group" aria-hidden="true">
+              {/* The glyph is the FALLBACK; the picture sits over it, the same arrangement
+                  the list row and the header use. The panel that edits a group's picture
+                  was the one place not showing it. */}
+              <GroupGlyph />
+              <ConversationAvatarImage conversationId={conversationId} />
+            </span>
+          </GroupIdentity>
+        ) : (
+        <>
+          <span
+            className={`chat-avatar${isChannel ? ' channel' : isGroup ? ' group' : ''}`}
+            aria-hidden="true"
+          >
+            {isChannel ? (
+              /* The room's own mark, the same one the header and the directory row use.
+                 One symbol per kind of thing, everywhere it appears. */
+              <svg viewBox="0 0 24 24" width="22" height="22" focusable="false">
+                <path
+                  d="M9.4 4 7.8 20M16.2 4l-1.6 16M4.6 9h15M3.8 15h15"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            ) : isGroup ? (
+              <GroupGlyph />
+            ) : activeConversation !== undefined ? (
+              <>
+                {avatarFor(activeConversation).text}
+                {/* And the photo over them, for the same reason the thread rows now carry
+                    one: a person who has set a picture should not meet their own initials
+                    in the one panel that is entirely about them. */}
+                <AvatarImage principalId={others[0]?.principalId} alt="" />
+              </>
+            ) : (
+              '\u00b7'
+            )}
           </span>
           <span className="details-identity-name">
             {activeConversation !== undefined
               ? conversationLabel(activeConversation)
               : 'Conversation'}
           </span>
+        </>
+        )}
           {/*
             BR-23 / D-15 in one line: an internal conversation has no case, no SLA, no queue
             and no routing, so there is nothing else true to say about it here. Saying what
@@ -806,6 +1589,12 @@ export default function ThreadPage(): ReactNode {
                    whole point of the audience, and it is the one the server maintains.
                 */
                 `Announcement · ${activeConversation?.participantCount ?? 0} people`
+              : isChannel
+                ? /* The count the DIRECTORY maintains: a channel summary carries no
+                     participant names, and the mapped count can lag a join by a refresh. */
+                  `Channel · ${channel?.memberCount ?? 0} ${
+                    (channel?.memberCount ?? 0) === 1 ? 'member' : 'members'
+                  }`
               : isGroup
                 ? `${others.length + 1} members`
                 : 'Direct message'}
@@ -825,16 +1614,17 @@ export default function ThreadPage(): ReactNode {
           */}
           {isAnnouncement ? null : (
             <div className="details-identity-actions">
-              <button
-                type="button"
-                className="primary"
-                onClick={() => {
-                  const field = document.querySelector<HTMLTextAreaElement>('.composer-input');
-                  field?.focus();
-                }}
-              >
-                Message
-              </button>
+              {/*
+                Search alone. "Message" was the design's primary action here and it never
+                had a job: this panel only opens FROM a conversation that is already on
+                screen, so the button's whole effect was to put the caret in a composer
+                three inches to the left of it. A filled primary button that does nothing
+                you could not do by clicking the box it points at is the loudest thing on
+                the panel promising the least.
+
+                The reference draws "Message" and "Call" because it is a contacts screen
+                where neither is open yet. This is not that screen.
+              */}
               <button type="button" onClick={() => setSearchOpen(true)}>
                 Search
               </button>
@@ -851,6 +1641,26 @@ export default function ThreadPage(): ReactNode {
           directory rows are the reverse: they are one person's facts, and a group has no
           single answer to "reports to".
         */}
+        {/*
+          A channel says what it is and who it is for, above its membership.
+
+          First in the panel because it is the question a person opening a room asks before
+          "who else is here": whether what they write goes to four people or four hundred.
+          `mayManage` came from the server, so the edit and archive controls appear for
+          exactly the people the server will accept them from.
+        */}
+        {isChannel && channel !== undefined ? (
+          <ChannelInfo
+            channel={channel}
+            audience={channelAudience}
+            onChanged={() => {
+              void refreshChannel();
+              void refetch();
+              refreshConversations();
+            }}
+          />
+        ) : null}
+
         {isAnnouncement ? (
           /*
              An announcement's membership is not editable, by anybody.
@@ -876,31 +1686,47 @@ export default function ThreadPage(): ReactNode {
             {isOneToOne ? <EmployeeDetails principalId={others[0]!.principalId} /> : null}
 
             {/*
-              ONE `Participants`, at one position in the tree, whichever kind of thread this
-              is — only `addOnly` changes.
+              Membership belongs to a GROUP, so the section is a group's alone.
 
-              It used to be two: a full one in the group branch and an add-only one nested in
-              a fragment beside the colleague's details. Adding a third person turns a
-              one-to-one into a group, so the add moved the component from one branch to the
-              other, React remounted it, and the confirmation it had just been given —
-              "E2E Colleague was added, they can now read 4 earlier messages" — vanished in
-              the same frame it appeared. BR-07's whole point is that the person is told what
-              their click exposed, and they were told for about 16 milliseconds.
+              A one-to-one used to carry an add-only version of it, on the reasoning that
+              adding a third person is how a direct message becomes a group and hiding the
+              control would take the capability away rather than tidy it. The capability is
+              still there — "New group" in the start panel, which is also where somebody
+              looking to talk to three people goes first — and what the panel loses is a
+              search field, a button and a confirmation paragraph in a column that is
+              otherwise about one named colleague.
 
-              On a one-to-one the member list and the rename are still absent: those restate
-              what the panel already says, and the rename is refused by the server. What
-              stays is the add, because it is a capability and the only place it starts.
+              It also removes a surprise. On a one-to-one, "add" silently changes what the
+              thread IS: the type flips to a group, the name changes from a person to a
+              list, and BR-07 exposes the whole history to the new arrival. That is a
+              reasonable thing to do deliberately from a "new group" flow and a strange
+              thing to offer inside a panel headed with somebody's face.
+
+              It stays ONE component at ONE position in the tree for groups. It used to be
+              two — a full one here and an add-only one nested beside the colleague's
+              details — and adding a third person moved the component between branches, so
+              React remounted it and the confirmation it had just rendered ("… they can now
+              read 4 earlier messages") vanished in the same frame it appeared.
             */}
-            <Participants
-              conversationId={conversationId}
-              addOnly={isOneToOne}
-              onChanged={() => {
-                // Both: the messages gain a membership note, and the SUMMARY gains a
-                // participant — which is what the header above is named from.
-                void refetch();
-                refreshConversations();
-              }}
-            />
+            {/*
+              A channel's membership is the SAME component a group's is.
+
+              `Participants` adds, removes and lists; which of those this person may actually
+              do is `decide()`'s answer, and for a channel that is "administrators only"
+              rather than BR-05's "anyone inside". The component does not need to know the
+              difference — it asks, and the server refuses what it refuses.
+            */}
+            {isGroup || isChannel || addPeopleOpen ? (
+              <Participants
+                conversationId={conversationId}
+                onChanged={() => {
+                  // Both: the messages gain a membership note, and the SUMMARY gains a
+                  // participant — which is what the header above is named from.
+                  void refetch();
+                  refreshConversations();
+                }}
+              />
+            ) : null}
           </>
         )}
 
@@ -916,19 +1742,19 @@ export default function ThreadPage(): ReactNode {
         <SharedFiles conversationId={conversationId} revision={messages.length} />
 
         {/*
-          The design's last section. It draws two switches; there is one, and
-          `ConversationControls` says why the other is absent rather than unbuilt.
+          No "Conversation" section any more, and no "Pin to top" switch in it.
 
-          Drawn from the SUMMARY the shell already holds, so opening the panel costs no extra
-          request and the switch cannot disagree with the list it sorts.
+          Pinning did not go away — it moved to where the thing being pinned actually is.
+          A pin reorders the LIST, and the list is two columns to the left of this panel;
+          setting it from here meant opening the conversation, opening its details, moving
+          a switch, and then looking somewhere else to see what happened. Right-clicking
+          the row does the same thing where the effect is visible, which is also where
+          every other list in every other application puts it.
+
+          `ConversationControls` and the `Switch` it was the only caller of are deleted
+          rather than left exported-but-unused: a component nothing renders is a component
+          the next person has to read before they can be sure of that.
         */}
-        {activeConversation !== undefined ? (
-          <ConversationControls
-            conversationId={conversationId}
-            pinned={activeConversation.pinned}
-            onChanged={refreshConversations}
-          />
-        ) : null}
         </div>
       </aside>
     ) : null}

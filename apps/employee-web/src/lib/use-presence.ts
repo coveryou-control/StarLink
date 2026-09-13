@@ -15,52 +15,21 @@
  *
  * ## One socket for the whole tab
  *
- * Refcounted at module scope rather than opened per hook. The first version opened a
- * connection inside the hook, and the hook has two callers — the shell, for the people in
- * the conversation list, and the directory, for whoever a search just found. That is two
- * presence sockets per tab on top of the thread's and the notification bell's, and the
- * browser suite's wall clock went from about three minutes to eleven and a half.
- *
- * A socket is not a component-scoped resource. The last hook to unmount closes it; a
- * remount inside the same tab reuses the connection that is already open.
+ * The connection is `shared-socket.ts`, refcounted at module scope and shared with the
+ * typing hook. It lived here first, and the reason is recorded there: opened per hook, and
+ * with two callers, the browser suite's wall clock went from about three minutes to eleven
+ * and a half. A socket is not a component-scoped resource.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { io, type Socket } from 'socket.io-client';
+import type { Socket } from 'socket.io-client';
 import { SOCKET_EVENTS, type PresenceSnapshot } from '@starlink/shared-contracts/realtime';
 
-import { runtimeOrigins } from './runtime-origins';
+import { acquireSharedSocket, releaseSharedSocket } from './shared-socket';
 
 /** Slow on purpose: presence is decoration and a tighter loop buys nothing a person notices. */
 const POLL_MS = 20_000;
 /** Matches the gateway's own cap; asking for more would be silently truncated there. */
 const MAX_IDS = 50;
-
-let shared: Socket | undefined;
-let refs = 0;
-
-function acquire(): Socket {
-  refs += 1;
-  if (shared === undefined) {
-    shared = io(runtimeOrigins().realtime, {
-      withCredentials: true,
-      transports: ['websocket'],
-      reconnection: true,
-      reconnectionDelay: 500,
-      reconnectionDelayMax: 30_000,
-      randomizationFactor: 1.0,
-    });
-  }
-  return shared;
-}
-
-function release(): void {
-  refs = Math.max(0, refs - 1);
-  if (refs === 0 && shared !== undefined) {
-    shared.removeAllListeners();
-    shared.disconnect();
-    shared = undefined;
-  }
-}
 
 export function usePresence(principalIds: readonly string[]): ReadonlySet<string> {
   const [online, setOnline] = useState<ReadonlySet<string>>(() => new Set());
@@ -76,10 +45,10 @@ export function usePresence(principalIds: readonly string[]): ReadonlySet<string
   );
 
   useEffect(() => {
-    socketRef.current = acquire();
+    socketRef.current = acquireSharedSocket();
     return () => {
       socketRef.current = null;
-      release();
+      releaseSharedSocket();
     };
   }, []);
 

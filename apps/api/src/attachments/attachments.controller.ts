@@ -16,7 +16,16 @@
  *
  * Everything else — the ladder, the audit, the grant — is one implementation.
  */
-import { Body, Controller, Get, Inject, Param, Post, Req } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Inject,
+  Param,
+  PayloadTooLargeException,
+  Post,
+  Req,
+} from '@nestjs/common';
 import { z } from 'zod';
 import type pg from 'pg';
 import type { UUID } from '@starlink/shared-contracts';
@@ -24,7 +33,8 @@ import type { ConversationAuthzReader } from '@starlink/database';
 import { decide, toActorContext } from '@starlink/conversation-domain';
 import { recordDecision } from '../edge/authorization-metrics.js';
 import type { IdentityAuthorizationClient } from '@starlink/shared-contracts';
-import { AUTHZ_READER, DATABASE, IDENTITY_CLIENT } from '../tokens.js';
+import { AUTHZ_READER, CONFIG, DATABASE, IDENTITY_CLIENT } from '../tokens.js';
+import type { ApiConfig } from '../config.js';
 import {
   refuse,
   storageUnavailable,
@@ -36,10 +46,25 @@ import type { AccessPorts } from './attachment-access.js';
 
 const uuid = z.string().uuid();
 
+import { refuseVoiceNote } from './voice-note-limits.js';
+
 const intakeSchema = z.object({
   filename: z.string().min(1).max(400),
   declaredMime: z.string().min(1).max(200),
   declaredBytes: z.number().int().positive(),
+  /**
+   * How long a voice note runs, in milliseconds.
+   *
+   * The recorder is the only thing that can know this, so it arrives from the client and
+   * is therefore not trusted: bounded here against the configured maximum, bounded again
+   * by a CHECK in migration 0029, and used for nothing but the label beside a play button.
+   * A lie about it makes a bubble say the wrong number; it cannot make the file larger, or
+   * reach a conversation, or skip a scan.
+   *
+   * `positive`, so zero is refused — a voice note of no length is a failed recording, and
+   * accepting it would put an unplayable bubble in the thread.
+   */
+  durationMs: z.number().int().positive().optional(),
 });
 
 /**
@@ -57,7 +82,7 @@ class AttachmentPlumbing {
   /**
    * §28.4 step 3, and step 4's input.
    *
-   * `mayReadConversation` runs the SAME `decide()` every other read path runs. Writing a
+   * `mayActOnConversation` runs the SAME `decide()` every other path runs. Writing a
    * second, attachment-specific rule here is exactly how two authorization paths diverge
    * (§38), so this one delegates rather than deciding.
    */
@@ -78,7 +103,7 @@ class AttachmentPlumbing {
        * enforces as a join on every read. §21.5's model is that participation grants that
        * conversation and nothing else (rule 3).
        */
-      mayReadConversation: async (principalId, conversationId) => {
+      mayActOnConversation: async (principalId, conversationId, action) => {
         if (actorKind === 'CUSTOMER') {
           const row = await this.pool.query(
             `SELECT 1 FROM conversation.participants
@@ -97,10 +122,10 @@ class AttachmentPlumbing {
         const claims = await this.identity.resolvePrincipal(principalId);
         if (!claims.ok) return false;
         return recordDecision(
-          'conversation.read',
+          action,
           decide({
             actor: toActorContext(claims.value),
-            action: 'conversation.read',
+            action,
             resource,
             now: at,
           }),
@@ -139,6 +164,9 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
     @Inject(AUTHZ_READER) authz: ConversationAuthzReader,
     @Inject(IDENTITY_CLIENT) identity: IdentityAuthorizationClient,
     @Inject(DATABASE) pool: pg.Pool,
+    /* The voice-note ceilings. Configuration rather than constants, because the right
+       numbers are an operational judgement about storage. */
+    @Inject(CONFIG) private readonly config: ApiConfig,
   ) {
     super(attachments, authz, identity, pool);
   }
@@ -157,9 +185,18 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
     const at = new Date().toISOString();
     // Authorized against the CONVERSATION before anything is granted: the right to
     // attach is the right to write here, and §28.1 rejects before bytes exist.
-    if (!(await this.portsFor(at, 'EMPLOYEE').mayReadConversation(session.principalId, conversationId.data))) {
+    if (!(await this.portsFor(at, 'EMPLOYEE').mayActOnConversation(session.principalId, conversationId.data, 'conversation.read'))) {
       return refuse();
     }
+
+    /* The voice-note ceilings, before a grant exists — see `voice-note-limits.ts` for why
+       they are configuration rather than a five-minute constant, and why this refusal is
+       allowed to say what it is when §27.3 makes most of them uniform. */
+    const tooBig = refuseVoiceNote(parsed.data, {
+      maxSeconds: this.config.SL_VOICE_NOTE_MAX_SECONDS,
+      maxBytes: this.config.SL_VOICE_NOTE_MAX_BYTES,
+    });
+    if (tooBig !== undefined) throw new PayloadTooLargeException(tooBig);
 
     const grant = await this.attachments.grantUpload({
       conversationId: conversationId.data,
@@ -168,6 +205,7 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
       declaredMime: parsed.data.declaredMime,
       declaredBytes: parsed.data.declaredBytes,
       filename: parsed.data.filename,
+      ...(parsed.data.durationMs !== undefined ? { durationMs: parsed.data.durationMs } : {}),
       correlationId: request.correlationId,
     });
 
@@ -192,8 +230,22 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
   ): Promise<unknown> {
     const attachmentId = uuid.safeParse(attachmentIdRaw);
     if (!attachmentId.success) return refuse();
-    const ok = await this.attachments.markUploaded(attachmentId.data, request.session!.principalId);
-    return ok ? { state: 'QUARANTINED' } : refuse();
+    /*
+       The state AFTER the scan, not before it.
+
+       This used to answer 'QUARANTINED' unconditionally and leave the client polling for a
+       verdict the sweep would produce up to ten seconds later. The scan now runs inside
+       `markUploaded`, so the honest answer is whatever it settled on - usually CLEAN, which
+       lets the composer mark the file sendable on this response and never poll at all.
+
+       Still QUARANTINED when the scanner was unavailable, and the client's poll is what
+       covers that: this is a faster path to the same answer, not a replacement for it.
+    */
+    const state = await this.attachments.markUploaded(
+      attachmentId.data,
+      request.session!.principalId,
+    );
+    return state !== undefined ? { state } : refuse();
   }
 
   /**
@@ -215,7 +267,7 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
    *
    * The list is message content by another name: knowing that a file called
    * `Q3-headcount.xlsx` was shared in a thread is knowing something about that thread. So
-   * it goes through `mayReadConversation`, which for an employee is the same `decide()`
+   * it goes through `mayActOnConversation`, which for an employee is the same `decide()`
    * object check every other read path makes — not a separate rule that could drift from
    * it (§38).
    *
@@ -241,15 +293,22 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
 
     const at = new Date().toISOString();
     const ports = this.portsFor(at, 'EMPLOYEE');
-    const allowed = await ports.mayReadConversation(
+    const allowed = await ports.mayActOnConversation(
       request.session!.principalId,
       conversationId.data,
+      /* The shared-files LIST is metadata about the conversation, not the bytes — a read.
+         The download action is evaluated where the bytes are actually handed over. */
+      'conversation.read',
     );
     if (!allowed) return refuse();
 
     const result = await this.pool.query(
+      /* `sniffed_mime`, not `declared_mime`: the panel draws pictures from this list, and
+         deciding how to render bytes from what the uploader CLAIMED they were is how an
+         uploader chooses what every recipient's browser does with their file. It is the
+         same rule `mediaKindOf` follows in the thread. */
       `SELECT a.attachment_id, a.original_filename, a.declared_bytes, a.created_at,
-              p.display_name AS uploaded_by
+              a.sniffed_mime, p.display_name AS uploaded_by
          FROM conversation.attachments a
          LEFT JOIN identity.principals p ON p.principal_id = a.uploader_id
         WHERE a.conversation_id = $1
@@ -266,6 +325,7 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
         filename: row.original_filename ?? 'Attachment',
         declaredBytes: Number(row.declared_bytes),
         sharedAt: (row.created_at as Date).toISOString(),
+        ...(row.sniffed_mime !== null ? { contentType: row.sniffed_mime as string } : {}),
         ...(row.uploaded_by !== null ? { uploadedBy: row.uploaded_by as string } : {}),
       })),
     };
@@ -339,7 +399,7 @@ export class CustomerAttachmentsController extends AttachmentPlumbing {
 
     const session = request.session!;
     const at = new Date().toISOString();
-    if (!(await this.portsFor(at, 'CUSTOMER').mayReadConversation(session.principalId, conversationId.data))) {
+    if (!(await this.portsFor(at, 'CUSTOMER').mayActOnConversation(session.principalId, conversationId.data, 'conversation.read'))) {
       return refuse();
     }
 

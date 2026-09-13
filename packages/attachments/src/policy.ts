@@ -73,6 +73,57 @@ export const DEFAULT_POLICY: AttachmentPolicy = Object.freeze({
       'application/vnd.ms-excel',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       'text/plain',
+      /*
+         Voice notes.
+
+         A voice note is an attachment, so this list is what decides whether one may exist
+         at all. Four types because browsers do not agree on what they record: Chrome and
+         Firefox produce `audio/webm` (Opus in a Matroska container), Safari produces
+         `audio/mp4` (AAC), and `audio/ogg` and `audio/mpeg` are here because a recorder
+         may fall back to either and a file the product refuses to accept after recording
+         it is the worst possible moment to find out.
+
+         Audio is not a document, and the reason it is safe to accept is the same reason a
+         picture is: the scanner sniffs the container's magic bytes and the download path
+         serves everything as `application/octet-stream` with `Content-Disposition:
+         attachment`, so nothing here is ever interpreted as script by a browser.
+      */
+      'audio/webm',
+      'audio/ogg',
+      'audio/mp4',
+      'audio/mpeg',
+      /*
+         Video, and the rest of the picture formats.
+
+         Added 2026-09-10, because the composer had begun offering "Photos & videos" and
+         the server refused every video that came through it - the person saw "That file
+         cannot be attached here" over a control that had just invited them to attach it.
+         An interface that offers what the policy refuses is worse than one that offers
+         neither.
+
+         The three video types are the three `mediaKindOf` will draw inline, and that is
+         deliberate: a type on this list that the thread cannot render arrives as a file
+         card, which is a worse answer than not accepting it. `image/gif`, `image/webp`
+         and `image/avif` are here for the same reason in reverse - the renderer already
+         claimed all three and the policy accepted none, so those branches were dead.
+
+         Safe for the same reason the audio types are, and it is the container argument
+         rather than a new one: the scanner sniffs magic bytes, and the download path
+         serves everything as `application/octet-stream` with `Content-Disposition:
+         attachment`, so nothing here is ever interpreted as script by a browser.
+
+         SVG is still absent, and still deliberately. It is a document that can carry
+         script, and rendering one inline from a colleague is an execution decision.
+
+         `maxBytes` is NOT raised for these. 25MB is a configured value (ADR-017) and a
+         video-sized one is not this change's to invent - see STARLINK_OPEN_QUESTIONS.
+      */
+      'video/mp4',
+      'video/webm',
+      'video/quicktime',
+      'image/gif',
+      'image/webp',
+      'image/avif',
     ]),
     maxBytes: 25 * 1024 * 1024,
     // See the header: §28.2's exemption for employees is void once customers may upload.

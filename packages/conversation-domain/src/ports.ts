@@ -8,6 +8,10 @@
  * than as SQL.
  */
 import type {
+  ChannelPostAccess,
+  ChannelPurpose,
+  ChannelReadAccess,
+  ChannelVisibility,
   ConversationState,
   ConversationType,
   PrincipalKind,
@@ -20,6 +24,15 @@ import type {
 export interface ConversationParticipantRef {
   readonly principalId: UUID;
   readonly displayName: string;
+  /**
+   * Their role in THIS conversation.
+   *
+   * `CREATOR` marks whoever started it, and in a group that is the only person permitted
+   * to remove members (migration 0023). Optional, because a summary produced before this
+   * was carried simply has no answer — and an absent role must read as "not the admin"
+   * rather than as "unknown, allow it", which is rule 4 applied to a projection.
+   */
+  readonly role?: string;
 }
 
 export interface ConversationSummary {
@@ -57,7 +70,31 @@ export interface ConversationSummary {
   readonly lastActivityAt: Timestamp;
   readonly lastMessagePreview?: string;
   readonly participantCount: number;
+  /** Who created it. Present for internal conversations; the group's admin (0023). */
+  readonly createdBy?: string;
   readonly unreadCount: number;
+  /**
+   * Who issued this announcement. Absent on every other conversation type.
+   *
+   * The CREATOR, not the newest sender. An announcement is issued by somebody, and when a
+   * second person with the permission replies inside it the board must still say whose
+   * notice it is - "Rahul" on a notice from the leadership team would be a wrong
+   * attribution on the one screen where attribution is the point.
+   */
+  readonly publisherName?: string;
+  /**
+   * When a publisher pinned this announcement for EVERYBODY, if one has.
+   *
+   * A third thing called a pin, and the third distinct fact - see migration 0032.
+   * `pinned` below is this reader's own ordering of their own chat list and says nothing
+   * to anybody else; this is an editorial decision about a company notice, and only
+   * somebody who may publish one can make it.
+   *
+   * A timestamp rather than a boolean so the board can order by it: two pinned notices
+   * need a sequence, and "whichever was pinned most recently" is the only one available
+   * that a publisher can influence.
+   */
+  readonly pinnedForEveryone?: Timestamp;
   /**
    * Enough to draw a tick on the list row, without opening the conversation.
    *
@@ -84,6 +121,15 @@ export interface ConversationSummary {
    * preference. See migration 0018.
    */
   readonly pinned: boolean;
+  /**
+   * When this reader's mute of the thread runs out; absent when it is not muted.
+   *
+   * Absent rather than a boolean because the UI has to say WHEN — "muted until 15:40" is
+   * actionable and "muted" is a state somebody has to remember setting. An expired mute is
+   * reported as absent, so no consumer has to know that an old row can still be sitting in
+   * the table.
+   */
+  readonly mutedUntil?: string;
 }
 
 export interface NewParticipant {
@@ -107,6 +153,26 @@ export interface NewConversation {
   readonly createdAt: Timestamp;
 }
 
+/**
+ * The three access answers a new channel is opened with, plus its audience.
+ *
+ * Written in the SAME transaction as the conversation. A channel row without a policy row
+ * is refused by decide() outright - the safe direction, but a state no reader should ever
+ * be able to observe, and an unusable room somebody would have to notice and repair.
+ */
+export interface NewChannelPolicy {
+  readonly purpose: ChannelPurpose;
+  readonly description?: string;
+  readonly visibility: ChannelVisibility;
+  readonly readAccess: ChannelReadAccess;
+  readonly postAccess: ChannelPostAccess;
+  /** Departments, teams or named principals. Empty for a channel visible to everyone. */
+  readonly audience: readonly {
+    readonly scopeKind: 'DEPARTMENT' | 'TEAM' | 'PRINCIPAL';
+    readonly scopeId: string;
+  }[];
+}
+
 export interface OutboxRow {
   readonly eventName: string;
   readonly eventVersion: number;
@@ -125,6 +191,8 @@ export interface ConversationWriteTransaction {
    */
   findDirectConversation(a: UUID, b: UUID): Promise<UUID | undefined>;
   insertConversation(conversation: NewConversation): Promise<void>;
+  /** @see NewChannelPolicy - same transaction as the conversation, always. */
+  insertChannelPolicy(conversationId: UUID, policy: NewChannelPolicy): Promise<void>;
   listParticipants(conversationId: UUID): Promise<readonly NewParticipant[]>;
   /**
    * Starts participation AT A CALLER-SUPPLIED INSTANT.
@@ -146,6 +214,19 @@ export interface ConversationWriteTransaction {
   ): Promise<void>;
   /** Ends future access. Does NOT delete the row: who could have read what is history (BR-09). */
   endParticipation(conversationId: UUID, principalId: UUID, at: Timestamp): Promise<boolean>;
+  /**
+   * Changes a live participant's role in this conversation.
+   *
+   * Exists for one case: the creator of a group leaving it. `CREATOR` is what permits
+   * removing anybody from a group (migration 0023), so a group whose creator walks out
+   * keeps its members and loses the only person who could ever manage them. Handing the
+   * role on is the group's version of rule 7 — the accountable position is reassigned,
+   * never left empty.
+   *
+   * Deliberately narrow. This is not an "appoint an admin" capability: nothing calls it
+   * except `leaveConversation`, and migration 0023 records why there is no way to have two.
+   */
+  setParticipantRole(conversationId: UUID, principalId: UUID, role: string): Promise<void>;
   loadConversationType(conversationId: UUID): Promise<ConversationType | undefined>;
 
   /**
@@ -204,6 +285,13 @@ export interface ConversationCursor {
 }
 
 export interface ConversationReader {
+  /**
+   * Has this person ever been in a conversation of their own?
+   *
+   * Answers the one question an empty list cannot: whether the emptiness is a new joiner or
+   * somebody who has archived everything. See the implementation for what counts.
+   */
+  hasEverConversed(principalId: UUID): Promise<boolean>;
   /** The caller's threads, newest activity first. Scoped by participation, not filtered after. */
   listForPrincipal(
     principalId: UUID,
@@ -213,7 +301,7 @@ export interface ConversationReader {
      * Which list. Announcements are conversations and are deliberately not in the chat list
      * — see the implementation for why the split is a WHERE clause and not a client filter.
      */
-    scope?: 'CHATS' | 'ANNOUNCEMENTS',
+    scope?: 'CHATS' | 'ANNOUNCEMENTS' | 'CHANNELS',
   ): Promise<readonly ConversationSummary[]>;
 }
 

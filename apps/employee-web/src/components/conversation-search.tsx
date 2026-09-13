@@ -42,6 +42,7 @@ import {
   api,
   ApiError,
   type ConversationSummary,
+  type ConversationTitleHit,
   type DirectoryEntry,
   type SearchHit,
   type SharedFile,
@@ -49,12 +50,13 @@ import {
 import { conversationLabel, initialsFor, relativeTime as when } from './conversation-naming';
 import { extensionOf, formatBytes } from './attachment-picker';
 import { requestBrowseDirectory } from '../lib/shell-actions';
+import { AvatarImage } from './avatar-image';
 
 /**
  * The reference's four tabs. "All" is not a fourth query — it is the other three, shown
  * together, which is what "one result set" means on screen 04.
  */
-type Facet = 'all' | 'messages' | 'files' | 'people';
+type Facet = 'all' | 'messages' | 'groups' | 'files' | 'people';
 
 const DEBOUNCE_MS = 300;
 /**
@@ -169,6 +171,9 @@ export function ConversationSearch({
   const [hits, setHits] = useState<readonly SearchHit[] | undefined>();
   const [files, setFiles] = useState<readonly (SharedFile & { conversationId: string })[]>([]);
   const [people, setPeople] = useState<readonly DirectoryEntry[]>([]);
+  /* Conversations matched by TITLE. The placeholder has always said "groups"; until now
+     nothing answered for them. A 1:1 has no title, so these are groups and announcements. */
+  const [groups, setGroups] = useState<readonly ConversationTitleHit[]>([]);
   /** Boolean, not a count — see `api.search`. True when the server found anything. */
   const [matched, setMatched] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -177,7 +182,7 @@ export function ConversationSearch({
 
   const query = term.trim();
   const active = query.length >= MIN_LENGTH;
-  const total = (hits?.length ?? 0) + files.length + people.length;
+  const total = (hits?.length ?? 0) + groups.length + files.length + people.length;
   /* "All" is the other three together — see the `Facet` note. */
   const show = (which: Facet): boolean => facet === 'all' || facet === which;
 
@@ -186,6 +191,7 @@ export function ConversationSearch({
       setHits(undefined);
       setFiles([]);
       setPeople([]);
+      setGroups([]);
       setMessage(undefined);
       setBusy(false);
       return;
@@ -211,6 +217,14 @@ export function ConversationSearch({
           })
           .catch(() => {
             if (!cancelled) setFiles([]);
+          });
+        void api
+          .searchConversations(query)
+          .then((result) => {
+            if (!cancelled) setGroups(result.conversations);
+          })
+          .catch(() => {
+            if (!cancelled) setGroups([]);
           });
         void api
           .directory(query)
@@ -273,7 +287,15 @@ export function ConversationSearch({
   };
 
   return (
-    <section className="search" aria-label="Search conversations">
+    <section
+      className="search"
+      aria-label="Search conversations"
+      /* The panel is a column of fixed-height blocks until there is something to scroll.
+         `flex: none` is right for a search field sitting above a conversation list, and
+         wrong the moment the results replace that list - so the state is on the element and
+         the stylesheet decides, rather than the height being guessed at in vh. */
+      data-results={searching ? 'true' : 'false'}
+    >
       {/*
         Still a `form`, so Enter submits and the field is a labelled control in a landmark
         — but submitting only re-focuses, because the results are already there. Removing
@@ -332,7 +354,15 @@ export function ConversationSearch({
         </div>
       </form>
 
-      <div aria-live="polite">
+      {/*
+        The live region is also the COLUMN the results live in, so it has to be one.
+
+        It was a bare `<div>`, which is `display: block` — so `.search-surface`'s `flex: 1`
+        below it resolved against nothing, the surface grew to its content, and 21 results
+        ran 768px past the bottom of the panel instead of scrolling inside it. A wrapper with
+        no styling is still a link in the chain.
+      */}
+      <div className="search-body" aria-live="polite">
         {busy ? <p className="muted result-note">Searching…</p> : null}
 
         {message !== undefined && !busy ? (
@@ -357,6 +387,7 @@ export function ConversationSearch({
                   [
                     ['all', 'All', total],
                     ['messages', 'Messages', hits.length],
+                    ['groups', 'Groups', groups.length],
                     ['files', 'Files', files.length],
                     ['people', 'People', people.length],
                   ] as const
@@ -387,6 +418,20 @@ export function ConversationSearch({
               </p>
             ) : null}
 
+            {/*
+              ONE scroll container for every group, rather than one per group.
+
+              Each `.search-results` list used to cap itself at 34vh and scroll on its own.
+              With four groups on screen that reads as a reasonable division of the column;
+              with ONE — which is what choosing the "Messages" tab produces — it left a third
+              of the panel holding the list and two thirds holding nothing, and 38 results
+              behind a scrollbar three rows tall.
+
+              The lists no longer cap themselves. The area they sit in takes the height that
+              is left and scrolls once, so a filtered search fills the panel and an unfiltered
+              one runs the four groups past each other the way a page of results should.
+            */}
+            <div className="search-surface">
             {show('messages') && hits.length > 0 ? (
               <>
                 <p className="search-group">Messages</p>
@@ -398,6 +443,9 @@ export function ConversationSearch({
                           {hit.senderDisplayName === undefined
                             ? '·'
                             : initialsFor(hit.senderDisplayName)}
+                          {/* The sender's picture over their initials, as every other list
+                              of people in the product now does. */}
+                          <AvatarImage principalId={hit.senderPrincipalId} alt="" />
                         </span>
                         <span className="search-text">
                           {/*
@@ -434,6 +482,29 @@ export function ConversationSearch({
                             ) : null}
                           </span>
                           <span className="search-snippet">{highlight(hit.snippet, query)}</span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            ) : null}
+
+            {show('groups') && groups.length > 0 ? (
+              <>
+                <p className="search-group">Groups</p>
+                <ul className="search-results">
+                  {groups.map((group) => (
+                    <li key={group.conversationId}>
+                      <button type="button" onClick={() => onOpenConversation(group.conversationId)}>
+                        <span className="search-avatar" aria-hidden="true">
+                          {initialsFor(group.title)}
+                        </span>
+                        <span className="search-text">
+                          <span className="search-name">{group.title}</span>
+                          <span className="search-context">
+                            {group.participantCount} members · {when(group.lastActivityAt)}
+                          </span>
                         </span>
                       </button>
                     </li>
@@ -484,6 +555,7 @@ export function ConversationSearch({
                       <button type="button" onClick={() => requestBrowseDirectory()}>
                         <span className="search-avatar" aria-hidden="true">
                           {initialsFor(person.displayName)}
+                          <AvatarImage principalId={person.principalId} alt="" />
                         </span>
                         <span className="search-text">
                           <span className="search-name">{person.displayName}</span>
@@ -497,6 +569,7 @@ export function ConversationSearch({
                 </ul>
               </>
             ) : null}
+            </div>
           </>
         ) : null}
       </div>
