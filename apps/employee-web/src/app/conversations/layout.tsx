@@ -29,7 +29,7 @@ import { api, ApiError, type ConversationSummary,
   type ChannelSummary,
 } from '../../lib/api-client';
 import { customerWorkspaceEnabled } from '../../lib/runtime-origins';
-import { watchSystemTheme } from '../../lib/theme';
+import { applyTheme, storedTheme, watchSystemTheme } from '../../lib/theme';
 import { onShellAction } from '../../lib/shell-actions';
 import { registerForPush } from '../../lib/push-client';
 import { useNotifications } from '../../lib/use-notifications';
@@ -326,9 +326,23 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
     if (state.status === 'SIGNED_OUT') router.replace('/sign-in');
   }, [state.status, router]);
 
-  /* "Match system" is a live subscription, not a one-off read — see `theme.ts`. Mounted
-     here rather than in Settings, because it has to keep working while Settings is shut. */
-  useEffect(() => watchSystemTheme(), []);
+  /**
+   * The workspace takes the person's choice back from the front door.
+   *
+   * Sign-in is forced dark before the first paint (`themeBootScript`), and signing in is a
+   * CLIENT-side navigation — the script does not run again, so without this the workspace
+   * inherits the door's palette and stays dark until a hard reload. Applying the stored
+   * choice on mount is what makes "dark sign-in, then the workspace you chose" one
+   * transition rather than two states that disagree.
+   *
+   * Then "Match system" is a live subscription rather than a one-off read — see `theme.ts`.
+   * Mounted here rather than in Settings, because it has to keep working while Settings is
+   * shut.
+   */
+  useEffect(() => {
+    applyTheme(storedTheme());
+    return watchSystemTheme();
+  }, []);
 
   /* The empty pane's two calls to action. It is a route, so it cannot reach this state by
      prop — see `shell-actions.ts` for why an event and not a context. */

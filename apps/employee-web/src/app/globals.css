@@ -7118,11 +7118,17 @@ button.settings-switch {
 
    ## Every value is measured
 
-   Against the card at #1b1a26 unless said otherwise, AA being 4.5:1 for text at these
-   sizes:
+   Against the PAGE at #0f0e16 unless said otherwise, AA being 4.5:1 for text at these
+   sizes. They were measured against the card at #1b1a26 until the card was removed; the
+   ground under the form is now two steps darker, so every ratio went up and none of them
+   needed a new colour:
 
-     ink      #ecebf3   14.52:1        muted   #aba7c0   7.38:1
-     subtle   #9d99b4    6.26:1        field ink on #242232   13.14:1
+     ink      #ecebf3   16.21:1        muted   #aba7c0   8.24:1
+     subtle   #9d99b4    6.99:1        field ink on #242232   13.14:1
+
+   The field measurement is unchanged and always was the important one — it is field-ink
+   against the field's own surface, which is what the sign-in appearance suite asserts and
+   what the original defect violated.
 
    ## The action colour does NOT change
 
@@ -7139,7 +7145,6 @@ button.settings-switch {
     --si-subtle: #9d99b4;
     --si-line: rgb(255 255 255 / 12%);
     --si-line-strong: rgb(255 255 255 / 26%);
-    --si-card: rgb(27 26 38 / 94%);
     --si-field: #242232;
     --si-page: #0f0e16;
   }
@@ -7151,7 +7156,6 @@ button.settings-switch {
   --si-subtle: #9d99b4;
   --si-line: rgb(255 255 255 / 12%);
   --si-line-strong: rgb(255 255 255 / 26%);
-  --si-card: rgb(27 26 38 / 94%);
   --si-field: #242232;
   --si-page: #0f0e16;
 }
@@ -7162,7 +7166,6 @@ button.settings-switch {
   --si-subtle: #6e6a80;
   --si-line: rgb(28 26 46 / 10%);
   --si-line-strong: rgb(28 26 46 / 20%);
-  --si-card: rgb(255 255 255 / 92%);
   --si-field: #ffffff;
   --si-page: #fbfbfd;
   /*
@@ -7263,7 +7266,19 @@ button.settings-switch {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--si-card-w) minmax(0, 1fr);
+  /*
+     Two tracks, not three: the form sits at the RIGHT end of the composition.
+
+     It was centred between two equal gutters, which put it directly over the star — the
+     one part of the artwork with anything in it — and made the graphic a backdrop the card
+     was covering rather than a thing the page was showing. Moved right, the star has the
+     left half to itself and the two stop competing for the same square inches.
+
+     `minmax(0, …)` on the open track because a track sized from content refuses to go below
+     its longest word, and the lede's "CONVERSATIONS" would then set a floor that pushes the
+     form off the screen on a narrow window.
+  */
+  grid-template-columns: minmax(0, 1fr) var(--si-card-w);
   align-items: center;
   gap: clamp(24px, 4vw, 64px);
   width: 100%;
@@ -7321,35 +7336,27 @@ button.settings-switch {
 }
 
 /*
-   The card.
+   The form, with no card under it.
 
-   Translucent over a blur, so the strands remain faintly visible through it. The border is
-   almost nothing and the shadow is three layers rather than one: a hairline contact shadow,
-   a short mid shadow, and a very wide soft one. A single large blur reads as a sticker;
-   the stack is what makes an object look like it is a few millimetres off the page.
+   It was a translucent panel over a blur, with a white hairline and a three-layer shadow —
+   a considered object, and one object too many. A card exists to separate its contents from
+   a busy ground; this ground is a dark field with a single figure in it, at the other end of
+   the composition, and the form has nothing to be separated FROM. What the card actually did
+   was draw a rectangle around the only interactive thing on the screen and make it look like
+   a dialog that had opened over the page rather than the page itself.
+
+   So the fields sit directly on the ground. They keep their own surfaces — `--si-field` is
+   two steps up from `--si-page` — which is what makes them read as inputs without a plate
+   behind them, and is why the contrast measurements above still hold: they were always
+   field-ink against field, never against the card.
+
+   The padding stays. It is the form's own rhythm and its right-hand breathing room, not the
+   inside of a box that is gone.
 */
 .signin-panel {
   display: flex;
   flex-direction: column;
-  padding: 32px 28px 26px;
-  border: 1px solid rgb(255 255 255 / 70%);
-  border-radius: 18px;
-  background: var(--si-card);
-  backdrop-filter: blur(20px) saturate(1.35);
-  box-shadow:
-    0 0 0 1px rgb(28 26 46 / 4%),
-    0 2px 4px rgb(28 26 46 / 3%),
-    0 14px 30px -14px rgb(28 26 46 / 12%),
-    0 46px 90px -40px rgb(28 26 46 / 20%);
-}
-
-/* Where the blur is unavailable the card must not become a pale ghost of itself: it goes
-   opaque instead, which is the honest fallback rather than a translucent card over an
-   un-blurred graphic. */
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .signin-panel {
-    background: rgb(255 255 255 / 98%);
-  }
+  padding: 32px 4px 26px;
 }
 
 /* ------------------------------------------------------------------------- masthead --- */
@@ -7812,10 +7819,12 @@ input.signin-control {
    worse than no caption. The card takes the middle and the graphic keeps the left.
 */
 @media (max-width: 1140px) {
-  .signin-stage {
-    grid-template-columns: minmax(0, 1fr) var(--si-card-w) minmax(0, 1fr);
-  }
+  /*
+     The lede goes and the form stays where it was.
 
+     It used to move to the middle here, which meant crossing this breakpoint slid the form
+     sideways under the pointer. The graphic keeps the room the lede gave up.
+  */
   .signin-lede {
     display: none;
   }
@@ -7869,8 +7878,7 @@ input.signin-control {
   }
 
   .signin-panel {
-    padding: 30px 22px 26px;
-    border-radius: 18px;
+    padding: 30px 2px 26px;
   }
 
   .signin-masthead {

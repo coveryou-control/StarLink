@@ -43,6 +43,7 @@
 import { expect, test } from '@playwright/test';
 
 import { ORIGINS } from './support/env.js';
+import { signIn } from './support/flows.js';
 
 /** Relative luminance, so "light" is a measurement rather than a hex comparison. */
 function luminance(colour: string): number {
@@ -123,5 +124,63 @@ for (const scheme of ['light', 'dark'] as const) {
       // And the same as each other — the half-correct state is the one that hid for so long.
       expect(new Set(backgrounds).size, `the fields disagree in ${scheme}: ${backgrounds.join(' vs ')}`).toBe(1);
     });
+
+    test('the screen is dark whatever the OS asked for', async ({ page }) => {
+      /**
+       * The front door has one palette, and this is the assertion that says so.
+       *
+       * The screen was given a real dark mode and then made dark unconditionally: it is a
+       * composition rather than a surface somebody works in all day, and it is the same
+       * composition for everybody. That is decided before the first paint in
+       * `themeBootScript` — a component effect would be one frame too late and would show
+       * a white flash on exactly the screen whose point is that it is not white.
+       *
+       * Asserted in BOTH OS themes from the same loop, because "dark by default" and "dark
+       * because your laptop is" are different behaviours that look identical to anybody
+       * testing on a dark machine.
+       */
+      await page.goto(`${ORIGINS.employeeWeb}/sign-in`);
+
+      await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+
+      /* And the ground is actually painted dark, not merely labelled. The attribute is what
+         the stylesheet reads; this is what the person sees, and a token that stopped
+         resolving would satisfy the first check and fail this one. */
+      const ground = await page
+        .locator('.signin')
+        .evaluate((el) => getComputedStyle(el).backgroundColor);
+      expect(luminance(ground), `the sign-in ground is not dark in ${scheme}: ${ground}`).toBeLessThan(0.1);
+    });
   });
 }
+
+/**
+ * The other half of "dark sign-in": the workspace behind it is not.
+ *
+ * Signing in is a CLIENT-side navigation, so the pre-paint script that forced the door dark
+ * does not run again. Without the workspace re-applying the stored choice on mount, the
+ * palette of the front door leaks into the product and stays there until a hard reload —
+ * which is exactly the kind of fault that survives review, because the developer who just
+ * signed in sees the theme they expected and the person who opens a bookmark sees a
+ * different one.
+ *
+ * Run in a DARK OS theme deliberately. In a light one the workspace would look correct
+ * whether or not anything re-applied the choice, so the test would pass on a broken build.
+ */
+test.describe('after signing in', () => {
+  test.use({ colorScheme: 'dark' });
+
+  test('the workspace is light, though the door was dark', async ({ page }) => {
+    await page.goto(`${ORIGINS.employeeWeb}/sign-in`);
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
+
+    await signIn(page, 'agent');
+
+    /* `toHaveAttribute` retries, which is what makes this safe against the mount effect
+       landing a frame after the navigation resolves. */
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+
+    const ground = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+    expect(luminance(ground), `the workspace is not light: ${ground}`).toBeGreaterThan(0.5);
+  });
+});
