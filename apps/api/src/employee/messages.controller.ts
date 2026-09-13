@@ -19,6 +19,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { z } from 'zod';
+import { DEFAULT_POLICY } from '@starlink/attachments';
 import {
   editMessage,
   redactMessage,
@@ -86,8 +87,16 @@ const sendSchema = z
     visibility: z.enum(['INTERNAL', 'CUSTOMER_VISIBLE']),
     replyToMessageId: uuid.optional(),
     clientMessageId: z.string().min(1).max(200).optional(),
-  /** Attachments to bind to this message once it exists (§28.1, ADR-012). */
-  attachmentIds: z.array(uuid).max(10).optional(),
+  /**
+   * Attachments to bind to this message once it exists (§28.1, ADR-012).
+   *
+   * The ceiling comes from the policy rather than being written here, because it was
+   * written here — as a bare `10` beside a second bare `10` on the customer route — and a
+   * count limit that lives in two schemas is a count limit that will be raised in one.
+   * `DEFAULT_POLICY` is where the per-file ceilings already are, so it is where the "how
+   * many" belongs too, and the composer derives its own limit from the same place.
+   */
+  attachmentIds: z.array(uuid).max(DEFAULT_POLICY.employee.maxPerMessage).optional(),
   /**
    * Structured mentions, as offsets into `body`.
    *

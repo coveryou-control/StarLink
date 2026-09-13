@@ -8,6 +8,7 @@ export {
   type PipelineResult,
 } from './pipeline.js';
 export {
+  ceilingFor,
   checkReceived,
   checkUploadIntent,
   policyFor,

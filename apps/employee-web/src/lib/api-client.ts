@@ -805,6 +805,20 @@ export const api = {
    * uniform 404, because a 404 would tell the person their file does not exist and invite
    * them to upload it again.
    */
+  /**
+   * What the server will accept: how many files per message, and how large each may be.
+   *
+   * Asked rather than assumed — see `attachment-limits.ts`. The composer needs these to
+   * describe a refusal before it happens; the server applies them whether or not anybody
+   * asked.
+   */
+  attachmentLimits: () =>
+    request<{
+      maxPerMessage: number;
+      maxBytes: number;
+      maxBytesByFamily: Record<string, number>;
+    }>(employeeRoutes.attachments.limits),
+
   requestUpload: (
     conversationId: string,
     file: {

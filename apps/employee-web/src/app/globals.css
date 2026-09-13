@@ -4686,6 +4686,49 @@ input[type='search']::-webkit-search-cancel-button {
   font-weight: 550;
 }
 
+/* Files that were not attached, one line each.
+
+   A panel rather than the single red line above it, because this carries a NEXT STEP — put
+   it on Drive, send the rest in another message — and advice set in the same urgent red as
+   a failed send reads as a second failure rather than as what to do about the first. The
+   warning tokens are the ones that mean "this needs your attention and is not broken". */
+.composer-refusals {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin: 0;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  padding: var(--space-2) var(--space-3);
+  color: var(--warn-text);
+  font-size: var(--text-sm);
+}
+
+.composer-refusals ul {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.composer-refusals-close {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 0 var(--space-1);
+  color: inherit;
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.composer-refusals-close:hover {
+  opacity: 0.7;
+}
+
 /* Reply context: an inset bar reading as "attached to what you are about to send", carrying
    a snippet of the parent so you can see what you are answering without scrolling back. */
 .replying-to {

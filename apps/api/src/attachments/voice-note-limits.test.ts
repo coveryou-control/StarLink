@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
+import { ceilingFor, DEFAULT_POLICY } from '@starlink/attachments';
+
+import { apiConfigSchema } from '../config.js';
 import { refuseVoiceNote, type VoiceNoteLimits } from './voice-note-limits.js';
 
 /**
@@ -119,5 +122,44 @@ describe('voice-note ceilings', () => {
         )?.error,
       ).toBe('voice_note_too_large');
     });
+  });
+});
+
+/**
+ * The two ceilings a voice note passes, and the order that keeps them honest.
+ *
+ * A recording meets `SL_VOICE_NOTE_MAX_BYTES` in the controller — configuration, checked
+ * before a grant exists, and allowed to say what it refused (§27.3 makes most refusals
+ * uniform; this one is not an authorization decision). It then meets the general attachment
+ * policy, whose `audio` family ceiling is the backstop behind it.
+ *
+ * The failure this prevents is quiet: raise the configured ceiling past the backstop and a
+ * long recording passes the check that can explain itself, then fails the one that cannot —
+ * the person is told "that file cannot be attached here" about a recording the product
+ * invited them to make and accepted the length of.
+ */
+describe('the configured voice-note ceiling stays under the policy backstop', () => {
+  const backstop = ceilingFor(DEFAULT_POLICY.employee, 'audio/webm');
+
+  it('is reachable: the configured default is the one a person meets', () => {
+    /* The one field's default, not a whole parsed config: the schema requires a database
+       URL and two secrets, and none of them are this question. */
+    const configured = apiConfigSchema.shape.SL_VOICE_NOTE_MAX_BYTES.parse(undefined);
+    expect(configured).toBeLessThanOrEqual(backstop);
+  });
+
+  it('leaves room for the full recording length the product offers', () => {
+    /* Opus at the rate browsers record is roughly 6 KB/s, so the thirty minutes
+       `SL_VOICE_NOTE_MAX_SECONDS` defaults to is about 11MB. Asserted against the BACKSTOP,
+       because that is the ceiling nobody is watching — the configured one announces itself
+       in the refusal, and this one does not. */
+    const thirtyMinutesOfOpus = 30 * 60 * 6 * 1024;
+    expect(backstop).toBeGreaterThan(thirtyMinutesOfOpus);
+  });
+
+  it('does not put the document ceiling on a recording', () => {
+    // 10MB would refuse a recording of about twenty-seven minutes against a limit the
+    // product advertises as thirty.
+    expect(backstop).toBeGreaterThan(DEFAULT_POLICY.employee.maxBytes);
   });
 });

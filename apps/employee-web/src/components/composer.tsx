@@ -17,6 +17,7 @@ import {
   uploadAttachment,
   type StagedAttachment,
 } from '../lib/upload-attachment';
+import { attachmentLimits, triage } from '../lib/attachment-limits';
 import { EmojiPicker } from './emoji-picker';
 import { MentionPicker, useClampedIndex, type MentionCandidate } from './mention-picker';
 import { useActiveConversation } from './active-conversation';
@@ -120,6 +121,15 @@ export function Composer({
    * pruning, what happens to an attachment the server declines to bind.
    */
   const [preview, setPreview] = useState<MediaPreview | undefined>(undefined);
+  /**
+   * Why some of the files just chosen are not going.
+   *
+   * Sentences rather than codes, and a list rather than one string: picking ten files can
+   * fail two different ways at once — one over its size ceiling, three over the count — and
+   * "some files were not attached" leaves somebody to work out which and why. Cleared when
+   * the person dismisses it or attaches again, because it describes one gesture.
+   */
+  const [attachmentRefusals, setAttachmentRefusals] = useState<readonly string[]>([]);
 
   /**
    * A chosen file becomes a preview, but only if looking at it would tell you anything.
@@ -188,22 +198,54 @@ export function Composer({
    * imposed by the control rather than by the product.
    */
   const attachFiles = useCallback(
-    (files: readonly File[]): void => {
-      for (const file of files) {
-        /* A pasted image is a `File` called `image.png` on every platform, so several in
-           one message would be indistinguishable. `nameForPastedImage` gives it the only
-           distinguishing fact available at paste time. */
-        const named =
-          file.type.startsWith('image/') && (file.name === '' || file.name === 'image.png')
-            ? new File([file], nameForPastedImage(file), { type: file.type })
-            : file;
-        /* One dropped picture gets the same look-before-you-send as one chosen from the
-           paperclip: it is the same act reached by a different gesture, and the preview
-           is modal so only the first of a batch could have one. Several at once stay
-           chips, which is the honest answer - a preview can show one file. */
-        if (files.length === 1) previewFile(named);
-        void uploadAttachment(conversationId, named, setStaged);
+    async (files: readonly File[]): Promise<void> => {
+      /* A pasted image is a `File` called `image.png` on every platform, so several in one
+         message would be indistinguishable. `nameForPastedImage` gives it the only
+         distinguishing fact available at paste time. Done before triage so the refusal
+         sentences name the file the way the chip will. */
+      const named = files.map((file) =>
+        file.type.startsWith('image/') && (file.name === '' || file.name === 'image.png')
+          ? new File([file], nameForPastedImage(file), { type: file.type })
+          : file,
+      );
+
+      /*
+         The server's limits, asked for rather than assumed.
+
+         If this fetch fails the batch still goes: the grant is refused server-side anyway
+         (§28.2 calls a browser-side size check "a courtesy"), so the cost of a dropped
+         request is a less specific refusal, not a file slipping through. Blocking the
+         attach on it would be the wrong trade — it would make attaching a file depend on a
+         second round trip that exists only to phrase an error.
+      */
+      let toUpload = named;
+      setAttachmentRefusals([]);
+      try {
+        const limits = await attachmentLimits();
+        /* `staged.length` read through the setter rather than from the closure: an upload
+           that settled while the file dialog was open has already changed it, and the count
+           limit is about what the MESSAGE will carry, not what this render saw. */
+        let held = 0;
+        setStaged((current) => {
+          held = current.length;
+          return current;
+        });
+        const sorted = triage(named, held, limits);
+        toUpload = [...sorted.accepted];
+        if (sorted.refusals.length > 0) setAttachmentRefusals(sorted.refusals);
+      } catch {
+        /* Deliberately silent. The person asked to attach a file; a toast about a limits
+           endpoint is noise about plumbing they did not invoke. */
       }
+
+      /* One picture gets the same look-before-you-send whether it was dropped, pasted or
+         chosen: the same act by different gestures. The preview is modal, so only the first
+         of a batch could have one — several at once stay chips, which is the honest answer,
+         a preview can show one file. */
+      if (toUpload.length === 1 && toUpload[0] !== undefined) previewFile(toUpload[0]);
+      await Promise.all(
+        toUpload.map((file) => uploadAttachment(conversationId, file, setStaged)),
+      );
     },
     [conversationId, previewFile],
   );
@@ -929,7 +971,7 @@ export function Composer({
         if (files.length === 0) return;
         event.preventDefault();
         setDragging(false);
-        attachFiles(files);
+        void attachFiles(files);
       }}
     >
       {dragging ? (
@@ -1092,10 +1134,9 @@ export function Composer({
         */}
         {recordingVoice ? null : (
           <AttachmentPicker
-            conversationId={conversationId}
             staged={staged}
             onStagedChange={setStaged}
-            onPicked={previewFile}
+            onFilesChosen={attachFiles}
           />
         )}
 
@@ -1151,7 +1192,7 @@ export function Composer({
               .filter((file): file is File => file !== null);
             if (files.length === 0) return;
             event.preventDefault();
-            attachFiles(files);
+            void attachFiles(files);
           }}
           rows={1}
           className="composer-input"
@@ -1290,6 +1331,38 @@ export function Composer({
         <p role="alert" className="composer-error">
           {error}
         </p>
+      ) : null}
+
+      {/*
+        Files that were not attached, and what to do about each.
+
+        A LIST rather than the single `composer-error` line above, because these arrive
+        together and are genuinely separate facts: one file over its size ceiling and three
+        over the count limit are two different things to do something about, and running
+        them into one sentence makes the reader do the unpicking. The `error` line above is
+        about the SEND; this is about the choosing, and they can both be true at once.
+
+        Dismissible, because unlike a failed send there is nothing here to retry — the
+        person has read it, decided about Drive or a second message, and the notice has no
+        further job. It also clears itself on the next attach, since it describes one
+        gesture.
+      */}
+      {attachmentRefusals.length > 0 ? (
+        <div role="alert" className="composer-refusals">
+          <ul>
+            {attachmentRefusals.map((sentence) => (
+              <li key={sentence}>{sentence}</li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={() => setAttachmentRefusals([])}
+            aria-label="Dismiss"
+            className="composer-refusals-close"
+          >
+            ×
+          </button>
+        </div>
       ) : null}
     </div>
   );

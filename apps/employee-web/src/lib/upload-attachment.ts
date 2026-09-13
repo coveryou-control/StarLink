@@ -152,7 +152,18 @@ export async function uploadAttachment(
         ? `That recording is longer than the ${Math.round((tooBig.maxSeconds ?? 0) / 60)}-minute limit.`
         : tooBig?.error === 'voice_note_too_large'
           ? `That recording is larger than the ${Math.round((tooBig.maxBytes ?? 0) / (1024 * 1024))} MB limit.`
-          : cause instanceof ApiError && cause.status === 503
+          : /*
+               The size ceiling, met at the server rather than in the composer.
+ 
+               The composer normally says this first and says it better — it can sort a
+               whole batch and name every file at once. This is the same refusal arriving
+               the other way: the limits fetch failed, or the policy changed under a page
+               that had been open a while. Either way the answer is the same one, and it
+               names the ceiling the SERVER applied rather than one this browser believed.
+            */
+            tooBig?.error === 'attachment_too_large'
+            ? `This file is larger than the ${Math.round((tooBig.maxBytes ?? 0) / (1024 * 1024))} MB limit. Put it on Drive and share the link instead.`
+            : cause instanceof ApiError && cause.status === 503
             ? 'Storage is temporarily unavailable. Your message is safe — try the file again.'
             : cause instanceof ApiError && cause.isRefusal
               ? 'That file cannot be attached here.'

@@ -37,7 +37,29 @@ import type { PrincipalKind } from '@starlink/shared-contracts';
 export interface UploaderPolicy {
   /** An ALLOW-LIST of MIME types. §28.2: "never a deny-list". */
   readonly allowedMimeTypes: readonly string[];
+  /** The ceiling for any type without a family ceiling of its own. */
   readonly maxBytes: number;
+  /**
+   * Ceilings that replace {@link maxBytes} for one MIME family — the part before the
+   * slash.
+   *
+   * One number for everything was wrong in both directions at once. A 25MB ceiling on
+   * documents invites somebody to put a 24MB scan through a chat window; a 10MB ceiling on
+   * video refuses a thirty-second clip from a modern phone. The families differ because
+   * the artefacts differ, so the ceiling does too.
+   *
+   * Keyed by FAMILY rather than by full type deliberately: a ceiling per exact MIME type
+   * would need a row for each of the three video containers, and the next container added
+   * to the allow-list would silently inherit the document ceiling.
+   */
+  readonly maxBytesByFamily?: Readonly<Record<string, number>>;
+  /**
+   * How many attachments one message may carry.
+   *
+   * A per-file ceiling alone bounds nothing: without this, twenty files of 10MB is a
+   * 200MB message and a legitimate one by every other rule here.
+   */
+  readonly maxPerMessage: number;
   /** §28.5. Mandatory for customers; see the header for why it is on for employees too. */
   readonly scanRequired: boolean;
   /**
@@ -114,9 +136,6 @@ export const DEFAULT_POLICY: AttachmentPolicy = Object.freeze({
 
          SVG is still absent, and still deliberately. It is a document that can carry
          script, and rendering one inline from a colleague is an execution decision.
-
-         `maxBytes` is NOT raised for these. 25MB is a configured value (ADR-017) and a
-         video-sized one is not this change's to invent - see STARLINK_OPEN_QUESTIONS.
       */
       'video/mp4',
       'video/webm',
@@ -125,7 +144,38 @@ export const DEFAULT_POLICY: AttachmentPolicy = Object.freeze({
       'image/webp',
       'image/avif',
     ]),
-    maxBytes: 25 * 1024 * 1024,
+    /*
+       Ten for a document or a picture, twenty-five for a video — the numbers the business
+       gave on 2026-09-13, replacing a flat 25MB that had been the same figure for a scan
+       and a screen recording.
+
+       This is rule 10 territory, so it is worth being exact about which part is a decision
+       and which is an implementation: the FIGURES are the business's and are recorded here
+       as the shipped default, exactly as ADR-017 describes this whole constant — a value
+       that belongs in administered configuration and is a placeholder until the attachment
+       policy has an administrator. The SHAPE — that a family may have its own ceiling — is
+       this module's, and it holds whatever the figures turn out to be.
+    */
+    maxBytes: 10 * 1024 * 1024,
+    maxBytesByFamily: Object.freeze({
+      video: 25 * 1024 * 1024,
+      /*
+         Audio's real ceiling is `SL_VOICE_NOTE_MAX_BYTES`, which is configuration, is
+         checked in the controller BEFORE a grant exists, and can say what it refused and
+         why — see `voice-note-limits.ts`. This is the backstop behind it, generous enough
+         that the configured one is what a person actually meets: thirty minutes of Opus at
+         the rate browsers record is about 11MB.
+
+         It is NOT 10MB. A voice note is not a document, and putting the document ceiling on
+         it would refuse recordings the product openly offers to make — the specific check
+         would pass a 12MB recording and this general one would then refuse it with a
+         sentence that explains nothing. `voice-note-limits.test.ts` in the API fails if the
+         configured ceiling is ever raised past this one, which is the only way the two can
+         drift into that state.
+      */
+      audio: 25 * 1024 * 1024,
+    }),
+    maxPerMessage: 10,
     // See the header: §28.2's exemption for employees is void once customers may upload.
     scanRequired: true,
   },
@@ -133,8 +183,19 @@ export const DEFAULT_POLICY: AttachmentPolicy = Object.freeze({
     // §28.5: "Narrower". Documents and photographs of documents — what a claim needs —
     // and nothing that carries a macro or an embedded executable.
     allowedMimeTypes: Object.freeze(['application/pdf', 'image/jpeg', 'image/png', 'image/heic']),
-    // §28.5: "Lower".
+    /*
+       §28.5: "Lower" — which it still is, and it is worth saying how, because the figure
+       now matches the employee default rather than sitting under it.
+
+       "Lower" is a statement about the policy, not about one integer. A customer may send
+       four types where an employee may send twenty-two, and has no family ceiling at all —
+       so the most a customer can put in the system is 10MB while an employee can put in
+       25MB, and every type a customer CAN send is capped identically for both. The employee
+       policy is a strict superset. Dropping the customer figure below 10MB to keep one
+       inequality true would be inventing a business value to satisfy a test (rule 10).
+    */
     maxBytes: 10 * 1024 * 1024,
+    maxPerMessage: 10,
     scanRequired: true,
     // D-07, answered "claims only".
     allowedCategoryRoots: Object.freeze(['claims']),
@@ -166,6 +227,20 @@ export const policyFor = (
 ): UploaderPolicy => (uploaderKind === 'CUSTOMER' ? policy.customer : policy.employee);
 
 /**
+ * The ceiling that applies to one MIME type: its family's, or the general one.
+ *
+ * Exported because the SIZE A PERSON IS ALLOWED is not only a refusal — the composer needs
+ * it to say "videos can be up to 25 MB" before somebody picks a 40MB one, and the refusal
+ * needs it to name the number it refused against. Two places deriving that number from the
+ * same policy is the point; two places each holding their own copy is how a browser starts
+ * promising a limit the server does not have.
+ */
+export function ceilingFor(rules: UploaderPolicy, mime: string): number {
+  const family = mime.split('/')[0] ?? '';
+  return rules.maxBytesByFamily?.[family] ?? rules.maxBytes;
+}
+
+/**
  * May this upload be granted at all? Checked BEFORE any storage grant is issued.
  *
  * Refusing here means no bytes are ever accepted — §28.1's "reject → no bytes stored".
@@ -192,7 +267,11 @@ export function checkUploadIntent(
   }
 
   if (intent.declaredBytes <= 0) return { ok: false, refusal: 'EMPTY' };
-  if (intent.declaredBytes > rules.maxBytes) return { ok: false, refusal: 'TOO_LARGE' };
+  /* The family's ceiling, not the general one — a video is allowed to be larger than a
+     document and a document is not allowed to be as large as a video. */
+  if (intent.declaredBytes > ceilingFor(rules, intent.declaredMime)) {
+    return { ok: false, refusal: 'TOO_LARGE' };
+  }
 
   return { ok: true };
 }
@@ -225,10 +304,18 @@ export function checkReceived(
   if (received.actualBytes !== claimed.declaredBytes) {
     return { ok: false, refusal: 'SIZE_MISMATCH' };
   }
-  // Re-checked against the ceiling, because the declared size was a claim and this is
-  // the measurement. A client that under-declared to pass the first check does not pass
-  // this one.
-  if (received.actualBytes > rules.maxBytes) return { ok: false, refusal: 'TOO_LARGE' };
+  /* Re-checked against the ceiling, because the declared size was a claim and this is the
+     measurement. A client that under-declared to pass the first check does not pass this
+     one.
+
+     Against the SNIFFED type's family, not the declared one. The two are equal by the time
+     this line runs — the mismatch check above returned otherwise — and taking it from the
+     measurement rather than the claim is what keeps that true if these checks are ever
+     reordered: a file declared `video/mp4` and sniffed as a PDF must not be measured
+     against the video ceiling. */
+  if (received.actualBytes > ceilingFor(rules, received.sniffedMime)) {
+    return { ok: false, refusal: 'TOO_LARGE' };
+  }
 
   return { ok: true };
 }
