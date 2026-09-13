@@ -18,6 +18,7 @@ import {
   type StagedAttachment,
 } from '../lib/upload-attachment';
 import { attachmentLimits, triage } from '../lib/attachment-limits';
+import { BOLD_MARKER, ITALIC_MARKER, toggleMarker } from '../lib/rich-text';
 import { EmojiPicker } from './emoji-picker';
 import { MentionPicker, useClampedIndex, type MentionCandidate } from './mention-picker';
 import { useActiveConversation } from './active-conversation';
@@ -863,6 +864,45 @@ export function Composer({
         }
       }
 
+      /**
+       * Ctrl/Cmd+B and Ctrl/Cmd+I, the two chords every writing surface has.
+       *
+       * Placed after the mention picker — which owns its keys while it is open — and before
+       * Enter, because neither collides with the other and the order that matters is the
+       * picker's.
+       *
+       * The markers go INTO the text rather than into a parallel structure. A rich-text
+       * model would mean a second representation of a message alongside the string the
+       * server stores, and every draft, mention offset, edit and quote would need to
+       * understand both. What people type is `**like this**`, what is stored is
+       * `**like this**`, and `message-list.tsx` renders it — one representation, and the
+       * shortcut is a shorthand for typing the markers rather than a different mode.
+       *
+       * `Alt` is excluded: on Windows, AltGr arrives as Ctrl+Alt, so a German keyboard's
+       * `@` would otherwise toggle bold instead of starting a mention.
+       */
+      const formatting = (event.ctrlKey || event.metaKey) && !event.altKey;
+      const marker =
+        formatting && (event.key === 'b' || event.key === 'B')
+          ? BOLD_MARKER
+          : formatting && (event.key === 'i' || event.key === 'I')
+            ? ITALIC_MARKER
+            : undefined;
+      if (marker !== undefined) {
+        const field = event.currentTarget;
+        event.preventDefault();
+        const next = toggleMarker(field.value, field.selectionStart, field.selectionEnd, marker);
+        handleChange(next.value);
+        /* The selection is restored on the NEXT frame, after React has written the new
+           value: setting it now puts the caret where the old string had room for it, and
+           the re-render moves it to the end. That is the difference between a shortcut
+           people use and one they try twice. */
+        requestAnimationFrame(() => {
+          field.setSelectionRange(next.selectionStart, next.selectionEnd);
+        });
+        return;
+      }
+
       if (event.key !== 'Enter') return;
 
       /**
@@ -889,7 +929,17 @@ export function Composer({
         void send();
       }
     },
-    [send, canReplyToCustomer, enterToSend, query, candidates, activeIndex, setActiveIndex, pick],
+    [
+      send,
+      canReplyToCustomer,
+      enterToSend,
+      query,
+      candidates,
+      activeIndex,
+      setActiveIndex,
+      pick,
+      handleChange,
+    ],
   );
 
   /**

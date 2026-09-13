@@ -14,6 +14,7 @@ import { initialsFor } from './conversation-naming';
 import { distinctIdentityHues, identityStyleFrom } from '../lib/identity-colour';
 import { crossesDay, daySeparatorLabel, unreadDividerIndex } from './timeline';
 import { splitBody } from '../lib/mention-draft';
+import { formatRuns } from '../lib/rich-text';
 import { MessageActions } from './message-actions';
 import { MessageContextMenu } from './message-context-menu';
 import { ReactionDetails } from './reaction-details';
@@ -856,8 +857,25 @@ function MessageRow({
       <div className="message-body">
         {splitBody(message.body, message.mentions ?? []).map((part, index) =>
           part.mention === undefined ? (
-            // Positional split of one string; the index is the only identity these have.
-            <span key={`t${index}`}>{part.text}</span>
+            /*
+               Emphasis is applied INSIDE a run, after the mention split, never across it.
+
+               Mentions are stored as offsets into the raw body, so anything that rewrites
+               the string before splitting moves them — and a mention that moves is a
+               highlight on the wrong words or a name sliced in half. Formatting each plain
+               run separately leaves the offsets untouched by construction rather than by
+               care.
+
+               The cost is that `**tell @Priya**` renders literally: the markers land in
+               different runs and neither finds its pair. That is the right failure. The
+               alternative is a formatter that reaches across a mention and has to be
+               trusted not to disturb it.
+
+               Positional split of one string; the index is the only identity these have.
+            */
+            <span key={`t${index}`}>
+              <Emphasised text={part.text} />
+            </span>
           ) : (
             <span
               key={`m${index}`}
@@ -1415,6 +1433,40 @@ function AttachmentLink({ file }: { readonly file: AttachmentView }): ReactNode 
         </span>
       </button>
       {problem !== undefined ? <span role="alert"> {problem}</span> : null}
+    </>
+  );
+}
+
+/**
+ * One run of body text, with `**bold**` and `_italic_` applied.
+ *
+ * Rendered as nested elements rather than as a class per combination, because emphasis
+ * nests and `<strong><em>` is what that means in markup — a screen reader announces it, and
+ * the stylesheet does not need a rule for every pair.
+ *
+ * The runs are DATA. Nothing here is markup from the message: `formatRuns` returns strings
+ * and React escapes them, so a body containing a tag is a body containing a tag on screen.
+ * Rendering emphasis with `dangerouslySetInnerHTML` would be the same feature and a
+ * vulnerability; see the note in `rich-text.ts`.
+ */
+function Emphasised({ text }: { readonly text: string }): React.JSX.Element {
+  return (
+    <>
+      {formatRuns(text).map((run, index) => {
+        /* Positional, like the mention split above it: these have no identity but where
+           they are, and they are re-derived from the body on every render anyway. */
+        const key = `f${index}`;
+        if (run.bold === true && run.italic === true) {
+          return (
+            <strong key={key}>
+              <em>{run.text}</em>
+            </strong>
+          );
+        }
+        if (run.bold === true) return <strong key={key}>{run.text}</strong>;
+        if (run.italic === true) return <em key={key}>{run.text}</em>;
+        return <span key={key}>{run.text}</span>;
+      })}
     </>
   );
 }
