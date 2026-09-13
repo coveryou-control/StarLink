@@ -101,20 +101,20 @@ export default defineConfig({
         */
         SL_CUSTOMER_WORKSPACE_ENABLED: process.env.SL_E2E_CUSTOMER_WORKSPACE ?? 'true',
         /*
-           Scanning off the request path, so §34's degradation is reachable.
+           REMOVED: `SL_ATTACHMENT_SCAN_IN_ANNOUNCE: 'false'`, which nothing read.
 
-           With the scan inside the announce it returns CLEAN in about 96ms, and the file
-           is sendable before anything can be clicked — `attachments.spec.ts` exists to
-           prove the OTHER case: a file still being checked, a send that carries the
-           message without it, and an interface that says so. Faking that from the browser
-           was tried and does not work; it makes the chip disagree with the server, so the
-           refusal correctly never comes.
+           It was added to move the virus scan off the announce so `attachments.spec.ts`
+           could watch a file being checked, the implementation was reverted the same day
+           for being config with no reader — and this line survived the revert, carrying
+           fifteen lines of comment describing behaviour the suite did not have. A setting
+           that is read by nothing is worse than no setting: it answers the question "is
+           the scan on the request path here?" with a confident lie, and it cost most of a
+           debugging session to find that it had been answering it all along.
 
-           This is a real configuration rather than a test switch: a deployment may well
-           want a slow scanner off the announce, and a scanner outage produces this path in
-           any configuration.
+           The scan runs inside `markUploaded` (`attachments.controller.ts`) in every
+           configuration, and the spec now stages the state it needs by holding that
+           response rather than by asking for a different server.
         */
-        SL_ATTACHMENT_SCAN_IN_ANNOUNCE: 'false',
         /**
          * No `SL_ADAPTER_*` overrides here, deliberately.
          *
@@ -144,16 +144,16 @@ export default defineConfig({
         SL_SWEEP_RESERVATION_SECONDS: '3600',
         SL_SWEEP_INDEX_HEALTH_SECONDS: '3600',
         /**
-         * Fast, but not instant — and the "not instant" is deliberate.
+         * The safety net behind the scan, not the scan.
          *
-         * An attachment cannot be BOUND until it is CLEAN (§28.1), so at the default
-         * cadence a browser would sit staring at a file that never becomes sendable. At
-         * one second the SCANNING state exists but is too brief to assert on, and the
-         * journey that matters most — sending while a file is still being checked, and
-         * being told so — would be a race.
+         * An attachment cannot be BOUND until it is CLEAN (§28.1). In the ordinary path the
+         * verdict arrives inside `markUploaded` and this sweep never sees the file — it is
+         * what clears one the scanner was unavailable for, which is a state
+         * `attachments.spec.ts` does not drive and a browser left waiting on the default
+         * cadence would time out in.
          *
-         * Five seconds makes both states observable from the UI, so the browser test
-         * waits on what the person sees rather than on a timer.
+         * Five seconds rather than one because the point is that the net exists, not that
+         * it is fast.
          */
         SL_SWEEP_ATTACHMENT_SCAN_SECONDS: '5',
         SL_SWEEP_ATTACHMENT_EXPIRY_SECONDS: '3600',
