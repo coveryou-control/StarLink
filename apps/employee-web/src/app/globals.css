@@ -2508,30 +2508,6 @@ input[type='search']::-webkit-search-cancel-button {
 /* The reference's header action: a 38px square with a hairline, radius 10, in the
    secondary ink. Not a filled dark circle — rule 4 again. */
 /*
-   "Group info" — screen 03's named button, where a one-to-one has icon tiles.
-
-   Named rather than a glyph because it opens a PLACE rather than toggling a mode, and
-   because the row it sits in has four faces to its left that already carry the meaning an
-   icon would have to.
-*/
-.chat-header-named {
-  flex: none;
-  height: auto;
-  padding: 8px 14px;
-  border: 0;
-  border-radius: var(--radius-medium);
-  background: var(--surface);
-  box-shadow: var(--hairline);
-  color: var(--text);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.chat-header-named[aria-expanded='true'] {
-  background: var(--hover);
-}
-
-/*
    The chat header's action row: three 38px tiles with a hairline, as screen 02 draws them.
 
    One class for all three rather than one per control — they are the same object, and the
@@ -6803,6 +6779,36 @@ button.settings-switch {
   border: 1.5px solid var(--border-strong);
   background: radial-gradient(circle at 50% 50%, var(--border-strong) 0 3px, transparent 3.2px);
   opacity: 0.7;
+}
+
+/* A state that brought its own mark suppresses the generic one.
+
+   The dot above is right for a class that also renders "Loading…" — it says nothing, which
+   is what a shared mark should say. It is wrong for a list that has a specific thing to
+   report: an empty Unread is a finish line and looked identical to never having joined a
+   group. `conversation-list.tsx` draws the object each filter is named after; this stops
+   the two marks stacking. */
+.state-note.has-mark::before {
+  content: none;
+}
+
+.state-note-mark {
+  display: block;
+  margin: 0 auto var(--space-3);
+  color: var(--text-subtle);
+  /* The glyph, not a box around it: these sit on the same ground as the sentence and a
+     plate behind them would make six quiet states into six cards. */
+  line-height: 0;
+}
+
+/* The one state somebody was actively working towards. Only the MARK takes the colour —
+   a green block would turn reaching the end of a list into an announcement. */
+.state-note.is-good .state-note-mark {
+  color: var(--success);
+}
+
+.state-note.has-mark strong {
+  color: var(--text);
 }
 
 /* Two lines: what happened, then what it means. The strong line is a block so the second

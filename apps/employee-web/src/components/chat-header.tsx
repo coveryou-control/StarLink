@@ -424,14 +424,40 @@ export function ChatHeader({
           </span>
         ) : null}
 
-        {(isGroup || isChannel) && onToggleDetails !== undefined && !narrow ? (
+        {/*
+          Group info, as the icon every messenger uses for it.
+
+          It was a button with the words "Group info" on it. The words were doing no work
+          the icon does not: an ⓘ beside a conversation name is one of the few genuinely
+          unambiguous symbols in this interface, and the accessible name still carries the
+          sentence for anybody who needs it. What the words cost was width — a named button
+          is four or five times a tile, which is why it was the one header control that had
+          to disappear below the rail widths, taking the most direct route to the membership
+          with it on exactly the screens where the overflow is most awkward to use.
+
+          Same tile as search and the overflow, so the header's right-hand end is one row of
+          equal controls rather than a text button wedged among icons.
+        */}
+        {(isGroup || isChannel) && onToggleDetails !== undefined ? (
           <button
             type="button"
-            className="chat-header-named"
+            className="chat-header-action"
             onClick={onToggleDetails}
             aria-expanded={detailsOpen}
+            aria-label={isChannel ? 'Channel info' : 'Group info'}
+            title={isChannel ? 'Channel info' : 'Group info'}
           >
-            {isChannel ? 'Channel info' : 'Group info'}
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="8.4" fill="none" stroke="currentColor" strokeWidth="1.8" />
+              <path
+                d="M12 11v5.2"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+              />
+              <circle cx="12" cy="7.9" r="1.15" fill="currentColor" />
+            </svg>
           </button>
         ) : null}
 
