@@ -250,6 +250,23 @@ export const apiConfigSchema = z.object({
   SL_NOTIFY_EMAIL_FROM: z.string().email().optional(),
   SL_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(12 * 60 * 60),
   /**
+   * How long the communication auditor's session lasts.
+   *
+   * One hour, against the ordinary twelve. This is the one credential in the product that
+   * reads every conversation in the company, and the ordinary reasoning about session
+   * length runs the other way for it: the cost of signing in again is a few seconds, and
+   * the cost of a forgotten session on an unlocked laptop is the whole company's messages.
+   *
+   * "Keep me signed in" is ignored for this account entirely — see `auth.controller.ts`. A
+   * fourteen-day session on the account that reads everything is exactly the thing this
+   * setting exists to prevent, and leaving it available as a tick-box would mean the
+   * protection lasted until somebody found it inconvenient.
+   *
+   * An hour is a defensible default rather than a measured one; it is configuration so that
+   * whoever runs the audit can set it to what their process actually needs.
+   */
+  SL_AUDIT_SESSION_TTL_SECONDS: z.coerce.number().int().positive().default(60 * 60),
+  /**
    * The session length when somebody ticks "keep me signed in on this device".
    *
    * Fourteen days, against the default twelve hours. The point of the ordinary TTL is that
