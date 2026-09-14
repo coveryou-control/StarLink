@@ -8,6 +8,7 @@ import { initialsFor } from './conversation-naming';
 import { AvatarImage } from './avatar-image';
 import { useSession } from './session-provider';
 import { ConfirmDialog } from './confirm-dialog';
+import { auditApi } from '../lib/api-client';
 
 /**
  * The places StarLink has, and the two shapes they take.
@@ -588,6 +589,41 @@ function useOwnPrincipalId(): string | undefined {
   return state.status === 'SIGNED_IN' ? state.me.principalId : undefined;
 }
 
+/**
+ * Whether to show the Admin Audit View in the navigation.
+ *
+ * ## This is not the protection, and must never be mistaken for it
+ *
+ * Every audit request is decided again, server-side, per call — an employee who typed the
+ * URL would be refused by the API, not by the absence of this link. What the link does is
+ * stop the other direction of the same problem: a capability nobody can reach. The audit
+ * view existed, worked, and was unreachable from the interface, so the administrator it was
+ * built for saw a workspace with no way into it and reported, correctly, that they could not
+ * see anything.
+ *
+ * Fails CLOSED and silently. If the permission call does not answer, the entry is simply
+ * absent: an administrator can still type the address, and an error banner in the sidebar
+ * about an endpoint nobody asked for would be noise on every page load for everybody else.
+ */
+function useMayAudit(): boolean {
+  const [may, setMay] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    void auditApi
+      .permission()
+      .then((answer) => {
+        if (live) setMay(answer.mayAudit);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  return may;
+}
+
 function DesktopSidebar({
   active,
   onSelect,
@@ -609,6 +645,7 @@ function DesktopSidebar({
 }): ReactNode {
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const me = useOwnPrincipalId();
+  const mayAudit = useMayAudit();
   /**
    * Collapsed to icons — by the reader's choice, or because the window is too narrow.
    *
@@ -779,6 +816,29 @@ function DesktopSidebar({
             <span>Announcements</span>
           </button>
         </li>
+
+        {/*
+          The Admin Audit View, for the one role that holds the capability.
+
+          A LINK rather than a section: it is its own route with its own shell, not another
+          view of the conversation list, and `onSelect` speaks only about the latter.
+
+          Shown from the server's answer rather than from a role name in the session — the
+          same `decide()` call that guards the endpoints decides whether the door is drawn,
+          so the two cannot disagree. Hiding it is not what protects it; see `useMayAudit`.
+        */}
+        {mayAudit ? (
+          <li>
+            <a className="sidenav-item" href="/audit">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                <circle cx="11" cy="11" r="6.2" {...stroke} />
+                <path d="m15.6 15.6 4 4" {...stroke} strokeLinecap="round" />
+                <path d="M8.6 11h4.8M11 8.6v4.8" {...stroke} strokeLinecap="round" />
+              </svg>
+              <span>Admin Audit</span>
+            </a>
+          </li>
+        ) : null}
       </ul>
 
       {/*
