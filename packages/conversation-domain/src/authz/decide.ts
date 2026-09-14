@@ -162,7 +162,15 @@ export type Decision =
         | 'TEMPORARY_GRANT'
         | 'CUSTOMER_OWN'
         /** An `INTERNAL_CHANNEL` said so — see `decideChannel`. */
-        | 'CHANNEL_POLICY';
+        | 'CHANNEL_POLICY'
+        /**
+         * The one company-wide read: the communication auditor (rung 3a).
+         *
+         * Always `privileged`, so it is always audited. Kept as its own basis rather
+         * than reported as a SCOPE_GRANT because the ledger has to be able to answer
+         * "which of these reads were audit reads" without inspecting the role string.
+         */
+        | 'COMMUNICATION_AUDIT';
       readonly privileged: boolean;
       readonly grantRef?: string;
     }
@@ -444,6 +452,58 @@ export function decide(request: DecisionRequest): Decision {
     return { allow: true, basis: 'CUSTOMER_OWN', privileged: false };
   }
 
+  /*
+     3a. The communication auditor: a company-wide READ, and nothing else.
+
+     ## Why it needs a rung of its own
+
+     The mechanism for a company-wide grant already exists at rung 8, and it cannot be used
+     for this. Two rungs return before it and both return DENY rather than falling through:
+     a channel closes its content to anyone the policy does not admit (4a, and the comment
+     there explains why a fall-through would be catastrophic), and a private conversation
+     closes to non-participants (6). Both are right, and both are exactly what an audit has
+     to be able to reach. So the auditor is decided BEFORE them, or it is not decided at all.
+
+     ## Why placing it early is safe
+
+     Because of what it can carry. `AUDIT_READ_ACTIONS` is three content READS; there is no
+     write in it and no way to add one without this file changing. Rung 3 has already
+     returned for customer principals, so this cannot be reached by one. Everything else
+     falls through to the ordinary ladder, which means an auditor who somehow also held a
+     write grant would be judged for that write exactly as anybody else is.
+
+     ## FR-AUTHZ-7 is intact
+
+     That requirement says administration confers no read — that managing accounts, roles
+     and channels does not imply reading their content. It is why `channel.manage` falls
+     through for administration and never for content. This rung does not change any of
+     that: it turns on `privileged.conversation.read`, an action no administrative role
+     holds, which has been in `PRIVILEGED_ACTIONS` since it was written and is audited on
+     success and on refusal. Whoever runs the directory still cannot read the traffic.
+
+     ## The read is answerable for
+
+     `privileged: true` on the decision is what drives the audit record (see
+     `PRIVILEGED_ACTIONS` and §31.1/§31.2). Every allow from this rung is recorded, with
+     the grant that permitted it, and the auditor's own reads are in the same ledger they
+     can query — which is the property that makes a company-wide read acceptable at all.
+  */
+  if (AUDIT_READ_ACTIONS.has(action)) {
+    for (const grant of actor.grants) {
+      if (
+        grant.actions.includes('privileged.conversation.read') &&
+        /* GLOBAL only. A department- or team-scoped audit grant is a different feature with
+           different questions — whose department, at what time, and what happens to a
+           conversation that moves — and inventing an answer here would be inventing a
+           business value (rule 10). Narrower scopes simply do not match. */
+        grant.scopeKind === 'GLOBAL' &&
+        isWithinPeriod(now, grant.effectiveFrom, grant.effectiveTo)
+      ) {
+        return { allow: true, basis: 'COMMUNICATION_AUDIT', privileged: true, grantRef: grant.role };
+      }
+    }
+  }
+
   const isOwner = resource.currentOwnerId !== undefined && resource.currentOwnerId === actor.principalId;
   const isLiveParticipant =
     resource.participant !== undefined &&
@@ -699,6 +759,27 @@ const ANNOUNCEMENT_PARTICIPANT_ACTIONS: ReadonlySet<Action> = new Set<Action>([
  * These are the actions a channel decides ALONE. If the policy does not grant one, nothing
  * else in the ladder may, apart from a temporary grant - see `decideChannel`.
  */
+/**
+ * What a communication auditor may read, and the complete list of it.
+ *
+ * Three content reads. There is no write here, no reaction, no edit, no delete, no forward
+ * and no participant change — and because rung 3a consults only this set, adding one would
+ * have to be done here, in a set whose name says what it is for.
+ *
+ * `audit.query` is deliberately ABSENT: reading the ledger is not reading a conversation,
+ * it is answered by the ordinary grant ladder at rung 8, and folding it in here would mean
+ * a rung named for content was also the rung that decided ledger access.
+ */
+const AUDIT_READ_ACTIONS: ReadonlySet<Action> = new Set<Action>([
+  'conversation.read',
+  /* The same read, named as what it is. An audit surface asks for this one so the ledger
+     row says `privileged.conversation.read` rather than being indistinguishable from an
+     ordinary participant opening a thread. */
+  'privileged.conversation.read',
+  'conversation.attachment.download',
+  'case.read',
+]);
+
 const CHANNEL_READ_ACTIONS: ReadonlySet<Action> = new Set<Action>([
   'conversation.read',
   'conversation.attachment.download',

@@ -123,6 +123,7 @@ import {
   CASE_STORE,
   AI_PROVIDER,
   SEARCH_RATE_LIMITER,
+  AUDIT_RATE_LIMITER,
   SIGN_IN_THROTTLE,
   SESSION_SERVICE,
   SLA_READER,
@@ -134,6 +135,7 @@ import { CorrelationMiddleware } from './edge/correlation.middleware.js';
 import { SessionGuard } from './edge/session.guard.js';
 import { EmployeeAuthController } from './employee/auth.controller.js';
 import { EmployeeAdminController } from './employee/admin.controller.js';
+import { AuditController } from './audit/audit.controller.js';
 import { EmployeeConversationsController } from './employee/conversations.controller.js';
 import { EmployeeChannelsController } from './employee/channels.controller.js';
 import { EmployeeMessagesController } from './employee/messages.controller.js';
@@ -360,6 +362,23 @@ const providers: Provider[] = [
           },
         },
       }),
+  },
+  {
+    /**
+     * The audit surface's rate limit.
+     *
+     * Not because the auditor is suspected — because this is the one credential in the
+     * product that can read everything, so if it is ever taken, the difference between a
+     * quiet extraction and an obvious one is how fast it can be driven. 120 requests a
+     * minute is far more than a person reading conversations can use and far less than a
+     * script enumerating the company can.
+     *
+     * Its own bucket rather than sharing search's: a single limiter would let ordinary
+     * employee searching exhaust the auditor's allowance, and the two have nothing to do
+     * with each other.
+     */
+    provide: AUDIT_RATE_LIMITER,
+    useFactory: () => createRateLimiter({ maxRequests: 120, windowMs: 60_000 }),
   },
   {
     provide: SEARCH_RATE_LIMITER,
@@ -814,6 +833,7 @@ export const CUSTOMER_CONTROLLERS = customerSurfaceEnabled()
     HealthController,
     EmployeeAuthController,
     EmployeeAdminController,
+    AuditController,
     DevicesController,
     NotificationAdminController,
     EmployeeNotificationsController,
