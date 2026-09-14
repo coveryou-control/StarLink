@@ -43,10 +43,33 @@ function filesUnder(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-/** Method names declared on the exported `api` object. */
-function clientMethods(): string[] {
+/**
+ * The exported clients, and the methods each declares.
+ *
+ * ## Why this is a list rather than one object
+ *
+ * It sliced from `export const api = {` to the END OF THE FILE, which was right while `api`
+ * was the last thing in it. `auditApi` was added after it, so its methods were collected as
+ * `api`'s and then looked for as `api.permission` — a name that appears nowhere, because
+ * the call site says `auditApi.permission`. Five real, wired capabilities were reported as
+ * orphans.
+ *
+ * A guard that reports a false orphan gets the guard deleted rather than the code fixed, so
+ * each client is now sliced to its own body and checked against its own name. Adding a
+ * third client means adding it here, and forgetting to means its methods go unchecked —
+ * which is why `finds methods to check` below counts them per client.
+ */
+const CLIENTS = ['api', 'auditApi'] as const;
+
+function clientMethods(client: string): string[] {
   const source = readFileSync(join(SRC, 'lib', 'api-client.ts'), 'utf8');
-  const body = source.slice(source.indexOf('export const api = {'));
+  const start = source.indexOf(`export const ${client} = {`);
+  if (start === -1) return [];
+  /* To the next top-level export, or the end. Without the bound, one client's body swallows
+     every client declared after it — which is the defect above. */
+  const rest = source.slice(start + 1);
+  const nextExport = rest.indexOf('\nexport const ');
+  const body = nextExport === -1 ? rest : rest.slice(0, nextExport);
   // `name: (` at one level of indentation — the object's own entries, not nested calls.
   return [...body.matchAll(/^ {2}(\w+):\s*\(/gm)].map((m) => m[1]!);
 }
@@ -62,19 +85,26 @@ function uiSource(): string {
 describe('the client has no orphaned capabilities', () => {
   it('finds methods to check — the guard must not pass over an empty set', () => {
     // A regex that silently matched nothing would make the assertion below vacuous, which
-    // is the failure mode of every source-scanning guard.
-    expect(clientMethods().length).toBeGreaterThan(15);
+    // is the failure mode of every source-scanning guard. Per client, so a renamed or
+    // removed export cannot quietly reduce the set to the other one's methods.
+    expect(clientMethods('api').length).toBeGreaterThan(15);
+    for (const client of CLIENTS) expect(clientMethods(client).length, client).toBeGreaterThan(0);
   });
 
   it('every api.* method is used by a component or a page', () => {
     const ui = uiSource();
     /**
-     * Whitespace is allowed between `api` and the method: `directory.tsx` chains across a
-     * line break (`api\n  .directory(...)`), which a naive `api\.name` misses. A guard
-     * that reports a false orphan gets the guard deleted, not the code fixed.
+     * Whitespace is allowed between the client and the method: `directory.tsx` chains
+     * across a line break (`api\n  .directory(...)`), which a naive `api\.name` misses. A
+     * guard that reports a false orphan gets the guard deleted, not the code fixed.
+     *
+     * The client's own name is part of the pattern, so `auditApi.permission` is not looked
+     * for as `api.permission` — and `\b` keeps `api` from matching inside `auditApi`.
      */
-    const orphans = clientMethods().filter(
-      (name) => !new RegExp(`\\bapi\\s*\\.\\s*${name}\\b`).test(ui),
+    const orphans = CLIENTS.flatMap((client) =>
+      clientMethods(client)
+        .filter((name) => !new RegExp(`\\b${client}\\s*\\.\\s*${name}\\b`).test(ui))
+        .map((name) => `${client}.${name}`),
     );
 
     expect(
@@ -110,7 +140,9 @@ describe('the client has no orphaned capabilities', () => {
       'notificationCount',
       'markNotificationRead',
     ];
-    const methods = new Set(clientMethods());
+    /* Every client's methods together: these are required to EXIST somewhere in the client,
+       and which object holds them is not what this test is about. */
+    const methods = new Set(CLIENTS.flatMap((client) => clientMethods(client)));
     const missing = required.filter((name) => !methods.has(name));
 
     expect(missing, 'agent actions the tracker requires, absent from the client').toEqual([]);

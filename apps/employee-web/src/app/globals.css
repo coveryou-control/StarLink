@@ -14937,3 +14937,404 @@ input.signin-control {
 .announce-pin:disabled {
   opacity: 0.5;
 }
+
+/* ================================================================== audit console ===
+   The communication audit surface.
+
+   Deliberately NOT the workspace. Reading a colleague's one-to-one is not the same act as
+   reading your own thread, and an interface that made the two feel identical would be doing
+   the person using it a disservice — so this is a transcript: flat rows, every timestamp
+   shown, internal notes marked, tabular where the workspace is conversational. There are no
+   bubbles and no composer, because there is nothing here to say.
+   ================================================================================= */
+.audit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 100vh;
+  padding: var(--space-5) var(--space-6);
+  background: var(--bg);
+  color: var(--text);
+}
+
+.audit-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-3);
+}
+
+.audit-head h1 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 660;
+}
+
+/* The standing reminder. It is on every screen of this surface on purpose: somebody reading
+   a colleague's messages should never be in any doubt that the reading is itself recorded. */
+.audit-head p {
+  margin: 4px 0 0;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.audit-tabs {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.audit-tab {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  padding: 6px 12px;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.audit-tab.is-on {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+}
+
+.audit-split {
+  display: grid;
+  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+  min-height: 0;
+}
+
+.audit-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.audit-filters {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.audit-filters label,
+.audit-kind {
+  display: grid;
+  gap: 4px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.audit-filters select,
+.audit-filters input,
+.audit-kind select,
+.audit-kind input,
+.audit-search input {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 7px 9px;
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+.audit-count {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--text-subtle);
+}
+
+.audit-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /*
+     FLEX, not grid — and that is the fix for a real bug rather than a preference.
+
+     As a grid with fifty implicit rows and a `max-height`, the rows were compressed to
+     share the available space: each measured 34px where its two lines need 48, and the text
+     inside them collapsed to 7px against a 16.5px line-height. The rows had correct
+     geometry and correct colours in the DOM and painted as blank strips, which is a long
+     way to go to find a layout mode.
+
+     A column flex with non-shrinking items is what a scrolling list actually is: each item
+     takes the height it needs, and everything past the `max-height` goes to the scroller.
+  */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+/* A grid item sizes to its CONTENT unless told otherwise, and the meta line here does not
+   wrap — so each row measured 1535px inside a 340px column and hung off the side of the
+   panel. `min-width: 0` is what lets the track win; the truncation below is what makes the
+   result readable rather than merely contained. */
+.audit-list > li,
+.audit-messages > li,
+.audit-hits > li {
+  /* `flex: none` is the half that stops the compression; `min-width: 0` is the half that
+     lets the truncation below win over the content's natural width. */
+  flex: none;
+  min-width: 0;
+}
+
+.audit-row {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  /*
+     The base `button` rule sets `height: var(--row)` — 34px, right for every single-line
+     control in the product and wrong for this one, which carries two.
+
+     It is why the rows rendered as blank strips: the fixed height left 18px of content box,
+     the button's own grid shared that between its two children, and each line collapsed to
+     7px against a 16.5px line-height. Correct geometry, correct colours, nothing painted.
+  */
+  height: auto;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: none;
+  padding: 8px 10px;
+  text-align: left;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.audit-row.is-on {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+
+.audit-meta {
+  font-size: var(--text-xs);
+  color: var(--text-subtle);
+}
+
+/* Both lines of a row truncate rather than widening it. A conversation title is a person's
+   own words and can be any length; the column is a fixed 340px. */
+.audit-row > strong,
+.audit-row > .audit-meta {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audit-main {
+  min-width: 0;
+}
+
+.audit-note {
+  margin: 0;
+  padding: var(--space-5);
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+}
+
+.audit-transcript-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.audit-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.audit-person em {
+  font-style: normal;
+  color: var(--text-subtle);
+}
+
+.audit-messages {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* Flex for the same reason as `.audit-list` above: a scrolling list of items whose
+     heights differ, where a grid would share the space out and clip them. */
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 66vh;
+  overflow-y: auto;
+}
+
+/* A row, not a bubble. The left rule is what separates one utterance from the next without
+   making the page look like a conversation somebody is part of. */
+.audit-message {
+  border-left: 2px solid var(--border);
+  padding: 8px 12px;
+}
+
+/* An internal note is the thing an audit most often needs and the thing no other
+   non-participant read returns. It is marked, not merely included. */
+.audit-message.is-internal {
+  border-left-color: var(--warn-border);
+  background: var(--warn-bg);
+}
+
+.audit-message-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.audit-message-head time {
+  font-size: var(--text-xs);
+  color: var(--text-subtle);
+  font-variant-numeric: tabular-nums;
+}
+
+.audit-tag {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 7px;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.audit-tag.is-gone {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.audit-body {
+  margin: 4px 0 0;
+  font-size: var(--text-md);
+  line-height: var(--lh);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.audit-files {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 3px;
+  font-size: var(--text-sm);
+}
+
+.audit-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.audit-columns h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: 620;
+}
+
+.audit-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.audit-table th {
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+  color: var(--text-subtle);
+  font-weight: 600;
+}
+
+.audit-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+  vertical-align: top;
+}
+
+/* A refused access is the row an incident is looking for, so it is findable by eye. */
+.audit-table tr.is-refused td {
+  color: var(--danger);
+}
+
+.audit-search form {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.audit-search label {
+  display: grid;
+  gap: 4px;
+  flex: 1;
+  max-width: 520px;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.audit-search button,
+.audit-ledger button {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  padding: 8px 16px;
+  color: var(--accent-contrast);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.audit-hits {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.audit-hits li {
+  border-left: 2px solid var(--border);
+  padding: 8px 12px;
+}
+
+.audit-refused {
+  max-width: 52ch;
+  margin: 12vh auto 0;
+  text-align: center;
+}
+
+.audit-refused h1 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xl);
+}
+
+.audit-refused p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  line-height: var(--lh);
+}
+
+@media (max-width: 1024px) {
+  .audit-split,
+  .audit-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

@@ -6,6 +6,7 @@
  */
 
 import { employeeRoutes } from '@starlink/shared-contracts/http/employee';
+import { auditRoutes } from '@starlink/shared-contracts/http/audit';
 
 import { runtimeOrigins } from './runtime-origins';
 
@@ -1301,4 +1302,120 @@ export const api = {
     request<{ conversations: readonly ConversationTitleHit[] }>(
       `${employeeRoutes.search.conversations}${query({ q: term })}`,
     ),
+};
+
+/**
+ * The communication audit surface.
+ *
+ * Read-only, every one of them — there is no write method here because there is no write
+ * route. The server decides on each call regardless of what this object offers; these are
+ * the shapes, not the permission.
+ */
+export interface AuditEmployee {
+  readonly principalId: string;
+  readonly displayName: string;
+  readonly employeeCode: string | null;
+  readonly status: string;
+  readonly department: string | null;
+  readonly authority: string;
+  readonly teams: readonly string[];
+}
+
+export interface AuditTeam {
+  readonly teamId: string;
+  readonly members: number;
+  readonly department: string;
+}
+
+export interface AuditConversation {
+  readonly conversationId: string;
+  readonly conversationType: string;
+  readonly title: string | null;
+  readonly state: string | null;
+  readonly sensitivity: string;
+  readonly lastActivityAt: string;
+  readonly participantCount: number;
+}
+
+export interface AuditParticipant {
+  readonly principalId: string;
+  readonly principalKind: string;
+  readonly displayName?: string;
+  readonly role: string;
+  readonly replyAuthority: boolean;
+  readonly effectiveFrom: string;
+  readonly effectiveTo?: string;
+}
+
+export interface AuditAttachment {
+  readonly attachmentId: string;
+  readonly filename: string | null;
+  readonly contentType: string | null;
+  readonly bytes?: number;
+  readonly durationMs?: number;
+  readonly state: string;
+}
+
+export interface AuditMessage {
+  readonly messageId: string;
+  readonly senderPrincipalId?: string;
+  readonly senderKind: string;
+  readonly senderDisplayName: string;
+  readonly visibility: string;
+  readonly body: string;
+  readonly createdAt: string;
+  readonly editedAt?: string;
+  readonly redactedAt?: string;
+  readonly replyToMessageId?: string;
+  readonly attachments: readonly AuditAttachment[];
+}
+
+export interface AuditSearchHit {
+  readonly messageId: string;
+  readonly conversationId: string;
+  readonly conversationType: string;
+  readonly title: string | null;
+  readonly senderPrincipalId: string | null;
+  readonly visibility: string;
+  readonly createdAt: string;
+  readonly body: string | null;
+}
+
+export interface AuditLedgerEvent {
+  readonly eventId: string;
+  readonly occurredAt: string;
+  readonly actorId: string | null;
+  readonly actorKind: string;
+  readonly action: string;
+  readonly targetKind: string;
+  readonly targetId: string;
+  readonly outcome: string;
+  readonly reason: string | null;
+  readonly correlationId: string;
+}
+
+export const auditApi = {
+  /** Whether to offer the door. Not what protects it — the server decides on every call. */
+  permission: () => request<{ mayAudit: boolean }>(auditRoutes.permission),
+  employees: () => request<{ employees: readonly AuditEmployee[] }>(auditRoutes.employees),
+  teams: () => request<{ teams: readonly AuditTeam[] }>(auditRoutes.teams),
+  conversations: (filter: {
+    employeeId?: string;
+    teamId?: string;
+    type?: string;
+    from?: string;
+    to?: string;
+    limit?: number;
+  }) =>
+    request<{ conversations: readonly AuditConversation[] }>(auditRoutes.conversations(filter)),
+  participants: (conversationId: string) =>
+    request<{ participants: readonly AuditParticipant[] }>(auditRoutes.participants(conversationId)),
+  messages: (conversationId: string, filter: { kind?: string; limit?: number } = {}) =>
+    request<{ conversationId: string; messages: readonly AuditMessage[] }>(
+      auditRoutes.messages(conversationId, filter),
+    ),
+  search: (term: string, limit?: number) =>
+    request<{ results: readonly AuditSearchHit[] }>(auditRoutes.search(term, limit)),
+  log: (filter: { actorId?: string; action?: string; limit?: number } = {}) =>
+    request<{ events: readonly AuditLedgerEvent[] }>(auditRoutes.log(filter)),
 };
