@@ -156,6 +156,70 @@ describe('what the administrator can reach', () => {
 });
 
 describe('the administrator keeps everything it already had', () => {
+  it('is an ordinary PARTICIPANT in its own conversations', () => {
+    /**
+     * The defect this test exists for, found in a browser on 2026-09-14.
+     *
+     * The audit rung sits above ownership and participation deliberately — those are the two
+     * rungs an audit has to reach past. It also reached past them for a conversation the
+     * administrator was genuinely IN, so every read of their own group chat came back with
+     * basis COMMUNICATION_AUDIT. That is not cosmetic: the basis is what the ledger records,
+     * what the read-only surface keys off and what `markRead` refuses on, so the one account
+     * holding this capability lost its composer in its own conversations and had its ordinary
+     * participation recorded as a privileged company-wide read.
+     *
+     * Asserted on the BASIS rather than on `allow`, because `allow` was true throughout and
+     * is exactly why nothing caught it.
+     */
+    const inTheGroup = decide({
+      ...ask(admin(), 'conversation.read', 'INTERNAL_GROUP'),
+      resource: {
+        conversationId: '018f2c5a-0000-7000-8000-0000000000c3',
+        conversationType: 'INTERNAL_GROUP',
+        sensitivity: 'ORDINARY',
+        participant: { role: 'PARTICIPANT', replyAuthority: false, effectiveFrom: PAST },
+      },
+    });
+    expect(inTheGroup.allow).toBe(true);
+    expect(
+      inTheGroup.allow && inTheGroup.basis,
+      'the administrator was treated as an auditor of a conversation they are in',
+    ).toBe('PARTICIPANT');
+
+    /* And as the owner of one they own. Same rung, same reason. */
+    const owned = decide({
+      ...ask(admin(), 'conversation.read', 'CUSTOMER_CLAIM'),
+      resource: {
+        conversationId: '018f2c5a-0000-7000-8000-0000000000c3',
+        conversationType: 'CUSTOMER_CLAIM',
+        sensitivity: 'ORDINARY',
+        currentOwnerId: '018f2c5a-0000-7000-8000-0000000000a1',
+      },
+    });
+    expect(owned.allow && owned.basis).toBe('OWNER');
+  });
+
+  it('still audits a conversation whose participation ENDED', () => {
+    /* The other side of the same condition: an expired participation row is not membership,
+       and an administrator must still be able to read a group they were once in. */
+    const left = decide({
+      ...ask(admin(), 'conversation.read', 'INTERNAL_GROUP'),
+      resource: {
+        conversationId: '018f2c5a-0000-7000-8000-0000000000c3',
+        conversationType: 'INTERNAL_GROUP',
+        sensitivity: 'ORDINARY',
+        participant: {
+          role: 'PARTICIPANT',
+          replyAuthority: false,
+          effectiveFrom: PAST,
+          effectiveTo: '2026-09-13T00:00:00.000Z',
+        },
+      },
+    });
+    expect(left.allow && left.basis).toBe('COMMUNICATION_AUDIT');
+  });
+
+
   it('still holds every administrative action', () => {
     /* The requirement is explicit that existing ADMIN access is preserved. Asserted by name
        because "we added a permission" is exactly the change that quietly drops one. */

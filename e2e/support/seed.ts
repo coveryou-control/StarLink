@@ -41,21 +41,25 @@ export async function seed(pool: pg.Pool): Promise<void> {
   await pool.query(
     `INSERT INTO identity.principals
        (principal_id, kind, username, display_name, department, credential_hash, status)
-     VALUES ($1,'EMPLOYEE',$4,'E2E Agent','Service',$7,'ACTIVE'),
-            ($2,'EMPLOYEE',$5,'E2E Lead','Service',$8,'ACTIVE'),
-            ($3,'EMPLOYEE',$6,'E2E Colleague','Service',$9,'ACTIVE')
+     VALUES ($1,'EMPLOYEE',$5,'E2E Agent','Service',$9,'ACTIVE'),
+            ($2,'EMPLOYEE',$6,'E2E Lead','Service',$10,'ACTIVE'),
+            ($3,'EMPLOYEE',$7,'E2E Colleague','Service',$11,'ACTIVE'),
+            ($4,'EMPLOYEE',$8,'E2E Administrator','Service',$12,'ACTIVE')
      ON CONFLICT (principal_id) DO UPDATE
        SET status = 'ACTIVE', credential_hash = EXCLUDED.credential_hash`,
     [
       IDS.agent,
       IDS.lead,
       IDS.colleague,
+      IDS.administrator,
       CREDENTIALS.agent.username,
       CREDENTIALS.lead.username,
       CREDENTIALS.colleague.username,
+      CREDENTIALS.administrator.username,
       await hashPassword(CREDENTIALS.agent.password),
       await hashPassword(CREDENTIALS.lead.password),
       await hashPassword(CREDENTIALS.colleague.password),
+      await hashPassword(CREDENTIALS.administrator.password),
     ],
   );
 
@@ -63,6 +67,9 @@ export async function seed(pool: pg.Pool): Promise<void> {
     [IDS.agent, 'AGENT'],
     [IDS.lead, 'TEAM_LEAD'],
     [IDS.colleague, 'AGENT'],
+    /* One ADMIN, holding the communication-audit capability as an additional permission of
+       the role it already has — there is no separate auditor account, by requirement. */
+    [IDS.administrator, 'ADMIN'],
   ] as const) {
     await pool.query(
       `INSERT INTO identity.team_memberships (team_id, principal_id, role)

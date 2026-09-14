@@ -19,6 +19,7 @@ import {
   toActorContext,
   MAX_TITLE_LENGTH,
   type ConversationReader,
+  type Decision,
   type ConversationStore,
   type ReadStateStore,
 } from '@starlink/conversation-domain';
@@ -226,12 +227,32 @@ export class EmployeeConversationsController {
    * `decide()` itself; wrapping it would add a layer between the rule and its call sites.
    */
   private async mayActOn(principalId: UUID, conversationId: UUID, action: string): Promise<boolean> {
+    return (await this.decisionFor(principalId, conversationId, action))?.allow === true;
+  }
+
+  /**
+   * The same object check, keeping the DECISION rather than only its verdict.
+   *
+   * `mayActOn` above answers "may they", which is what almost every route needs. One route
+   * needs to know WHY, and the difference is not cosmetic: `decide()` reports `basis`, and
+   * an allow whose basis is `COMMUNICATION_AUDIT` is an administrator inspecting the
+   * company's communications, not a participant acting in their own conversation. Marking
+   * a thread read is the second kind of act and never the first — see `markRead`.
+   *
+   * Returns `undefined` for "no such conversation, or not visible", which §27.3 makes one
+   * answer; a caller must not be able to tell those apart from the outside either.
+   */
+  private async decisionFor(
+    principalId: UUID,
+    conversationId: UUID,
+    action: string,
+  ): Promise<Decision | undefined> {
     const at = new Date().toISOString();
     const resource = await this.authz.loadForAuthorization(conversationId, principalId, at);
     // Absent and forbidden are one answer (§27.3).
-    if (resource === undefined) return false;
+    if (resource === undefined) return undefined;
     const claims = await this.identity.resolvePrincipal(principalId);
-    if (!claims.ok) return false;
+    if (!claims.ok) return undefined;
     /**
      * Cover grants, loaded for THIS conversation (N-53).
      *
@@ -249,7 +270,7 @@ export class EmployeeConversationsController {
         resource,
         now: at,
       }),
-    ).allow;
+    );
   }
 
   @Get()
@@ -1239,9 +1260,35 @@ export class EmployeeConversationsController {
      * `conversation.read` is the right action: marking a thread read is an assertion about
      * having read it, and the person must be entitled to do that.
      */
-    if (!(await this.mayActOn(session.principalId, conversationId.data, 'conversation.read'))) {
-      return refuse();
-    }
+    const decision = await this.decisionFor(
+      session.principalId,
+      conversationId.data,
+      'conversation.read',
+    );
+    if (decision?.allow !== true) return refuse();
+
+    /**
+     * An audit read is not an assertion of having participated.
+     *
+     * The administrator holding the communication-audit capability is entitled to
+     * `conversation.read` on every conversation in the company — which is precisely why
+     * this route had to learn the difference. Without this branch, opening somebody's
+     * thread to inspect it wrote a `read_state` row for the administrator in a
+     * conversation they are not in, and that row is not private bookkeeping: the read
+     * watermark a list row draws its second tick from is the LOWEST read position across
+     * the conversation, so an inspector who had not scrolled to the bottom would silently
+     * un-tick messages the participants had already read. Inspecting a conversation must
+     * leave no trace inside it.
+     *
+     * Enforced HERE, in the route, rather than by the oversight screen not calling it. The
+     * screen does not call it either — but a screen that does not ask is not a rule, and
+     * the requirement is that inspection cannot alter read receipts, not that the current
+     * client happens not to try.
+     *
+     * The refusal is the uniform 404 (§27.3) rather than a 403: this route says nothing
+     * about what exists, and it is not going to start here.
+     */
+    if (decision.basis === 'COMMUNICATION_AUDIT') return refuse();
 
     // Read state is personal and idempotent, and is deliberately NOT audited —
     // auditing ordinary reading is surveillance, not accountability (P-06).

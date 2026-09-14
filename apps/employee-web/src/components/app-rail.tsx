@@ -32,7 +32,24 @@ import { auditApi } from '../lib/api-client';
  * permanent tab to say it. The unread counts on the conversation rows are unchanged; §29.6
  * calls those "the unread mechanism" and nothing here touches them.
  */
-export type RailSection = 'chats' | 'channels' | 'people' | 'announcements' | 'settings';
+/**
+ * `oversight` is a destination like the others, and that is the whole point of it.
+ *
+ * It was a separate page at `/audit` with its own shell and its own transcript renderer.
+ * Making it a SECTION is not a cosmetic move: a section's rows open in the same thread
+ * column every other list opens into, which is what lets the administrator read a
+ * conversation with the product's own message list instead of a second one that has to be
+ * kept in step with it. See `oversight-panel.tsx`.
+ *
+ * Offered to exactly one role, and `useMayAudit` is not what enforces that — see its note.
+ */
+export type RailSection =
+  | 'chats'
+  | 'channels'
+  | 'people'
+  | 'announcements'
+  | 'oversight'
+  | 'settings';
 
 /**
  * Which slice of the chat list the sidebar is showing.
@@ -235,6 +252,31 @@ const SECTIONS: readonly {
     ),
   },
   {
+    id: 'oversight',
+    label: 'Oversight',
+    /* A magnifier over a conversation — the same mark the sidebar row draws, so the phone
+       and the desktop are unmistakably the same destination. */
+    icon: (
+      <>
+        <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.7" />
+        <path
+          d="m15.6 15.6 4 4"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+        />
+        <path
+          d="M8.6 11h4.8M11 8.6v4.8"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+        />
+      </>
+    ),
+  },
+  {
     id: 'settings',
     label: 'Settings',
     /*
@@ -292,6 +334,7 @@ export const RAIL_SECTIONS: readonly RailSection[] = [
   'channels',
   'people',
   'announcements',
+  'oversight',
   'settings',
 ];
 
@@ -341,6 +384,7 @@ export function AppRail({
   chatView,
   onChatView,
   onNewChat,
+  embedded = false,
 }: {
   readonly active: RailSection;
   readonly onSelect: (section: RailSection) => void;
@@ -369,11 +413,31 @@ export function AppRail({
   readonly chatView?: ChatView;
   readonly onChatView?: (view: ChatView) => void;
   readonly onNewChat?: () => void;
+  /** Inside a host application's page — the brand and the account foot go. See `lib/embed.ts`. */
+  readonly embedded?: boolean;
 }): ReactNode {
   const bottom = layout === 'bottom';
+  /**
+   * A sixth tab, for the one account in the company that has somewhere to put it.
+   *
+   * The note above `PHONE_SECTIONS` does the arithmetic for five: 64px a tab across a 320px
+   * screen, comfortably over the 44px touch minimum, with the label as the thing that
+   * suffers. Six is 53px, which is still over the minimum and is the trade this one case
+   * earns — the alternative is a capability that exists on a laptop and not on a phone, and
+   * a compliance question does not wait for somebody to reach a desk.
+   *
+   * Conditional on the SERVER's answer, so it is six tabs for one administrator and five for
+   * everybody else, rather than a permanently tighter bar for the whole company. Hiding it is
+   * not what protects it — `useMayAudit`'s own note says so, and every route decides again.
+   */
+  const mayAuditOnPhone = useMayAudit();
+  const phoneSections =
+    mayAuditOnPhone && !PHONE_SECTIONS.includes('oversight')
+      ? [...PHONE_SECTIONS.slice(0, -1), 'oversight' as RailSection, ...PHONE_SECTIONS.slice(-1)]
+      : PHONE_SECTIONS;
   const shown = bottom
-    ? PHONE_SECTIONS.flatMap((id) => SECTIONS.filter((section) => section.id === id))
-    : SECTIONS.filter((section) => section.id !== 'settings');
+    ? phoneSections.flatMap((id) => SECTIONS.filter((section) => section.id === id))
+    : SECTIONS.filter((section) => section.id !== 'settings' && section.id !== 'oversight');
 
   /*
      The phone's bar and the desktop's sidebar are two different components that happen to
@@ -392,6 +456,7 @@ export function AppRail({
         onSignOut={onSignOut}
         chatView={chatView ?? 'all'}
         onChatView={onChatView}
+        embedded={embedded}
         {...(onNewChat !== undefined ? { onNewChat } : {})}
       />
     );
@@ -633,6 +698,7 @@ function DesktopSidebar({
   chatView,
   onChatView,
   onNewChat,
+  embedded = false,
 }: {
   readonly active: RailSection;
   readonly onSelect: (section: RailSection) => void;
@@ -642,6 +708,20 @@ function DesktopSidebar({
   readonly chatView: ChatView;
   readonly onChatView: (view: ChatView) => void;
   readonly onNewChat?: () => void;
+  /**
+   * Inside a host application's page — see `lib/embed.ts`.
+   *
+   * What goes is the BRAND ROW and the ACCOUNT FOOT, and nothing else. The host already
+   * carries a product name and an account menu, and a second of each on the same screen is
+   * worse than either; but the destinations below them are the chat workspace itself, and an
+   * embed that dropped them would be embedding a conversation list rather than the product.
+   *
+   * Sign-out goes with the account foot on purpose. Ending a session from inside somebody
+   * else's page signs the person out of StarLink while the host still believes they are
+   * signed in — a state neither application can render honestly. The host owns the session's
+   * end because the host owns its beginning.
+   */
+  readonly embedded?: boolean;
 }): ReactNode {
   const [confirmSignOut, setConfirmSignOut] = useState(false);
   const me = useOwnPrincipalId();
@@ -679,6 +759,7 @@ function DesktopSidebar({
   const onChats = active === 'chats';
   return (
     <nav className="sidenav" aria-label="StarLink" data-collapsed={collapsed ? 'true' : 'false'}>
+      {embedded ? null : (
       <div className="sidenav-brand">
         <BrandMark size={26} />
         <span className="sidenav-wordmark">StarLink</span>
@@ -714,6 +795,7 @@ function DesktopSidebar({
           </button>
         )}
       </div>
+      )}
 
       {onNewChat !== undefined ? (
         <button type="button" className="sidenav-new" onClick={onNewChat}>
@@ -818,10 +900,14 @@ function DesktopSidebar({
         </li>
 
         {/*
-          The Admin Audit View, for the one role that holds the capability.
+          Communication Oversight, for the one role that holds the capability.
 
-          A LINK rather than a section: it is its own route with its own shell, not another
-          view of the conversation list, and `onSelect` speaks only about the latter.
+          A SECTION rather than a link, since 2026-09-14. It was `<a href="/audit">` onto a
+          page with its own shell — so the administrator left the product to use it, and the
+          page carried a second message renderer that knew nothing about replies, reactions,
+          edits or pins. The panel behind this row lists the same conversations and opens
+          them in the thread column every other list opens into, which is the renderer the
+          rest of the company sees.
 
           Shown from the server's answer rather than from a role name in the session — the
           same `decide()` call that guards the endpoints decides whether the door is drawn,
@@ -829,14 +915,27 @@ function DesktopSidebar({
         */}
         {mayAudit ? (
           <li>
-            <a className="sidenav-item" href="/audit">
+            <button
+              type="button"
+              className="sidenav-item"
+              aria-current={active === 'oversight' ? 'page' : undefined}
+              onClick={() => onSelect('oversight')}
+            >
               <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
                 <circle cx="11" cy="11" r="6.2" {...stroke} />
                 <path d="m15.6 15.6 4 4" {...stroke} strokeLinecap="round" />
                 <path d="M8.6 11h4.8M11 8.6v4.8" {...stroke} strokeLinecap="round" />
               </svg>
-              <span>Admin Audit</span>
-            </a>
+              {/*
+                "Oversight", not "Communication Oversight".
+
+                The column is 200px and the full name truncates to "Communication Ov…",
+                which loses the half that says what it IS. The panel's masthead carries the
+                full name, one click away and immediately — so nothing is hidden, and the
+                row reads at a glance like every other row in this list.
+              */}
+              <span>Oversight</span>
+            </button>
           </li>
         ) : null}
       </ul>
@@ -854,6 +953,11 @@ function DesktopSidebar({
         is to be scanned. Log out is last because a destructive action belongs where a
         mis-click cannot find it.
       */}
+      {/*
+        Absent in an embed rather than disabled — the house rule for a control somebody can
+        never take. See the `embedded` prop for why the session's end belongs to the host.
+      */}
+      {embedded ? null : (
       <div className="sidenav-foot">
         <button
           type="button"
@@ -886,6 +990,7 @@ function DesktopSidebar({
           <span>Log out</span>
         </button>
       </div>
+      )}
 
       {confirmSignOut ? (
         <ConfirmDialog

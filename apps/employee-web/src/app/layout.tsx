@@ -6,6 +6,7 @@ import './globals.css';
 import { SessionProvider } from '../components/session-provider';
 import { RuntimeOriginsScript } from '../components/runtime-origins-script';
 import { themeBootScript } from '../lib/theme';
+import { embedBootScript } from '../lib/embed';
 import { chatBackgroundBootScript } from '../lib/chat-background';
 import { inputModalityBootScript } from '../lib/input-modality';
 
@@ -96,6 +97,12 @@ export default async function RootLayout({ children }: { children: ReactNode }):
           this script mutates `<html>` before React reaches it, which is the point.
         */}
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeBootScript }} />
+        {/*
+          Before the first paint, like the theme above it and for the same reason: a host
+          application's frame must not show a StarLink brand row for one frame and then take
+          it away. See `lib/embed.ts` — this stamps an attribute, it grants nothing.
+        */}
+        <script nonce={nonce} dangerouslySetInnerHTML={{ __html: embedBootScript }} />
         {/* Same reason as the theme's: read from an effect, the first paint would be the
             default ground and the second the chosen one — a visible flash on the largest
             surface on the screen, every load. */}

@@ -37,7 +37,15 @@ export function PinnedBar({
   readonly pins: readonly PinnedMessage[];
   /** Scrolls the thread to a message. Returns false when it is not on the loaded page. */
   readonly onJump: (messageId: string) => boolean;
-  readonly onUnpin: (messageId: string) => void;
+  /**
+   * Absent means the surface offers no unpinning at all.
+   *
+   * A pin is the conversation's, so removing one is an act inside it — which the
+   * communication-oversight reader is not making. Optional rather than disabled, for the
+   * reason every other absent control on this screen is: a greyed × still puts the shape
+   * of an action in front of somebody who is only reading.
+   */
+  readonly onUnpin?: ((messageId: string) => void) | undefined;
 }): React.JSX.Element | null {
   const [expanded, setExpanded] = useState(false);
   const [missed, setMissed] = useState<string | undefined>();
@@ -82,6 +90,7 @@ export function PinnedBar({
             )}
           </button>
 
+          {onUnpin === undefined ? null : (
           <button
             type="button"
             className="pinned-unpin"
@@ -99,6 +108,7 @@ export function PinnedBar({
               />
             </svg>
           </button>
+          )}
         </div>
       ))}
 

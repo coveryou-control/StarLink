@@ -14,6 +14,7 @@ import {
 import { useMediaQuery } from '../../lib/use-media-query';
 import { AnnouncementsPanel } from '../../components/announcements-panel';
 import { ChannelsPanel } from '../../components/channels-panel';
+import { OversightPanel, oversightTitle } from '../../components/oversight-panel';
 import { ConversationList } from '../../components/conversation-list';
 import { ConversationSearch } from '../../components/conversation-search';
 import { SettingsPanel } from '../../components/settings-panel';
@@ -27,6 +28,7 @@ import { BrandMark } from '../../components/brand';
 import { useSession } from '../../components/session-provider';
 import { api, ApiError, type ConversationSummary,
   type ChannelSummary,
+  type AuditConversation,
 } from '../../lib/api-client';
 import { customerWorkspaceEnabled } from '../../lib/runtime-origins';
 import { applyTheme, storedTheme, watchSystemTheme } from '../../lib/theme';
@@ -42,6 +44,7 @@ import { AvatarStampProvider } from '../../components/avatar-image';
 import { PresenceProvider } from '../../components/presence';
 import { ActiveConversationProvider } from '../../components/active-conversation';
 import { AppBoot } from '../../components/app-boot';
+import { isEmbedded } from '../../lib/embed';
 
 export default function WorkspaceLayout({ children }: { children: ReactNode }): ReactNode {
   const { state, signOut, onUnauthenticated } = useSession();
@@ -62,6 +65,17 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
    * other half of the screen. The rail switches the PANEL; the thread stays put.
    */
   const [section, setSection] = useState<RailSection>('chats');
+  /**
+   * Running inside a host application's page.
+   *
+   * Read on mount rather than during render: `isEmbedded` asks the DOM, and the server has
+   * no document. The stylesheet has already hidden the chrome from the attribute the boot
+   * script stamped, so the one frame between the server's answer and this one shows the
+   * embedded layout either way — this is what keeps the brand and the account foot out of
+   * the TAB ORDER, which CSS cannot do.
+   */
+  const [embedded, setEmbedded] = useState(false);
+  useEffect(() => setEmbedded(isEmbedded()), []);
   /**
    * Which slice of the chat list the sidebar has selected.
    *
@@ -113,6 +127,59 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
    * header a second one. The extra channel facts travel separately to the info panel, which
    * is the only place that needs them.
    */
+  /**
+   * The conversations the oversight panel has loaded, held here for one reason.
+   *
+   * The same arrangement as `channels` above and for exactly the same reason: a
+   * conversation being INSPECTED is in none of this reader's own lists — that is what
+   * makes it an inspection — so without this the thread column has no name, no kind and no
+   * participant count for the thread it is showing, and the header renders "Conversation"
+   * with a dot for an avatar.
+   *
+   * Not a second fetch. The panel has these rows already and hands them up.
+   */
+  const [oversight, setOversight] = useState<readonly AuditConversation[]>([]);
+  const oversightSummaries = useMemo<readonly ConversationSummary[]>(
+    () =>
+      oversight.map((row) => ({
+        conversationId: row.conversationId,
+        conversationType: row.conversationType,
+        /*
+           Always titled, and the fallback is the people in it.
+
+           A one-to-one and most groups carry no `title` — they are named after their
+           members everywhere else in the product, from a participant list this reader does
+           not have. Leaving it absent put "Untitled conversation" above every inspected
+           thread and "UC" in the avatar, which is the header failing to answer the only
+           question an audit opens a thread with.
+
+           `oversightTitle` is the panel's own row naming, so the list and the header cannot
+           disagree about what a conversation is called.
+        */
+        title: oversightTitle(row),
+        ...(row.state !== null ? { state: row.state } : {}),
+        sensitivity: row.sensitivity,
+        lastActivityAt: row.lastActivityAt,
+        participantCount: row.participantCount,
+        /*
+           Zero, and it is not a placeholder: an inspector has no unread count here because
+           they have no read state here, which is the same fact that stops the thread page
+           marking anything read. `pinned` is false for the same reason — both are the
+           READER's own relationship with a conversation they have none with.
+        */
+        unreadCount: 0,
+        pinned: false,
+        /*
+           Empty rather than guessed. The audit row carries a participant COUNT and no
+           names; `OversightDetails` asks the audit API for the roster, which is the
+           endpoint that can answer with who left and when. An invented list here would be
+           a business value nobody supplied (rule 10).
+        */
+        participants: [],
+      })),
+    [oversight],
+  );
+
   const [channels, setChannels] = useState<readonly ChannelSummary[]>([]);
   const channelSummaries = useMemo<readonly ConversationSummary[]>(
     () =>
@@ -320,7 +387,11 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
   const activeConversation =
     conversations.find((c) => c.conversationId === params.id) ??
     announcements.find((c) => c.conversationId === params.id) ??
-    channelSummaries.find((c) => c.conversationId === params.id);
+    channelSummaries.find((c) => c.conversationId === params.id) ??
+    /* Last, deliberately: an administrator who is genuinely IN a conversation must get
+       their own summary — with their unread count and their pin — rather than the
+       oversight row that knows neither. */
+    oversightSummaries.find((c) => c.conversationId === params.id);
 
   useEffect(() => {
     if (state.status === 'SIGNED_OUT') router.replace('/sign-in');
@@ -532,6 +603,7 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
         unreadChats={conversations.filter((c) => c.unreadCount > 0).length}
         displayName={state.me.displayName}
         onSignOut={() => void signOut()}
+        embedded={embedded}
         chatView={chatView}
         onChatView={setChatView}
         onNewChat={() => {
@@ -917,6 +989,27 @@ export default function WorkspaceLayout({ children }: { children: ReactNode }): 
               onOpen={(id) => {
                 router.push(`/conversations/${id}`);
                 void refresh();
+              }}
+            />
+          ) : null}
+
+          {/*
+            Communication Oversight: the same relation to the thread column as every other
+            panel. The rail switches the panel, a row moves the thread column, and what
+            renders there is the product's own message list — in the read-only shape the
+            SERVER asks for, not a second transcript view. See `oversight-panel.tsx`.
+          */}
+          {section === 'oversight' ? (
+            <OversightPanel
+              onLoaded={setOversight}
+              {...(params.id !== undefined ? { activeId: params.id } : {})}
+              onOpen={(id) => router.push(`/conversations/${id}`)}
+              /* The administrator's own conversations are an ordinary employee's, and they
+                 live in the ordinary place. The panel offers the way back rather than
+                 duplicating the chat list inside itself. */
+              onOpenMyChats={() => {
+                setSection('chats');
+                setChatView('all');
               }}
             />
           ) : null}

@@ -94,6 +94,43 @@ const LOADS = /loadForAuthorization|loadConversationForUpdate|loadForRead/;
 const DECIDES = /\bdecide\s*\(/;
 const isObjectCheck = (body: string): boolean => LOADS.test(body) && DECIDES.test(body);
 
+/**
+ * The object checkers in one file, INCLUDING those that delegate to another one in it.
+ *
+ * ## Why one hop is followed, and only one
+ *
+ * `conversations.controller.ts` has two: `decisionFor` loads the conversation and decides
+ * against it, and `mayActOn` is `decisionFor(...)?.allow === true`. Almost every route wants
+ * the verdict, and one route — `markRead` — has to see the BASIS, because an allow whose
+ * basis is COMMUNICATION_AUDIT is an inspection rather than participation and must not write
+ * read state.
+ *
+ * Read literally, `isObjectCheck` rejected `mayActOn` the moment it stopped inlining the
+ * load: eleven correctly-authorized routes were reported as authorizing nothing. That is the
+ * guard failing on a refactor rather than on a hole, and the fix is to follow the call — one
+ * hop, inside the same file, which a source scan CAN do honestly. Delegation across a package
+ * boundary still needs a `DELEGATED` entry, because that is the hop a scan cannot follow.
+ *
+ * A fixpoint rather than a single pass, so a three-link chain in the same file is recognised
+ * too — and it terminates because each round either adds a name or stops.
+ */
+function checkersIn(helpers: readonly { name: string; body: string }[]): string[] {
+  const approved = new Set(helpers.filter((h) => isObjectCheck(h.body)).map((h) => h.name));
+  for (;;) {
+    const before = approved.size;
+    for (const helper of helpers) {
+      if (approved.has(helper.name)) continue;
+      /* Called BY NAME, on `this` or bare. A mention in a string or a type would not
+         match — the parentheses are what make it a call. */
+      const calls = [...approved].some((name) =>
+        new RegExp(String.raw`(?:this\.)?\b` + name + String.raw`\s*\(`).test(helper.body),
+      );
+      if (calls) approved.add(helper.name);
+    }
+    if (approved.size === before) return [...approved];
+  }
+}
+
 /** The team equivalent: load the team, run the queue-scope decision against what loaded. */
 const isTeamCheck = (body: string): boolean =>
   /loadTeam|teamFor|contextFor/.test(body) && /\bdecideForTeam\s*\(/.test(body);
@@ -175,8 +212,8 @@ const sources = CONTROLLERS.map((file) => {
   return {
     file,
     code,
-    /** Names in THIS file whose own body passes the object-check test. */
-    checks: helpers.filter((h) => isObjectCheck(h.body)).map((h) => h.name),
+    /** Names in THIS file that object-check, directly or through one that does. */
+    checks: checkersIn(helpers),
     teamChecks: helpers.filter((h) => isTeamCheck(h.body)).map((h) => h.name),
     handlers: sliceHandlers(code, file, prefixOf(code)),
   };
@@ -500,5 +537,35 @@ class C {
     const found = helpersIn(withHelpers);
     expect(found.map((h) => h.name)).toEqual(['mayActOn', 'mayDo']);
     expect(found.filter((h) => isObjectCheck(h.body)).map((h) => h.name)).toEqual(['mayActOn']);
+  });
+
+  it('follows a delegation inside one file, and only a real one', () => {
+    /**
+     * The control for `checkersIn`. A helper that CALLS an object check is one; a helper
+     * that merely mentions the name, or calls something else entirely, is not — otherwise
+     * "follows delegation" becomes "approves anything in a file that has a checker in it",
+     * which is the hole this whole file exists to keep shut.
+     */
+    const helpers = [
+      {
+        name: 'decisionFor',
+        body: 'const r = await this.authz.loadForAuthorization(id); return decide({ resource: r });',
+      },
+      { name: 'mayActOn', body: 'return (await this.decisionFor(a, b, c))?.allow === true;' },
+      { name: 'mayReach', body: 'return this.mayActOn(a, b, c);' },
+      { name: 'looksRight', body: 'const note = "decisionFor is where the check lives"; return true;' },
+      { name: 'unrelated', body: 'return this.pool.query(sql);' },
+    ];
+
+    const approved = checkersIn(helpers).sort();
+    expect(approved, 'a real delegation, and the chain behind it').toEqual([
+      'decisionFor',
+      'mayActOn',
+      'mayReach',
+    ]);
+    expect(approved, 'a helper that only NAMES the checker was approved').not.toContain(
+      'looksRight',
+    );
+    expect(approved).not.toContain('unrelated');
   });
 });

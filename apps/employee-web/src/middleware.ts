@@ -51,12 +51,45 @@ import { NextResponse, type NextRequest } from 'next/server';
 const apiOrigin = (): string => process.env.SL_API_ORIGIN ?? 'http://localhost:3011';
 const realtimeOrigin = (): string => process.env.SL_REALTIME_ORIGIN ?? 'http://localhost:3100';
 
+/**
+ * Which host applications may put this workspace in an iframe.
+ *
+ * ## Default is NOT embeddable, and that is the important half
+ *
+ * Unset means `frame-ancestors 'none'` and `X-Frame-Options: DENY` — exactly what this app
+ * sent before embedding existed. An operator who has not named a host has not admitted one,
+ * which is FR-AUTHZ-3's posture applied to a header: absent is refused, never treated as
+ * open. A clickjacking defence that defaults to off is not a defence.
+ *
+ * ## Why a list of origins rather than a boolean
+ *
+ * `frame-ancestors` takes the origins that may frame this document, and naming them is the
+ * whole protection. A boolean would mean `'*'`, which admits any page on the internet to
+ * frame a signed-in employee workspace — the attack this header exists for.
+ *
+ * Comma-separated, `SL_`-prefixed, no fallback to another product's variable (rule 13), read
+ * per request for the reason the origins above it are: a build-inlined allowlist would weld
+ * staging's hosts into the artefact that gets promoted to production.
+ *
+ * Each entry is a scheme-and-host origin — `https://app.example.com` — and anything
+ * that is not one is dropped rather than passed through, because a malformed entry in a CSP
+ * source list can silently widen the policy rather than narrowing it.
+ */
+const EMBED_ORIGIN = /^https?:\/\/[a-z0-9.-]+(?::\d+)?$/i;
+
+const embedOrigins = (): readonly string[] =>
+  (process.env.SL_EMBED_ORIGINS ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => EMBED_ORIGIN.test(origin));
+
 /** `http://x` also needs `ws://x`; `https://x` needs `wss://x`. */
 const socketOrigin = (origin: string): string => origin.replace(/^http/, 'ws');
 
 export function middleware(request: NextRequest): NextResponse {
   const API_ORIGIN = apiOrigin();
   const REALTIME_ORIGIN = realtimeOrigin();
+  const hosts = embedOrigins();
   const nonce = Buffer.from(crypto.randomUUID()).toString('base64');
 
   const policy = [
@@ -94,10 +127,15 @@ export function middleware(request: NextRequest): NextResponse {
     /* The service worker, and nothing else may become one. */
     `worker-src 'self'`,
     `manifest-src 'self'`,
-    /* Nothing embeds, nothing is embedded, nothing navigates a form elsewhere. */
+    /* Nothing embeds, and nothing navigates a form elsewhere. */
     `object-src 'none'`,
     `frame-src 'none'`,
-    `frame-ancestors 'none'`,
+    /*
+       Who may embed THIS. `'none'` unless an operator has named a host — see `embedOrigins`.
+       `'self'` is included alongside them so the app can still frame its own pages, which is
+       what the preview and the media viewer rely on.
+    */
+    hosts.length === 0 ? `frame-ancestors 'none'` : `frame-ancestors 'self' ${hosts.join(' ')}`,
     `base-uri 'self'`,
     `form-action 'self'`,
   ].join('; ');
@@ -107,6 +145,23 @@ export function middleware(request: NextRequest): NextResponse {
 
   const response = NextResponse.next({ request: { headers } });
   response.headers.set('Content-Security-Policy', policy);
+
+  /**
+   * `X-Frame-Options` is decided HERE, beside `frame-ancestors`, and nowhere else.
+   *
+   * It used to live in `next.config.mjs` as a flat `DENY`. Two files each asserting a frame
+   * policy is two files that can disagree, and the disagreement is unobservable until a host
+   * application's iframe comes up blank in a browser old enough to prefer the legacy header
+   * — which is the browser least likely to be the one anybody tested in.
+   *
+   * The header has no allowlist form worth using: `ALLOW-FROM` admits exactly one origin and
+   * is unimplemented in every current browser. So when hosts are named it is OMITTED and
+   * `frame-ancestors` carries the policy alone, which is what the modern browsers a host app
+   * will actually be running honour. When no host is named it stays `DENY`, so the default
+   * posture is defended twice.
+   */
+  if (hosts.length === 0) response.headers.set('X-Frame-Options', 'DENY');
+  else response.headers.delete('X-Frame-Options');
 
   /*
      HSTS, but only on a request that actually arrived over TLS.
