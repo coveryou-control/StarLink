@@ -84,16 +84,12 @@ export default function SignInPage(): ReactNode {
     <main className="signin">
       <ConnectionField />
 
-      {/* The wordmark, top left, as the reference places it. The mark appears again inside
-          the card — also as the reference places it, and the two are doing different jobs:
-          this one says whose product this is, the one on the card says what you are signing
-          in to. */}
-      <header className="signin-brandbar">
-        <span className="signin-wordmark">
-          <BrandMark size={30} />
-          StarLink
-        </span>
-      </header>
+      {/* No wordmark up here any more.
+
+          It named the product in the top-left while the star names it in the middle and the
+          mark above the form names it a third time — three statements of the same fact on a
+          screen with one job. The star is the identity; this was the caption nobody needed,
+          and removing it also gives the composition back the top of the page. */}
 
       <div className="signin-stage">
         {/*

@@ -7181,21 +7181,26 @@ button.settings-switch {
   /* Its own stacking context, so the canvas at z-index 0 cannot slide behind the page's
      background and vanish, and nothing outside has to know these z-indexes exist. */
   isolation: isolate;
-  /*
-     One measure for the whole page.
-
-     The brand bar used to run the full width while the stage was capped at 1360 and
-     centred, so on a 1920 window the wordmark sat at the page's edge and the lede beneath
-     it started 220px further in. Two different left margins on the same screen read as a
-     mistake, because they are one. Everything now shares `--si-measure`, so the wordmark,
-     the tags and the closing line all begin on the same vertical.
-  */
-  --si-measure: 1360px;
-
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  /*
+     ONE row, because there is one child.
+
+     This was `auto 1fr auto` — a row each for the brand bar, the stage and a closing line.
+     The closing line went first and its row has measured 0px ever since; the brand bar went
+     when the wordmark did, and that left the stage as the only item in the grid. It
+     therefore landed in row 1, the `auto` one, and the `1fr` sat empty BELOW it: the form
+     was nailed to y=58 whatever the window height, 297px above centre on a 1080 screen with
+     653px of blank page under the button. That is what looked wrong, and it was not the
+     alignment.
+
+     A template describing children that no longer exist is worse than no template. One
+     `1fr` row, and the stage centres in it.
+  */
+  grid-template-rows: 1fr;
   min-height: 100vh;
-  padding: 26px clamp(20px, 4vw, 56px) 28px;
+  /* Symmetric, so "centred in the row" and "centred on the screen" are the same place.
+     The 26/28 split was the brand bar's and the closing line's, and both are gone. */
+  padding: 26px clamp(20px, 4vw, 56px);
   /*
      Horizontal only.
 
@@ -7224,30 +7229,6 @@ button.settings-switch {
   width: 100%;
   height: 100%;
   pointer-events: none;
-}
-
-/* ------------------------------------------------------------------------ brand bar --- */
-
-.signin-brandbar {
-  position: relative;
-  z-index: 1;
-  width: 100%;
-  max-width: var(--si-measure);
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-}
-
-.signin-wordmark {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 16px;
-  font-weight: 640;
-  letter-spacing: -0.015em;
-  color: var(--si-ink);
 }
 
 /* ---------------------------------------------------------------------------- stage --- */
@@ -7282,8 +7263,18 @@ button.settings-switch {
   align-items: center;
   gap: clamp(24px, 4vw, 64px);
   width: 100%;
-  max-width: var(--si-measure);
-  margin: 0 auto;
+  /*
+     NOT capped and NOT centred.
+
+     It was `max-width: 1360px; margin: 0 auto`, which split every pixel of surplus width
+     evenly — so on a 1920 screen the form's right edge sat 284px from the window while the
+     star's left point was 141px from the other side. Twice as much air on the right as on
+     the left, which reads as the whole composition having been shoved left.
+
+     The cap existed so the brand bar, the lede and the closing line began on one vertical.
+     Two of those three are gone. Now the surplus goes to the open left track, where the
+     star is, and the form sits on the page's own right padding at every width.
+  */
 }
 
 /*
@@ -7356,23 +7347,38 @@ button.settings-switch {
 .signin-panel {
   display: flex;
   flex-direction: column;
-  padding: 32px 4px 26px;
+  /*
+     No padding at all.
+
+     The 4px either side was the card's inner breathing room, and it survived the card — so
+     every control measured 368px inside a 376px column and stopped 4px short of the page's
+     right padding, which is the same near-miss this sheet complains about elsewhere. The
+     top and bottom were the card's too, and with the page centring the form in its own row
+     they only pushed the ink 3px below where it should sit.
+  */
+  padding: 0;
 }
 
 /* ------------------------------------------------------------------------- masthead --- */
 
+/* Left, with the fields.
+
+   It was centred, which was right when it sat inside a card: the box supplied the axis. With
+   the card gone there is nothing to be centred in, so the heading read as a 103px accidental
+   indent and the mark floated 164px right of everything else on the panel. A logo anchors a
+   column's left edge; it does not hover over its middle. */
 .signin-masthead {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  margin-bottom: 26px;
-  text-align: center;
+  align-items: flex-start;
+  margin-bottom: 24px;
+  text-align: left;
 }
 
 /* The mark sits above the heading, as the reference has it. `.brand-mark` sets its own
    size inline, so only the spacing is set here. */
 .signin-masthead .brand-mark {
-  margin-bottom: 15px;
+  margin-bottom: 16px;
 }
 
 /* -0.024em is display type, not noise: 0.53px per letter at 22px, which is 10.6px across
@@ -7380,20 +7386,14 @@ button.settings-switch {
    2026-09-10 for the opposite reason - 0.065px per letter is below anything a person can
    see, and five rules carrying it were five decisions nobody made. */
 .signin-masthead h1 {
-  margin: 0 0 7px;
+  /* No bottom margin: the 7px was the gap to the paragraph under it, and that paragraph
+     stopped rendering. The masthead's own margin is what separates this from the form. */
+  margin: 0;
   font-size: var(--text-2xl);
   font-weight: 660;
   letter-spacing: -0.024em;
   line-height: 1.18;
   color: var(--si-ink);
-}
-
-.signin-masthead p {
-  margin: 0 auto;
-  max-width: 30ch;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--si-muted);
 }
 
 /* ----------------------------------------------------------------------------- form --- */
@@ -7764,17 +7764,6 @@ input.signin-control {
   opacity: 0.6;
 }
 
-/* ----------------------------------------------------------------------------- foot --- */
-
-.signin-foot {
-  margin: 18px 4px 0;
-  font-size: 11.5px;
-  line-height: 1.55;
-  text-align: center;
-  color: var(--si-subtle);
-}
-
-
 
 /*
    One moment of motion: the card settles, and the graphic fades up behind it a little
@@ -7790,8 +7779,7 @@ input.signin-control {
     animation: signin-fade 620ms var(--ease) both;
   }
 
-  .signin-lede,
-  .signin-brandbar {
+  .signin-lede {
     animation: signin-fade 520ms var(--ease) 80ms both;
   }
 }
@@ -7875,10 +7863,6 @@ input.signin-control {
 @media (max-width: 560px) {
   .signin {
     padding: 20px 18px 24px;
-  }
-
-  .signin-panel {
-    padding: 30px 2px 26px;
   }
 
   .signin-masthead {
