@@ -404,6 +404,20 @@ export interface MessagePage {
    * The socket frame only makes it immediate.
    */
   readonly readWatermark?: number;
+  /**
+   * Is the reader IN this conversation, or only entitled to read it?
+   *
+   * The server's answer, taken from the decision that authorised this very read — not a
+   * guess made here from whether the conversation appears in the chat list. An
+   * administrator holding the communication-audit capability may open any thread in the
+   * company; a thread opened that way must offer no composer, no reaction, no edit and no
+   * pin, and a thread somebody is actually in must lose none of them.
+   *
+   * Optional so an older server yields `undefined`, which the page reads as "assume
+   * participant" — the pre-existing behaviour for every reader who is one. The read-only
+   * surface is driven by an explicit `false`.
+   */
+  readonly viewerIsParticipant?: boolean;
 }
 
 export interface DirectoryEntry {
@@ -1331,16 +1345,37 @@ export interface AuditConversation {
   readonly conversationId: string;
   readonly conversationType: string;
   readonly title: string | null;
+  /**
+   * A few of the people in it, for a row whose `title` is null.
+   *
+   * Bounded by the server at four and NOT the membership — `participantCount` is. Optional
+   * so a server that predates the column yields a row without names rather than a row that
+   * claims the conversation is empty.
+   */
+  readonly participants?: readonly string[];
   readonly state: string | null;
   readonly sensitivity: string;
   readonly lastActivityAt: string;
   readonly participantCount: number;
+  /**
+   * The last thing said, and who said it — the line that makes a row readable.
+   *
+   * Trimmed by the server, and absent when the conversation has no message or its newest
+   * one has been redacted. A redaction clears the body for every reader; an oversight list
+   * is not where it comes back.
+   */
+  readonly lastMessagePreview?: string;
+  readonly lastMessageSender?: string;
+  /** Up to three departments the participants belong to. Empty when none are recorded. */
+  readonly departments?: readonly string[];
 }
 
 export interface AuditParticipant {
   readonly principalId: string;
   readonly principalKind: string;
   readonly displayName?: string;
+  /** Which part of the company they are from. Absent for a customer, and for HRMS gaps. */
+  readonly department?: string;
   readonly role: string;
   readonly replyAuthority: boolean;
   readonly effectiveFrom: string;
@@ -1376,6 +1411,10 @@ export interface AuditSearchHit {
   readonly conversationType: string;
   readonly title: string | null;
   readonly senderPrincipalId: string | null;
+  /** Who wrote it. Absent for a customer, who is not in the employee directory. */
+  readonly senderDisplayName?: string;
+  /** A few of the people in the conversation, for a hit whose `title` is null. */
+  readonly participants?: readonly string[];
   readonly visibility: string;
   readonly createdAt: string;
   readonly body: string | null;
@@ -1385,6 +1424,13 @@ export interface AuditLedgerEvent {
   readonly eventId: string;
   readonly occurredAt: string;
   readonly actorId: string | null;
+  /**
+   * Who they are, resolved at read time. Absent when the account has since gone.
+   *
+   * The ledger itself stores only the id — no foreign key, so the record outlives the
+   * account and a rename cannot rewrite history. The name is a courtesy for the screen.
+   */
+  readonly actorName?: string;
   readonly actorKind: string;
   readonly action: string;
   readonly targetKind: string;
@@ -1402,12 +1448,24 @@ export const auditApi = {
   conversations: (filter: {
     employeeId?: string;
     teamId?: string;
+    department?: string;
     type?: string;
     from?: string;
     to?: string;
+    sort?: 'recent' | 'oldest';
     limit?: number;
   }) =>
-    request<{ conversations: readonly AuditConversation[] }>(auditRoutes.conversations(filter)),
+    request<{
+      /**
+       * How many conversations of each kind match everything EXCEPT the kind filter.
+       *
+       * So the panel's view list can carry a real number beside each place to stand. Counted
+       * by the server over the same population the list is drawn from — a count computed in
+       * the browser could only ever describe the page it had been sent.
+       */
+      counts: Readonly<Record<string, number>>;
+      conversations: readonly AuditConversation[];
+    }>(auditRoutes.conversations(filter)),
   participants: (conversationId: string) =>
     request<{ participants: readonly AuditParticipant[] }>(auditRoutes.participants(conversationId)),
   messages: (conversationId: string, filter: { kind?: string; limit?: number } = {}) =>

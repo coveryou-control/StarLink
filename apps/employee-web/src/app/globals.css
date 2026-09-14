@@ -14938,435 +14938,852 @@ input.signin-control {
   opacity: 0.5;
 }
 
-/* ================================================================== audit console ===
-   The communication audit surface.
+/* =================================================================== embedded mode ===
+   StarLink inside another product's page.
 
-   Deliberately NOT the workspace. Reading a colleague's one-to-one is not the same act as
-   reading your own thread, and an interface that made the two feel identical would be doing
-   the person using it a disservice — so this is a transcript: flat rows, every timestamp
-   shown, internal notes marked, tabular where the workspace is conversational. There are no
-   bubbles and no composer, because there is nothing here to say.
-   ================================================================================= */
-.audit {
+   A host application frames the workspace on one of its own screens. The chat is THE chat:
+   same API, same database, same conversations. What changes
+   is the chrome, because the host already has a brand and an account menu and two of each on
+   one screen is worse than either.
+
+   These rules exist for ONE FRAME. `lib/embed.ts`'s boot script stamps the attribute before
+   the first paint, and React removes the same elements once it hydrates — so the stylesheet
+   stops the flash and the components keep the chrome out of the tab order. Both are needed:
+   CSS alone leaves a focusable brand row a keyboard can reach inside somebody else's page,
+   and React alone shows it for a frame first.
+
+   What is NOT here: any rule that grants embedding. The frame is admitted or refused by
+   `Content-Security-Policy: frame-ancestors`, built in `middleware.ts` from an
+   `SL_EMBED_ORIGINS` a page cannot influence.
+   ==================================================================================== */
+:root[data-embed='true'] .sidenav-brand,
+:root[data-embed='true'] .sidenav-foot {
+  display: none;
+}
+
+/* ============================================================ communication oversight ===
+   The administrator's inbox onto the company's conversations.
+
+   It was a page — `/audit`, its own shell, its own filter column, its own transcript, and
+   about four hundred lines of `.audit-*` here. All of it went on 2026-09-14. The capability
+   did not shrink; it moved INSIDE the product, and took the product's own furniture with it.
+
+   Which is why this block is short. The rows are `.conversation-row` and its children — the
+   chat list's markup, not a copy of it — so the avatar, the two-line layout, the hover, the
+   selected card and its accent bar are all maintained once, two thousand lines above. What
+   is left here is the chrome an inspection needs and an inbox does not: the places to stand,
+   the filter stack, a line saying the reading is recorded, a third line on the row for the
+   facts you only need about somebody else's conversation, and the read-only strip where the
+   composer would be.
+
+   The one structural thing it does own is the SPLIT. On 2026-09-14 the panel became two
+   columns — navigation and list — which makes this section four columns wide where every
+   other section is two. That is scoped to `.app-shell[data-section='oversight']` and to
+   nothing else, deliberately: the shell's own grid is untouched, so a section that is not
+   this one cannot acquire a third column by accident.
+   ==================================================================================== */
+
+.oversight-head {
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+
+.oversight-head-text {
   display: flex;
+  flex: 1;
   flex-direction: column;
-  gap: var(--space-4);
-  min-height: 100vh;
-  padding: var(--space-5) var(--space-6);
-  background: var(--bg);
-  color: var(--text);
+  gap: 1px;
+  min-width: 0;
 }
 
-.audit-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--space-4);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: var(--space-3);
-}
-
-.audit-head h1 {
+.oversight-head-text h2 {
   margin: 0;
   font-size: var(--text-xl);
-  font-weight: 660;
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
 }
 
-/* The standing reminder. It is on every screen of this surface on purpose: somebody reading
-   a colleague's messages should never be in any doubt that the reading is itself recorded. */
-.audit-head p {
-  margin: 4px 0 0;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.audit-tabs {
-  display: flex;
-  gap: var(--space-1);
-}
-
-.audit-tab {
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: none;
-  padding: 6px 12px;
-  color: var(--text-muted);
-  font-size: var(--text-sm);
-  font-weight: 550;
-  cursor: pointer;
-}
-
-.audit-tab.is-on {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-  color: var(--accent-ink);
-}
-
-.audit-split {
-  display: grid;
-  grid-template-columns: minmax(280px, 340px) minmax(0, 1fr);
-  gap: var(--space-5);
-  align-items: start;
-  min-height: 0;
-}
-
-.audit-side {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-width: 0;
-}
-
-.audit-filters {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.audit-filters label,
-.audit-kind {
-  display: grid;
-  gap: 4px;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.audit-filters select,
-.audit-filters input,
-.audit-kind select,
-.audit-kind input,
-.audit-search input {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--surface);
-  padding: 7px 9px;
-  color: var(--text);
-  font-size: var(--text-sm);
-}
-
-.audit-count {
+.oversight-head-text p {
   margin: 0;
-  font-size: var(--text-sm);
-  color: var(--text-subtle);
-}
-
-.audit-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  /*
-     FLEX, not grid — and that is the fix for a real bug rather than a preference.
-
-     As a grid with fifty implicit rows and a `max-height`, the rows were compressed to
-     share the available space: each measured 34px where its two lines need 48, and the text
-     inside them collapsed to 7px against a 16.5px line-height. The rows had correct
-     geometry and correct colours in the DOM and painted as blank strips, which is a long
-     way to go to find a layout mode.
-
-     A column flex with non-shrinking items is what a scrolling list actually is: each item
-     takes the height it needs, and everything past the `max-height` goes to the scroller.
-  */
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 60vh;
-  overflow-y: auto;
-}
-
-/* A grid item sizes to its CONTENT unless told otherwise, and the meta line here does not
-   wrap — so each row measured 1535px inside a 340px column and hung off the side of the
-   panel. `min-width: 0` is what lets the track win; the truncation below is what makes the
-   result readable rather than merely contained. */
-.audit-list > li,
-.audit-messages > li,
-.audit-hits > li {
-  /* `flex: none` is the half that stops the compression; `min-width: 0` is the half that
-     lets the truncation below win over the content's natural width. */
-  flex: none;
-  min-width: 0;
-}
-
-.audit-row {
-  display: grid;
-  gap: 2px;
-  width: 100%;
-  min-width: 0;
-  /*
-     The base `button` rule sets `height: var(--row)` — 34px, right for every single-line
-     control in the product and wrong for this one, which carries two.
-
-     It is why the rows rendered as blank strips: the fixed height left 18px of content box,
-     the button's own grid shared that between its two children, and each line collapsed to
-     7px against a 16.5px line-height. Correct geometry, correct colours, nothing painted.
-  */
-  height: auto;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: none;
-  padding: 8px 10px;
-  text-align: left;
-  color: var(--text);
-  cursor: pointer;
-}
-
-.audit-row.is-on {
-  border-color: var(--accent-line);
-  background: var(--accent-soft);
-}
-
-.audit-meta {
+  color: var(--text-muted);
   font-size: var(--text-xs);
-  color: var(--text-subtle);
+  line-height: var(--lh);
 }
 
-/* Both lines of a row truncate rather than widening it. A conversation title is a person's
-   own words and can be any length; the column is a fixed 340px. */
-.audit-row > strong,
-.audit-row > .audit-meta {
+/*
+   Four columns, and only here.
+
+   The shell is a rail, a panel and a thread. This section splits its PANEL in two —
+   navigation and list — because an inspection narrows before it reads, and those two jobs
+   were fighting over one 340px column: with the filter sheet open the list began two-thirds
+   of the way down, so the screen's subject was the smallest thing on it.
+
+   Hung off `data-section`, which is exactly one section's arrangement. Every other panel
+   keeps the two-column shell untouched, and the attribute is what makes that structural
+   rather than a promise.
+
+   `:has()` rather than a second attribute on the shell: the column that folds is inside the
+   panel, and the width that has to follow it is on a grid three levels up. The alternative
+   is the component reaching upward to stamp the shell — a wire between two files for a fact
+   the stylesheet can simply read.
+*/
+.app-shell[data-section='oversight'] {
+  --oversight-nav-w: 236px;
+  --oversight-list-w: 300px;
+  /* Folded, the navigation keeps exactly the width of the control that unfolds it. */
+  --oversight-nav-folded-w: 46px;
+}
+
+.app-shell[data-section='oversight'] .app-body:has(.oversight-columns) {
+  grid-template-columns:
+    calc(var(--oversight-nav-w) + var(--oversight-list-w))
+    minmax(0, 1fr);
+}
+
+.app-shell[data-section='oversight'] .app-body:has(.oversight-columns[data-nav='collapsed']) {
+  grid-template-columns:
+    calc(var(--oversight-nav-folded-w) + var(--oversight-list-w))
+    minmax(0, 1fr);
+}
+
+/*
+   Five columns do not fit on a laptop, so the navigation yields to the details panel.
+
+   Oversight is the one surface that can have all five on screen at once — rail, navigation,
+   list, thread, details — and at 1440px the last one to arrive takes its width from the
+   thread: the header collapsed to "E2..." over "3 m...", which is a conversation the reader
+   can no longer identify while reading it.
+
+   The navigation is the right one to give way. It is a set of destinations somebody uses to
+   ARRIVE, and the details panel is only ever open because they have arrived; the list beside
+   it still names the current view and still carries every row. Below 1600px, therefore, the
+   details panel folds the navigation to the strip that unfolds it, and closing the panel
+   brings it back — no state, no memory, and the manual toggle still wins.
+
+   `:has()` rather than a flag threaded up from the thread page: the details panel's open
+   state is expressed in the DOM as `.thread-stage.details-open`, and a stylesheet that can
+   read that needs no wire between two components for a fact it can see. The same selector
+   family the conversation row already uses for its unread treatment.
+*/
+@media (max-width: 1600px) {
+  .app-shell[data-section='oversight'] .app-body:has(.thread-stage.details-open) {
+    grid-template-columns:
+      calc(var(--oversight-nav-folded-w) + var(--oversight-list-w))
+      minmax(0, 1fr);
+  }
+
+  .app-shell[data-section='oversight']
+    .app-body:has(.thread-stage.details-open)
+    .oversight-columns {
+    grid-template-columns: var(--oversight-nav-folded-w) minmax(0, 1fr);
+  }
+
+  .app-shell[data-section='oversight']
+    .app-body:has(.thread-stage.details-open)
+    .oversight-nav-head
+    h2,
+  .app-shell[data-section='oversight']
+    .app-body:has(.thread-stage.details-open)
+    .oversight-nav-body {
+    display: none;
+  }
+}
+
+.oversight-columns {
+  display: grid;
+  grid-template-columns: var(--oversight-nav-w) minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.oversight-columns[data-nav='collapsed'] {
+  grid-template-columns: var(--oversight-nav-folded-w) minmax(0, 1fr);
+}
+
+/* Each column scrolls its own body and neither scrolls the other — which is the whole
+   argument for there being two of them. */
+.oversight-nav,
+.oversight-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.oversight-nav {
+  border-right: 1px solid var(--border);
+}
+
+/* The two mastheads share a height, so the columns start on one line rather than on two
+   that are nearly the same. */
+.oversight-nav-head,
+.oversight-list-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex: none;
+  height: 52px;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.oversight-nav-head h2,
+.oversight-list-head h3 {
+  flex: 1;
+  margin: 0;
+  min-width: 0;
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The navigation names the surface; the list names the one place inside it you are
+   standing. A step of type size is how a reader is told which is which. */
+.oversight-nav-head h2 {
+  font-size: var(--text-lg);
+}
+
+.oversight-list-head h3 {
+  font-size: var(--text-md);
+}
+
+/*
+   A masthead control: 30px, no box, the quiet weight.
+
+   `.panel-head-icon` is 36px inside a hairline, which is right for one control in a 340px
+   masthead and wrong for three in a 300px one — three boxed buttons read as a toolbar and
+   take the eye off the name beside them.
+
+   The pressed state paints a ground, and that is a STATE rather than a hover: hovering only
+   shifts the colour, which is what `hover-highlighting.test.ts` draws the line at.
+*/
+.oversight-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.oversight-icon:hover:not(:disabled) {
+  color: var(--text);
+}
+
+.oversight-icon[aria-pressed='true'] {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* The navigation's own scroll. Everything above it is `flex: none`, so a long filter stack
+   moves inside this column and takes nothing else with it. */
+.oversight-nav-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-2) var(--space-4);
+}
+
+.oversight-columns[data-nav='collapsed'] .oversight-nav-head {
+  justify-content: center;
+  padding: 0;
+}
+
+.oversight-columns[data-nav='collapsed'] .oversight-nav-head h2,
+.oversight-columns[data-nav='collapsed'] .oversight-nav-body {
+  display: none;
+}
+
+/* The sentence that must be on screen whenever this surface is: directly under the column's
+   own name, in the quietest weight, where it reads as a property of the place rather than as
+   a notice somebody could dismiss. */
+.oversight-recorded {
+  margin: 0 0 var(--space-3);
+  padding: 0 var(--space-2);
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  line-height: var(--lh);
+}
+
+/* A group of places: a chevron, a name, and the rows it holds. */
+.oversight-group {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.oversight-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  font-weight: 650;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+  text-align: left;
+}
+
+.oversight-group-head span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.audit-main {
+/* One chevron turned by the state, rather than two paths that can drift apart. */
+.oversight-group-head svg {
+  flex: none;
+  transition: transform var(--dur) var(--ease);
+}
+
+.oversight-group-head[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+
+.oversight-group-head:hover {
+  color: var(--text-muted);
+}
+
+/*
+   The places to stand.
+
+   A stacked list, not a pill row: five entries each carrying a count do not fit across a
+   236px column, and the count is the half that makes the list worth having — "Direct chats"
+   alone says nothing about whether it is worth opening.
+*/
+.oversight-views {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 2px 0 0;
+  list-style: none;
   min-width: 0;
 }
 
-.audit-note {
-  margin: 0;
-  padding: var(--space-5);
-  color: var(--text-muted);
-  font-size: var(--text-sm);
+/* Indented to where the group heading's text starts (8px of padding, a 13px chevron and the
+   6px between them), so a child row reads as belonging to the heading above it rather than
+   as a second heading. */
+.oversight-views .oversight-view {
+  padding-left: 27px;
 }
 
-.audit-transcript-head {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: var(--space-3);
-  border-bottom: 1px solid var(--border);
-  padding-bottom: var(--space-2);
-  margin-bottom: var(--space-3);
-}
-
-.audit-people {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-}
-
-.audit-person em {
-  font-style: normal;
-  color: var(--text-subtle);
-}
-
-.audit-messages {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  /* Flex for the same reason as `.audit-list` above: a scrolling list of items whose
-     heights differ, where a grid would share the space out and clip them. */
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  max-height: 66vh;
-  overflow-y: auto;
-}
-
-/* A row, not a bubble. The left rule is what separates one utterance from the next without
-   making the page look like a conversation somebody is part of. */
-.audit-message {
-  border-left: 2px solid var(--border);
-  padding: 8px 12px;
-}
-
-/* An internal note is the thing an audit most often needs and the thing no other
-   non-participant read returns. It is marked, not merely included. */
-.audit-message.is-internal {
-  border-left-color: var(--warn-border);
-  background: var(--warn-bg);
-}
-
-.audit-message-head {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-}
-
-.audit-message-head time {
-  font-size: var(--text-xs);
-  color: var(--text-subtle);
-  font-variant-numeric: tabular-nums;
-}
-
-.audit-tag {
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 1px 7px;
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-}
-
-.audit-tag.is-gone {
-  border-color: var(--danger);
-  color: var(--danger);
-}
-
-.audit-body {
-  margin: 4px 0 0;
-  font-size: var(--text-md);
-  line-height: var(--lh);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.audit-files {
-  margin: 6px 0 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 3px;
-  font-size: var(--text-sm);
-}
-
-.audit-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
-  gap: var(--space-5);
-  align-items: start;
-}
-
-.audit-columns h2 {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-lg);
-  font-weight: 620;
-}
-
-.audit-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-sm);
-}
-
-.audit-table th {
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  color: var(--text-subtle);
-  font-weight: 600;
-}
-
-.audit-table td {
-  border-bottom: 1px solid var(--border);
-  padding: 6px 8px;
-  vertical-align: top;
-}
-
-/* A refused access is the row an incident is looking for, so it is findable by eye. */
-.audit-table tr.is-refused td {
-  color: var(--danger);
-}
-
-.audit-search form {
-  display: flex;
-  align-items: flex-end;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-}
-
-.audit-search label {
-  display: grid;
-  gap: 4px;
-  flex: 1;
-  max-width: 520px;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.audit-search button,
-.audit-ledger button {
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: var(--accent);
-  padding: 8px 16px;
-  color: var(--accent-contrast);
-  font-size: var(--text-sm);
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.audit-hits {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.audit-hits li {
-  border-left: 2px solid var(--border);
-  padding: 8px 12px;
-}
-
-/* A failure, distinguishable at a glance from an empty result.
-
-   The two used to look identical on this screen — both were a blank panel — and that is the
-   defect this style exists to make impossible to repeat. Warning tokens rather than danger:
-   nothing is broken for the person reading, something did not load and can be retried. */
-.audit-problem {
+.oversight-view {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: var(--space-2);
-  margin: 0 0 var(--space-2);
-  border: 1px solid var(--warn-border);
-  border-radius: var(--radius-sm);
-  background: var(--warn-bg);
-  padding: var(--space-2) var(--space-3);
-  color: var(--warn-text);
+  width: 100%;
+  height: 30px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--text-muted);
   font-size: var(--text-sm);
-  line-height: var(--lh);
-}
-
-.audit-retry {
-  flex: none;
-  border: 1px solid var(--warn-border);
-  border-radius: var(--radius-sm);
-  background: none;
-  padding: 3px 10px;
-  color: inherit;
-  font-size: var(--text-sm);
-  font-weight: 550;
+  font-weight: 500;
+  text-align: left;
   cursor: pointer;
 }
 
-.audit-refused {
-  max-width: 52ch;
-  margin: 12vh auto 0;
+.oversight-view > span:first-child {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+   Selected reads as the chat list's selected row does — a lighter card with an accent mark —
+   rather than as a filled pill. Two selection languages on one screen is one too many.
+*/
+.oversight-view[aria-current='true'] {
+  background: var(--surface);
+  box-shadow: var(--hairline);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* The one that leaves this panel. A caret, and the muted weight of a link rather than of a
+   place you are standing. Outside the group, because it is not one of the places: it is the
+   way out of all of them. */
+.oversight-view.is-elsewhere {
+  margin-top: var(--space-2);
+  color: var(--text-subtle);
+}
+
+.oversight-view.is-elsewhere svg {
+  flex: none;
+}
+
+.oversight-view-count {
+  flex: none;
+  min-width: 20px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
   text-align: center;
 }
 
-.audit-refused h1 {
-  margin: 0 0 var(--space-2);
-  font-size: var(--text-xl);
+.oversight-view[aria-current='true'] .oversight-view-count {
+  background: var(--accent);
+  /* `--accent-contrast` is the token the design system ships for text on the brand fill. */
+  color: var(--accent-contrast);
 }
 
-.audit-refused p {
+.oversight-clear {
+  align-self: flex-start;
+  flex: none;
+  height: auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.oversight-clear:hover {
+  color: var(--text);
+}
+
+/*
+   The filters, on the surface rather than behind a disclosure.
+
+   They were a sheet that opened, which is the right economy in a single column where five
+   controls above a list would bury it. Given a column of their own the economy inverts: a
+   shut sheet is a screen that will not say what it is currently narrowed BY, and an audit
+   that cannot see its own narrowing is an audit nobody can check. A stack of label-over-
+   control, each stating its own name, with a rule above the set separating it from the
+   places to stand.
+*/
+.oversight-filters {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-2) 0;
+  border-top: 1px solid var(--border);
+}
+
+.oversight-filters-head {
   margin: 0;
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  font-weight: 650;
+  letter-spacing: var(--track-caps);
+  text-transform: uppercase;
+}
+
+.oversight-filters label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+/*
+   Stated in full rather than leaning on the base sheet.
+
+   `input[type='date']` is not in the base rule's list of styled inputs — the list is written
+   as explicit type selectors, and a date was never added to it — so a date field arrives
+   with the browser's own chrome beside a styled select. Two fields that do the same job must
+   not be drawn by two different authorities.
+*/
+.oversight-filters select,
+.oversight-filters input {
+  width: 100%;
+  height: 30px;
+  min-width: 0;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--text-sm);
+}
+
+/*
+   A date RANGE is one question, so its two halves share a name — and STACK.
+
+   They shared a line first, which is the obvious reading of the reference and does not fit:
+   `dd-mm-yyyy` plus Chrome's picker glyph is a fixed width the browser will not shorten, and
+   half of a 236px column minus the gutter leaves about 98px. The year was cut off. Tightening
+   the padding and the glyph bought a few pixels and still lost the last character, which on
+   screen reads as a rendering fault rather than as a tight fit.
+
+   So the two fields take a row each. It costs 34px of a column that has room for it, and the
+   placeholder is legible — which is the whole job of a placeholder.
+*/
+.oversight-dates {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+/* The list column's search, under its masthead. `.search`'s own 20px gutters belong to a
+   340px panel; this column is 300 and the rows below it sit at 12. */
+.oversight-search {
+  padding: var(--space-2) var(--space-3);
+}
+
+.oversight-search input {
+  height: 32px;
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.oversight-body {
+  gap: 0;
+  padding: var(--space-2) var(--space-2) var(--space-2);
+}
+
+.oversight-count {
+  flex: none;
+  margin: 0;
+  padding: 2px 12px var(--space-2);
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  letter-spacing: var(--track-tight);
+}
+
+/*
+   The list scrolls; the rows do not compress.
+
+   Both halves learned the hard way. A grid with a `max-height` squeezes its rows instead of
+   overflowing, so a long list silently became a short list of thin ones — flex plus
+   `flex: none` on the children is what makes the column scroll rather than shrink.
+*/
+.oversight-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.oversight-list > li {
+  flex: none;
+  min-width: 0;
+}
+
+/* The rows are `.conversation-row`, which is styled for an anchor. As a button it needs the
+   font it would otherwise inherit from the user agent, and no focus outline of its own —
+   `:focus-visible` is handled globally. */
+.oversight-list .conversation-row {
+  font: inherit;
+  cursor: pointer;
+}
+
+/*
+   The third line, which a chat row does not have.
+
+   On your own list the kind, the size and the departments are things you already know. On
+   somebody else's they are why you are looking, so an oversight row carries them under the
+   preview in the quietest weight on the screen.
+*/
+.oversight-row-where {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
+  min-width: 0;
+  margin-top: 2px;
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  line-height: var(--lh-tight);
+  overflow-wrap: anywhere;
+}
+
+.oversight-tag {
+  flex: none;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: var(--track-tight);
+}
+
+/* One ledger entry. Not a row you can open — there is nothing behind it — so it is a block
+   rather than a button, and it says so by not reacting to the pointer. */
+.oversight-event {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+}
+
+.oversight-event-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+/* A refused access is the row an audit of the audit is looking for. */
+.oversight-event.is-refused .oversight-event-top strong {
+  color: var(--danger);
+}
+
+.oversight-problem {
+  margin: 0;
+  padding: var(--space-3) 20px;
+  color: var(--danger);
+  font-size: var(--text-sm);
+  line-height: var(--lh);
+}
+
+.oversight-retry {
+  height: auto;
+  margin-left: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* The two lists in the information panel while inspecting. No row background — they sit
+   inside a panel that already has one. */
+.oversight-roster,
+.oversight-files {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  min-width: 0;
+}
+
+.oversight-roster > li,
+.oversight-files > li {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.oversight-roster-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+
+/*
+   The About block: a label-and-value list, not a card and not a table.
+
+   `dl` because that is what it is — five terms with five definitions — and a two-column grid
+   because a definition list's default layout puts every value on its own line, which turns
+   five short facts into ten rows in a 280px panel.
+*/
+.oversight-facts {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px var(--space-3);
+  margin: 0;
+  min-width: 0;
+}
+
+.oversight-facts dt {
+  color: var(--text-subtle);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.oversight-facts dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--text);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+}
+
+/*
+   A badge in the thread header, and a strip where the composer would be.
+
+   Two statements of one fact, and both earn their place: the badge answers "what am I
+   looking at" while reading, and the strip answers "why is there nothing to type in", which
+   an absence cannot answer for itself — a missing composer is otherwise indistinguishable
+   from a page that has not finished loading.
+*/
+.thread-oversight-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: var(--track-tight);
+  white-space: nowrap;
+}
+
+.thread-oversight-badge svg {
+  flex: none;
+}
+
+.thread-oversight {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-2);
   color: var(--text-muted);
   font-size: var(--text-sm);
   line-height: var(--lh);
 }
 
-@media (max-width: 1024px) {
-  .audit-split,
-  .audit-columns {
+.thread-oversight svg {
+  flex: none;
+  color: var(--text-subtle);
+}
+
+.thread-oversight strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/*
+   No wallpaper behind an inspection.
+
+   The chat surface carries a faint constellation pattern, which is right for a conversation
+   you are IN — it is the room you write in. A transcript being read for a compliance answer
+   is a document, and a decorative ground behind somebody else's words reads as the product
+   treating the reading as casual. The channel surface already drops it for its own reasons;
+   this is the second case.
+*/
+.thread-pane.oversight .thread-scroll {
+  background-image: none;
+}
+
+/*
+   Under 1100px the fourth column has nowhere to go, so the navigation stops being one.
+
+   It returns to where it used to be — above the list, in a single panel — and the masthead's
+   control now folds it away rather than narrowing it to a strip. Which arrangement the
+   surface is in is entirely the stylesheet's business: the markup is identical at both
+   widths and `navChoice` in the panel is the same boolean. What the panel does read is the
+   same 1100px, to decide which way the control starts; see its own note for why a width may
+   choose a default and may not overrule a person.
+*/
+@media (max-width: 1100px) {
+  .app-shell[data-section='oversight'] .app-body:has(.oversight-columns),
+  .app-shell[data-section='oversight'] .app-body:has(.oversight-columns[data-nav='collapsed']) {
+    grid-template-columns: var(--panel-w) minmax(0, 1fr);
+  }
+
+  .oversight-columns,
+  .oversight-columns[data-nav='collapsed'] {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .oversight-nav {
+    flex: none;
+    /* Never more than a third of the column. A navigation that can push the list off the
+       bottom is the arrangement this whole change undid, and it must not come back through
+       the narrow door. */
+    max-height: 34%;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Folded, it is one masthead row and needs no ceiling. */
+  .oversight-columns[data-nav='collapsed'] .oversight-nav {
+    max-height: none;
+  }
+
+  .oversight-columns[data-nav='collapsed'] .oversight-nav-head {
+    justify-content: space-between;
+    padding: 0 var(--space-3);
+  }
+
+  .oversight-columns[data-nav='collapsed'] .oversight-nav-head h2 {
+    display: block;
+  }
+
+  .oversight-main {
+    flex: 1;
+    min-height: 0;
+  }
+}
+
+/* One pane at a time, which is the shell's own rule — restated because the four-column
+   selector above outranks the plain `.app-body` the phone layout sets. */
+@media (max-width: 860px) {
+  .app-shell[data-section='oversight'] .app-body:has(.oversight-columns),
+  .app-shell[data-section='oversight'] .app-body:has(.oversight-columns[data-nav='collapsed']) {
     grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 640px) {
+  /* On a phone the panel is the whole screen and the places to stand are the first thing on
+     it. Two across keeps the list within a thumb's reach of the top, and the indent that
+     ties a row to its heading has nothing to tie it to once they are side by side. */
+  .oversight-views {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .oversight-views .oversight-view {
+    padding-left: var(--space-2);
   }
 }

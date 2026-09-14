@@ -82,6 +82,16 @@ const EXEMPT_EXACT = new Set([
      pointing at. This is the one that does the job the ban was never about.
   */
   '.channel-row:hover',
+  /*
+     Communication Oversight needs no entry of its own, and the fact that it does not is the
+     interesting part.
+
+     It had one, for a `.oversight-row` class of its own. That class is gone: the oversight
+     list renders `.conversation-row`, the chat list's own markup, so it inherits the
+     exemption above along with the avatar, the two-line layout and the selected card. One
+     row style, one hover rule, one exemption — which is a better outcome than a third
+     argument for a third component that looked exactly like the first two.
+  */
 ]);
 
 /** Every `selector { declarations }` pair, comment- and nesting-aware enough for this file. */

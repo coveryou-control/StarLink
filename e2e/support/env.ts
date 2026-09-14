@@ -39,6 +39,13 @@ export const IDS = {
   lead: '018f2c5a-e2e0-7000-8000-00000000000b',
   /** A third person, so BR-07's add-a-participant path has somebody to add. */
   colleague: '018f2c5a-e2e0-7000-8000-00000000000c',
+  /**
+   * The organisation's administrator — the one account holding the communication-audit
+   * capability. Nothing else in the suite signs in as this: its whole purpose is that it
+   * can see what the other three cannot, so using it anywhere else would blunt the test
+   * that says so.
+   */
+  administrator: '018f2c5a-e2e0-7000-8000-00000000000d',
   calendar: '018f2c5a-e2e0-7000-8000-0000000000c1',
 } as const;
 
@@ -46,6 +53,7 @@ export const CREDENTIALS = {
   agent: { username: 'e2e.agent', password: 'e2e-agent-password-0001' },
   lead: { username: 'e2e.lead', password: 'e2e-lead-password-0001' },
   colleague: { username: 'e2e.colleague', password: 'e2e-colleague-pw-0001' },
+  administrator: { username: 'e2e.admin', password: 'e2e-admin-password-0001' },
 } as const;
 
 /**

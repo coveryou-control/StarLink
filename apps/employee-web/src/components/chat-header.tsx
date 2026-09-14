@@ -172,7 +172,20 @@ export function ChatHeader({
        the styled one wins because it carries the colour that makes "online" scannable, and
        this one goes back to answering only the question it is for.
     */
-    const members = others.length + 1;
+    /*
+       `+ 1` is the READER, and only when the reader is in it.
+
+       `participants` excludes the caller everywhere in the product, so a group of four
+       arrives as three names and the fourth is you. That arithmetic is wrong for a reader
+       who is not a member: communication oversight supplies a summary with a real
+       `participantCount` and no names at all, so a group of four read "1 member" — the
+       header confidently understating a conversation somebody was auditing.
+
+       `participantCount` is the server's own number and is preferred whenever it exceeds
+       what the names can account for, which covers both cases without the header having to
+       know which surface it is on.
+    */
+    const members = Math.max(others.length + (others.length > 0 ? 1 : 0), conversation?.participantCount ?? 0);
     return `${members} ${members === 1 ? 'member' : 'members'}`;
   };
 

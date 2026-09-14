@@ -33,7 +33,21 @@ import { runtimeOrigins } from './runtime-origins';
  */
 export type { ConversationEvent };
 
-export type RealtimeStatus = 'CONNECTING' | 'LIVE' | 'RECONNECTING' | 'OFFLINE';
+/**
+ * `NOT_SUBSCRIBED` is a deliberate state, not a failure.
+ *
+ * There is one surface that reads a conversation without being in it — communication
+ * oversight — and the gateway correctly refuses that reader's join, because room membership
+ * follows participation. Without a name for "we did not ask", the refusal came back as
+ * RECONNECTING and the header told an administrator reading a colleague's thread that the
+ * product was broken, three times over, with a widening retry behind it.
+ */
+export type RealtimeStatus =
+  | 'CONNECTING'
+  | 'LIVE'
+  | 'RECONNECTING'
+  | 'OFFLINE'
+  | 'NOT_SUBSCRIBED';
 
 /** How many times a refused or unanswered room join is retried before it is reported. */
 const JOIN_ATTEMPTS = 4;
@@ -42,6 +56,18 @@ const JOIN_ACK_MS = 8_000;
 
 interface UseRealtimeOptions {
   readonly conversationId: string | undefined;
+  /**
+   * Whether to open a socket at all. Default true.
+   *
+   * False for a reader who is not a participant: the gateway authorises every join against
+   * participation, so asking would be asking for a refusal — and a refusal is indistinguishable
+   * from a broken connection once it reaches the header. Not asking is the client agreeing
+   * with the boundary rather than probing it.
+   *
+   * Recovery is unaffected. Rule 9: realtime is additive, no state exists only in an event,
+   * and the authoritative read is the REST page — which this reader still has.
+   */
+  readonly subscribe?: boolean;
   /**
    * Called when the client must re-read from the authoritative API: a gap was detected,
    * or the socket reconnected after missing an unknown number of events.
@@ -74,6 +100,7 @@ interface UseRealtimeOptions {
 
 export function useRealtime({
   conversationId,
+  subscribe = true,
   onRefetch,
   onEvent,
   onSessionRevoked,
@@ -181,7 +208,25 @@ export function useRealtime({
   const joinRoomRef = useRef(joinRoom);
   joinRoomRef.current = joinRoom;
 
+  /**
+   * The one dependency this effect has, and it earns it.
+   *
+   * The socket is built once per surface, not once per render — every callback is held in a
+   * ref for exactly that reason. `subscribe` is the exception because it is not known at
+   * mount: the page assumes the reader is a participant, opens the socket, and learns
+   * otherwise when the message page comes back. Flipping it has to TEAR THE SOCKET DOWN, not
+   * merely stop using it, or the oversight reader keeps a connection open retrying a join
+   * the gateway is right to refuse.
+   *
+   * It changes at most once per thread, so this is one rebuild in the uncommon case and none
+   * in the common one.
+   */
   useEffect(() => {
+    if (!subscribe) {
+      setStatus('NOT_SUBSCRIBED');
+      return;
+    }
+
     const socket = io(runtimeOrigins().realtime, {
       withCredentials: true,
       transports: ['websocket'],
@@ -365,7 +410,7 @@ export function useRealtime({
       socket.disconnect();
       socketRef.current = null;
     };
-  }, []);
+  }, [subscribe]);
 
   /**
    * Room membership follows the open thread. The gateway authorises the join; a refused

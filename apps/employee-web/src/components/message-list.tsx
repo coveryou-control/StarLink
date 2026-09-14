@@ -187,11 +187,23 @@ export function MessageList({
         </div>
       );
     }
+    /*
+       "Say hello" is an invitation, and an inspection is not invited.
+
+       The absence of a reply control is what tells this surface apart: `onReply` is omitted
+       for a reader who is not a participant (see `conversations/[id]/page.tsx`), and its own
+       docblock already says an absent handler means the surface offers no such control at
+       all. So the same absence that removes the reply menu changes the empty state from an
+       invitation into a statement of fact — which is what somebody auditing an empty thread
+       needs: that it is empty, not that they should start it.
+    */
     return (
       <div className="thread-empty">
         <p className="state-note">
           <strong>No messages yet</strong>
-          Say hello — this is the beginning of the conversation.
+          {onReply === undefined
+            ? 'Nothing has been said in this conversation.'
+            : 'Say hello — this is the beginning of the conversation.'}
         </p>
       </div>
     );

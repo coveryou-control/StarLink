@@ -30,7 +30,16 @@ const nextConfig = {
         source: '/:path*',
         headers: [
           { key: 'X-Content-Type-Options', value: 'nosniff' },
-          { key: 'X-Frame-Options', value: 'DENY' },
+          /*
+             `X-Frame-Options` is NOT here any more. It moved to `middleware.ts`, beside the
+             `frame-ancestors` directive it duplicates.
+
+             A flat `DENY` here was right while nothing could embed this app. Now that a host
+             application can be admitted by `SL_EMBED_ORIGINS`, the two frame controls have to
+             agree on every request — and two files each asserting a policy is two files that
+             can disagree, with the disagreement invisible until somebody's iframe comes up
+             blank. One decision, one place.
+          */
           { key: 'Referrer-Policy', value: 'no-referrer' },
         ],
       },

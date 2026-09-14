@@ -36,6 +36,7 @@ import { ConversationSearch } from '../../../components/conversation-search';
 import { GroupGlyph } from '../../../components/group-glyph';
 import { GroupIdentity } from '../../../components/group-identity';
 import { PinnedBar } from '../../../components/pinned-bar';
+import { OversightDetails } from '../../../components/oversight-details';
 import { ForwardDialog } from '../../../components/forward-dialog';
 import { MessageInfoPanel } from '../../../components/message-info-panel';
 import { useMediaQuery } from '../../../lib/use-media-query';
@@ -127,6 +128,26 @@ export default function ThreadPage(): ReactNode {
    */
   const [conversationType, setConversationType] = useState<string | undefined>();
   const [error, setError] = useState<string | undefined>(undefined);
+  /**
+   * Am I reading this conversation without being in it?
+   *
+   * The oversight case: an administrator holding the communication-audit capability may
+   * open any thread in the company, and what they get must be a RECORD of it rather than a
+   * seat in it — no composer, no reaction, no edit, no pin, no forward, and no read
+   * marker. Everything else about the screen is unchanged, deliberately: the same renderer,
+   * the same attachments, the same names and the same order, because a second transcript
+   * view would eventually disagree with the real one about what was said.
+   *
+   * Comes from `viewerIsParticipant` on the message page — the SERVER's answer, produced by
+   * the very decision that authorised the read. Not derived here from whether the
+   * conversation is in the chat list: it is not, for an administrator, and neither is a
+   * channel anybody is reading without having joined.
+   *
+   * Starts false and is only ever raised by an explicit `false` from the server, so a page
+   * that has not loaded, or an older server that does not send the field, behaves exactly
+   * as it did before.
+   */
+  const [oversight, setOversight] = useState(false);
   const [loading, setLoading] = useState(true);
   /** Stage 1 gate; read per render for the reason `runtimeOrigins` is. */
   const showCustomerWorkspace = customerWorkspaceEnabled();
@@ -247,6 +268,7 @@ export default function ThreadPage(): ReactNode {
       // Assigned, not raised: this read is the truth, and the watermark can legitimately
       // fall when somebody joins the conversation who has not read it yet (BR-07).
       setReadWatermark(page.readWatermark ?? 0);
+      setOversight(page.viewerIsParticipant === false);
       setError(undefined);
 
       const newest = ordered.at(-1);
@@ -483,6 +505,10 @@ export default function ThreadPage(): ReactNode {
      */
     onRead: (frame) => setReadWatermark((current) => Math.max(current, frame.lastReadSeq)),
     conversationId,
+    /* No socket for an inspection. The gateway authorises a join against participation, so
+       this reader's join would be refused — and a refusal reaches the header as
+       "Reconnecting", which tells an administrator that a working product is broken. */
+    subscribe: !oversight,
     onRefetch: () => void refetch(),
     // An in-order MESSAGE_CREATED still triggers a read: the event carries no body
     // (§20.4), so the content must come from the authorised REST path either way.
@@ -622,6 +648,22 @@ export default function ThreadPage(): ReactNode {
 
   // Debounced read marking.
   useEffect(() => {
+    /**
+     * An inspection leaves no trace inside the conversation.
+     *
+     * Read state is personal everywhere else in the product, which is why this effect has
+     * never had a condition on it. It is not personal here: the watermark a list row draws
+     * its second tick from is the LOWEST read position across the conversation, so a row
+     * written for somebody who is only looking would pull every participant's ticks back to
+     * wherever the inspector had scrolled to.
+     *
+     * The route refuses this write for an audit-basis reader regardless — see `markRead` in
+     * `conversations.controller.ts`, which is where the rule actually lives. Not asking is
+     * the client agreeing with the boundary, so the screen does not spend a request per
+     * thread on something it knows will be refused.
+     */
+    if (oversight) return;
+
     const newest = messages.at(-1)?.seq ?? 0;
     if (newest <= reportedSeq.current) return;
 
@@ -650,7 +692,7 @@ export default function ThreadPage(): ReactNode {
     return () => {
       if (readTimer.current !== undefined) clearTimeout(readTimer.current);
     };
-  }, [messages, conversationId, notifyRead]);
+  }, [messages, conversationId, notifyRead, oversight]);
 
   /**
    * Re-reads §21.4's state after this agent changes it.
@@ -943,7 +985,9 @@ export default function ThreadPage(): ReactNode {
        platform notes already carry.
     */}
     <div
-      className={`thread-pane${isOneToOne ? ' one-to-one' : ''}${isChannel ? ' channel' : ''}`}
+      className={`thread-pane${isOneToOne ? ' one-to-one' : ''}${isChannel ? ' channel' : ''}${
+        oversight ? ' oversight' : ''
+      }`}
     >
       {/*
         The header answers "who is this", which nothing on this screen used to. The
@@ -954,7 +998,39 @@ export default function ThreadPage(): ReactNode {
         conversation={activeConversation}
         conversationType={conversationType}
         {...(channel?.description !== undefined ? { channelDescription: channel.description } : {})}
-        connection={<ConnectionBadge status={status} />}
+        /*
+           No connection indicator while inspecting — there is no room to be in, and an
+           indicator for one is a claim about a thing that does not exist. The slot takes the
+           read-only badge instead, which is the thing somebody reading a colleague's
+           conversation actually needs to see in the header.
+        */
+        connection={
+          oversight ? (
+            <span className="thread-oversight-badge">
+              <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false">
+                <rect
+                  x="5"
+                  y="10.5"
+                  width="14"
+                  height="9"
+                  rx="2"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                />
+                <path
+                  d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                />
+              </svg>
+              Oversight · Read-only
+            </span>
+          ) : (
+            <ConnectionBadge status={status} />
+          )
+        }
         detailsOpen={showDetails}
         onToggleDetails={canOpenDetails ? toggleDetails : undefined}
         compact={panelOverlays}
@@ -968,11 +1044,11 @@ export default function ThreadPage(): ReactNode {
            know about is a mute that still makes a noise. */
         /* Reveals membership on a one-to-one, and opens the panel it lives in — asking
            for it from a header whose panel is closed would otherwise do nothing visible. */
-        onAddPeople={() => {
+        onAddPeople={oversight ? undefined : () => {
           setAddPeopleOpen(true);
           if (!showDetails) toggleDetails();
         }}
-        onMute={(minutes) => {
+        onMute={oversight ? undefined : (minutes) => {
           void api
             .setConversationPreferences(conversationId, { muteMinutes: minutes })
             .then(() => refreshConversations())
@@ -1016,7 +1092,7 @@ export default function ThreadPage(): ReactNode {
       <PinnedBar
         pins={pins}
         onJump={jumpToMessage}
-        onUnpin={(messageId) => {
+        onUnpin={oversight ? undefined : (messageId) => {
           void api
             .unpinMessage(conversationId, messageId)
             .then(() => refreshPins())
@@ -1096,7 +1172,7 @@ export default function ThreadPage(): ReactNode {
                     },
                   }
                 : {})}
-              onReply={setReplyingTo}
+              onReply={oversight ? undefined : setReplyingTo}
               messages={messages}
               pending={stillPending}
               onRetry={(localId) => retrySend.current?.(localId)}
@@ -1106,18 +1182,18 @@ export default function ThreadPage(): ReactNode {
               isGroup={isGroup}
               unreadOnOpen={unreadOnOpen.current}
               readWatermark={readWatermark}
-              onReact={react}
+              onReact={oversight ? undefined : react}
               editingMessageId={editingMessageId}
-              onSubmitEdit={submitEdit}
+              onSubmitEdit={oversight ? undefined : submitEdit}
               onCancelEdit={() => setEditingMessageId(undefined)}
               conversationId={conversationId}
               /* The detail panel resolves reactor ids against these rather than asking the
                  server for names it would only be re-deriving. */
               participants={activeConversation?.participants ?? []}
-              onEdit={editMessage}
+              onEdit={oversight ? undefined : editMessage}
               pinnedIds={pinnedIds}
-              onTogglePin={togglePin}
-              onForward={setForwarding}
+              onTogglePin={oversight ? undefined : togglePin}
+              onForward={oversight ? undefined : setForwarding}
               /*
                  Optimistic, then reconciled by the refetch.
 
@@ -1127,7 +1203,13 @@ export default function ThreadPage(): ReactNode {
                  feel slow for no gain — and if the write fails the refetch puts the
                  message back the way the server says it is.
               */
-              onToggleStar={(message, next) => {
+              /*
+                 Starring is suppressed during oversight for the same reason as the rest:
+                 it is a write, and an inspection is not a write. It is the only one of
+                 these whose effect is private to the person doing it, which is exactly why
+                 it would have been the one left in by accident.
+              */
+              onToggleStar={oversight ? undefined : (message, next) => {
                 setMessages((current) =>
                   current.map((m) =>
                     m.messageId === message.messageId ? { ...m, starred: next } : m,
@@ -1324,8 +1406,36 @@ export default function ThreadPage(): ReactNode {
         </p>
       ) : null}
 
+      {/*
+        Reading a colleague's conversation, as an administrator.
+
+        Said plainly and once, above where the composer would be, because the absence of a
+        composer is otherwise indistinguishable from a page that has not finished loading —
+        and because somebody exercising this capability should be reminded, on the screen
+        itself, that the exercise is recorded.
+      */}
+      {oversight ? (
+        <p className="thread-oversight">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+            <circle cx="11" cy="11" r="6.2" fill="none" stroke="currentColor" strokeWidth="1.6" />
+            <path
+              d="m15.6 15.6 4 4"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+            />
+          </svg>
+          <span>
+            You are not in this conversation. Nothing here changes it, and this view is
+            recorded in the audit ledger.
+          </span>
+        </p>
+      ) : null}
+
       {error === undefined &&
       conversationType !== undefined &&
+      !oversight &&
       !(isAnnouncement && !mayAnnounce) &&
       !channelReadOnly ? (
         <Composer
@@ -1503,6 +1613,36 @@ export default function ThreadPage(): ReactNode {
         )}
 
         <div className="details-body">
+        {/*
+          Inspecting replaces this panel rather than trimming it.
+
+          The ordinary panel is about MEMBERSHIP - it counts "you and four others" and
+          offers to add, remove and leave. Every one of those is wrong for a reader who is
+          not in the conversation: the count would include them, and the three controls are
+          writes. Removing them one at a time would have left a panel that answers the
+          wrong question quietly instead of loudly.
+
+          `OversightDetails` answers the auditor's question instead - who was here, when,
+          with what authority, and what was attached - from the audit API's own reads.
+        */}
+        {oversight ? (
+          <OversightDetails
+            conversationId={conversationId}
+            /* Every fact from the summary the shell already holds — the oversight list's own
+               row. Not a second read, and never more current than the list it came from. */
+            {...(activeConversation !== undefined
+              ? { title: conversationLabel(activeConversation) }
+              : {})}
+            {...(conversationType !== undefined ? { conversationType } : {})}
+            {...(activeConversation !== undefined
+              ? {
+                  participantCount: activeConversation.participantCount,
+                  lastActivityAt: activeConversation.lastActivityAt,
+                }
+              : {})}
+          />
+        ) : (
+        <>
         <div className="details-identity">
         {/*
           A group's picture and name carry their own controls; everything else does not.
@@ -1740,6 +1880,8 @@ export default function ThreadPage(): ReactNode {
           list that silently omits the file somebody just sent.
         */}
         <SharedFiles conversationId={conversationId} revision={messages.length} />
+        </>
+        )}
 
         {/*
           No "Conversation" section any more, and no "Pin to top" switch in it.
