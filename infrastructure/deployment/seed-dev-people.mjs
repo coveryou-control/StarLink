@@ -181,6 +181,47 @@ const PEOPLE = [
     role: 'AGENT',
     teamRole: 'MEMBER',
   },
+  /**
+   * The organisation's administrator — a SEPARATE account, deliberately.
+   *
+   * ## Why it is not a role on somebody's ordinary login
+   *
+   * This account manages the directory AND can audit company communication: it reads any
+   * one-to-one, group or channel in the business. Hanging that off an employee's everyday
+   * login would mean the session left open on a laptop in a meeting room carries it, and it
+   * would make the audit ledger ambiguous — a privileged read by that principal could be
+   * the administrator working or the person working, and nothing would distinguish them.
+   * Signing in AS the administrator is what makes the ledger answerable.
+   *
+   * ## In no team, and reporting to nobody
+   *
+   * `teamRole` is absent, so it joins no team: team membership is how work reaches somebody,
+   * and this account does not take work. `managerId` is absent for the same reason a lead's
+   * is — the panel draws no "Reports to" row rather than inventing one.
+   *
+   * ## The only ADMIN
+   *
+   * One holder, on purpose. The role carries the company-wide read (see `ROLE_ACTIONS`), so
+   * spreading it across several logins would spread that read with it. The seed grants it
+   * here and nowhere else; nothing in `PEOPLE` above holds ADMIN.
+   *
+   * ## The password
+   *
+   * `12345678`, like the five above, because this is a development account in a disposable
+   * local database and the script refuses to run outside `dev`, `test` or `local`. It is
+   * emphatically not a credential for a real deployment: there, the account is created with
+   * a password from a manager and this row does not exist.
+   */
+  {
+    principalId: '018f5eed-de70-7000-8000-0000000000ad',
+    username: 'admin',
+    password: DEV_PASSWORD,
+    displayName: 'Organisation Admin',
+    employeeId: 'DEV-ADMIN',
+    branch: 'Gurugram',
+    timezone: 'Asia/Kolkata',
+    role: 'ADMIN',
+  },
 ];
 
 const remove = process.argv.includes('--remove');
@@ -295,11 +336,16 @@ try {
       [person.principalId, `${person.username}@coveryou.co.in`],
     );
 
-    await pool.query(
-      `INSERT INTO identity.team_memberships (team_id, principal_id, role)
-       VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-      [TEAM_ID, person.principalId, person.teamRole],
-    );
+    /* Only the people who are IN the team. The organisation administrator is not: team
+       membership is how work reaches somebody, and that account does not take work. Without
+       this guard its row would insert a NULL team role. */
+    if (person.teamRole !== undefined) {
+      await pool.query(
+        `INSERT INTO identity.team_memberships (team_id, principal_id, role)
+         VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+        [TEAM_ID, person.principalId, person.teamRole],
+      );
+    }
 
     for (const role of [person.role, person.alsoRole].filter(Boolean)) {
       /**
