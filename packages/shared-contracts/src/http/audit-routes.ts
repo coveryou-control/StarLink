@@ -36,17 +36,21 @@ export const auditRoutes = Object.freeze({
   conversations: (filter: {
     readonly employeeId?: string;
     readonly teamId?: string;
+    readonly department?: string;
     readonly type?: string;
     readonly from?: string;
     readonly to?: string;
+    readonly sort?: 'recent' | 'oldest';
     readonly limit?: number;
   }): string => {
     const params = new URLSearchParams();
     if (filter.employeeId !== undefined) params.set('employeeId', filter.employeeId);
     if (filter.teamId !== undefined) params.set('teamId', filter.teamId);
+    if (filter.department !== undefined) params.set('department', filter.department);
     if (filter.type !== undefined) params.set('type', filter.type);
     if (filter.from !== undefined) params.set('from', filter.from);
     if (filter.to !== undefined) params.set('to', filter.to);
+    if (filter.sort !== undefined) params.set('sort', filter.sort);
     if (filter.limit !== undefined) params.set('limit', String(filter.limit));
     const query = params.toString();
     return `${AUDIT_API_BASE}/conversations${query === '' ? '' : `?${query}`}`;

@@ -612,6 +612,24 @@ export class EmployeeMessagesController {
     return {
       readWatermark,
       /**
+       * Is the reader actually IN this conversation?
+       *
+       * The administrator can read any thread in the company through the audit rung, and
+       * the client has to be able to tell that apart from ordinary participation — an
+       * inspection must not offer a composer, a reaction or an edit, and a participant must
+       * not lose them.
+       *
+       * Answered by the DECISION that just ran, not by a second query and not by the client
+       * guessing from whether the conversation appears in its own list. `basis` is what
+       * `decide()` concluded: PARTICIPANT and OWNER mean the reader belongs here;
+       * COMMUNICATION_AUDIT means they are inspecting; a scope grant or delegation is
+       * somebody reaching in for a reason of their own, which is also not membership.
+       *
+       * Sent on every read rather than only to administrators, because a flag that exists
+       * only for one role is a flag the other paths stop maintaining.
+       */
+      viewerIsParticipant: basis === 'PARTICIPANT' || basis === 'OWNER',
+      /**
        * §21.4's state, for the action panel. NULL for an internal thread, which has no
        * lifecycle at all (BR-23, D-15) — absent rather than a placeholder, so the client
        * renders no controls instead of disabled ones.

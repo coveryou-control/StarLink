@@ -78,8 +78,25 @@ const conversationFilter = z.object({
       'CUSTOMER_GENERAL',
     ])
     .optional(),
+  /**
+   * The department somebody in the conversation belongs to.
+   *
+   * A department is a property of PEOPLE, not of conversations — StarLink has no
+   * departmental thread — so this asks "did anybody from Claims take part", which is the
+   * question a compliance request actually arrives as. Same shape as `teamId` above, and
+   * the same reason it is a participant test rather than a column.
+   */
+  department: z.string().min(1).max(120).optional(),
   from: z.string().datetime().optional(),
   to: z.string().datetime().optional(),
+  /**
+   * Newest first, or oldest first.
+   *
+   * Two orders, not a general sort vocabulary. An audit reads a list either from "what has
+   * just happened" or from "start at the beginning of the period", and every other ordering
+   * anybody proposed (by size, by type, by name) is a filter wearing a sort's clothes.
+   */
+  sort: z.enum(['recent', 'oldest']).default('recent'),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 
@@ -273,22 +290,121 @@ export class AuditController {
         parsed.data.teamId,
       );
     }
-    if (parsed.data.type !== undefined) add(`c.conversation_type = $?`, parsed.data.type);
+    if (parsed.data.department !== undefined) {
+      add(
+        `EXISTS (SELECT 1 FROM conversation.participants pd
+                   JOIN identity.principals pp ON pp.principal_id = pd.principal_id
+                  WHERE pd.conversation_id = c.conversation_id AND pp.department = $?)`,
+        parsed.data.department,
+      );
+    }
+    /**
+     * Everything EXCEPT the kind, kept separately for the tally below.
+     *
+     * The panel offers "All conversations / Direct / Groups / Channels" as places to stand,
+     * and each carries how many are in it — which only means anything if the other filters
+     * still apply. Counting after the type clause would make every view but the open one
+     * read zero; counting before any filter would make the numbers a lie about what
+     * clicking would show.
+     */
     if (parsed.data.from !== undefined) add(`c.last_activity_at >= $?`, parsed.data.from);
     if (parsed.data.to !== undefined) add(`c.last_activity_at <= $?`, parsed.data.to);
+    /*
+       The snapshot is taken HERE, after every other filter and before the kind — so the
+       tally counts the same population the list does, narrowed by everything except the one
+       thing the tally is counting. The kind is therefore added last, and must stay last:
+       `values.slice(0, withoutType.length)` below relies on the placeholders for these
+       clauses being a prefix of the array.
+    */
+    const withoutType = [...where];
+    if (parsed.data.type !== undefined) add(`c.conversation_type = $?`, parsed.data.type);
 
     values.push(parsed.data.limit);
+    /**
+     * A few names per row, and they are not decoration.
+     *
+     * `conversations.title` is NULL for a one-to-one and for most groups — those are named
+     * after the people in them everywhere else in the product. Without this the oversight
+     * list was fifty rows reading "One-to-one", which is a list an audit cannot use: the
+     * one question it exists to answer is whose conversation this is.
+     *
+     * Bounded at four, in the lateral, for the reason the employee list bounds its own at
+     * six: a channel has hundreds of members and a row has one line. `participantCount`
+     * beside it is the real number, so a truncated list can never be mistaken for the whole
+     * membership.
+     *
+     * Still ONE query. A lateral rather than a second round trip per row, which at fifty
+     * rows would be fifty reads of other people's participation to draw one column.
+     */
+    /**
+     * A row that can be READ at a glance: who is in it, what was last said, and by whom.
+     *
+     * Three laterals rather than three round trips per row. The list is the administrator's
+     * whole way into the company's communication, and a list of fifty rows reading
+     * "One-to-one" with a date on it is a list nobody can work from — the preview is what
+     * makes one thread distinguishable from the next before it is opened.
+     *
+     * Every one is BOUNDED. Four names, one message, three departments: a channel has
+     * hundreds of members and a row has two lines, and `participantCount` beside the names
+     * is the real number so a truncated list can never be read as the whole membership.
+     *
+     * `redacted_at IS NULL` on the preview, because a deleted message's body is cleared for
+     * every reader and an audit list is not the place it comes back.
+     */
     const rows = await this.pool.query(
       `SELECT c.conversation_id, c.conversation_type, c.title, c.state, c.sensitivity,
-              c.last_activity_at, c.participant_count
+              c.last_activity_at, c.participant_count, who.names, dept.departments,
+              last.body AS last_body, last.sender_name AS last_sender
          FROM conversation.conversations c
+         LEFT JOIN LATERAL (
+           SELECT array_agg(n.display_name) AS names
+             FROM (SELECT p.display_name
+                     FROM conversation.participants pa
+                     JOIN identity.principals p ON p.principal_id = pa.principal_id
+                    WHERE pa.conversation_id = c.conversation_id
+                      AND pa.effective_to IS NULL
+                    ORDER BY pa.effective_from ASC
+                    LIMIT 4) n
+         ) who ON true
+         LEFT JOIN LATERAL (
+           SELECT array_agg(d.department) AS departments
+             FROM (SELECT DISTINCT p.department
+                     FROM conversation.participants pa
+                     JOIN identity.principals p ON p.principal_id = pa.principal_id
+                    WHERE pa.conversation_id = c.conversation_id
+                      AND pa.effective_to IS NULL
+                      AND p.department IS NOT NULL
+                    LIMIT 3) d
+         ) dept ON true
+         LEFT JOIN LATERAL (
+           SELECT m.body, sp.display_name AS sender_name
+             FROM conversation.messages m
+             LEFT JOIN identity.principals sp ON sp.principal_id = m.sender_principal_id
+            WHERE m.conversation_id = c.conversation_id
+              AND m.redacted_at IS NULL
+            ORDER BY m.seq DESC
+            LIMIT 1
+         ) last ON true
         ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
-        ORDER BY c.last_activity_at DESC
+        ORDER BY c.last_activity_at ${parsed.data.sort === 'oldest' ? 'ASC' : 'DESC'}
         LIMIT $${values.length}`,
       values,
     );
 
+    /* One extra query, and it is the cheapest form of the question: a grouped count over
+       the same population the list is drawn from, with the type clause left out. */
+    const tally = await this.pool.query(
+      `SELECT c.conversation_type, count(*)::int AS n
+         FROM conversation.conversations c
+        ${withoutType.length > 0 ? `WHERE ${withoutType.join(' AND ')}` : ''}
+        GROUP BY c.conversation_type`,
+      values.slice(0, withoutType.length),
+    );
+
     return {
+      counts: Object.fromEntries(
+        tally.rows.map((row) => [row.conversation_type as string, Number(row.n)]),
+      ),
       conversations: rows.rows.map((row) => ({
         conversationId: row.conversation_id as string,
         conversationType: row.conversation_type as string,
@@ -297,6 +413,21 @@ export class AuditController {
         sensitivity: row.sensitivity as string,
         lastActivityAt: (row.last_activity_at as Date).toISOString(),
         participantCount: Number(row.participant_count),
+        /* Employees only — `identity.principals` holds no customer, so a customer
+           conversation yields the agent's name and a count that exceeds it, which is the
+           honest shape rather than a name invented for the other side. */
+        participants: (row.names as string[] | null) ?? [],
+        departments: (row.departments as string[] | null) ?? [],
+        /*
+           Trimmed here rather than in the browser. A row shows one line of it, and sending
+           a 4,000-character message so the client can throw away 3,900 of it is the kind of
+           over-fetch that only shows up on a slow connection with fifty rows.
+        */
+        lastMessagePreview:
+          row.last_body === null || row.last_body === undefined
+            ? undefined
+            : String(row.last_body).slice(0, 180),
+        lastMessageSender: (row.last_sender as string | null) ?? undefined,
       })),
     };
   }
@@ -315,8 +446,11 @@ export class AuditController {
     }
 
     const rows = await this.pool.query(
+      /* The department comes from the join that was already here for the name. "Who was in
+         it" and "which part of the company were they from" are one question to somebody
+         answering a regulator, and the second half was being thrown away. */
       `SELECT pa.principal_id, pa.principal_kind, pa.role, pa.reply_authority,
-              pa.effective_from, pa.effective_to, p.display_name
+              pa.effective_from, pa.effective_to, p.display_name, p.department
          FROM conversation.participants pa
          LEFT JOIN identity.principals p ON p.principal_id = pa.principal_id
         WHERE pa.conversation_id = $1
@@ -329,6 +463,7 @@ export class AuditController {
         principalId: row.principal_id as string,
         principalKind: row.principal_kind as string,
         displayName: (row.display_name as string | null) ?? undefined,
+        department: (row.department as string | null) ?? undefined,
         role: row.role as string,
         replyAuthority: row.reply_authority as boolean,
         effectiveFrom: (row.effective_from as Date).toISOString(),
@@ -452,11 +587,35 @@ export class AuditController {
       return refuse();
     }
 
+    /**
+     * Who said it, and where — by name.
+     *
+     * A search hit used to carry a sender UUID and, for the conversation, whatever `title`
+     * held: NULL for every one-to-one. So a page of results read as fifty rows of
+     * "One-to-one", and the one question somebody searching an audit is asking — who said
+     * this — was answerable only by opening each thread.
+     *
+     * The same two joins the conversation list uses, for the same reason and with the same
+     * bound. A customer sender resolves to no name (`identity.principals` holds employees),
+     * which the projection reports as absent rather than as somebody else.
+     */
     const rows = await this.pool.query(
       `SELECT m.message_id, m.conversation_id, m.sender_principal_id, m.visibility,
-              m.created_at, m.body, c.conversation_type, c.title
+              m.created_at, m.body, c.conversation_type, c.title,
+              s.display_name AS sender_name, who.names
          FROM conversation.messages m
          JOIN conversation.conversations c ON c.conversation_id = m.conversation_id
+         LEFT JOIN identity.principals s ON s.principal_id = m.sender_principal_id
+         LEFT JOIN LATERAL (
+           SELECT array_agg(n.display_name) AS names
+             FROM (SELECT p.display_name
+                     FROM conversation.participants pa
+                     JOIN identity.principals p ON p.principal_id = pa.principal_id
+                    WHERE pa.conversation_id = c.conversation_id
+                      AND pa.effective_to IS NULL
+                    ORDER BY pa.effective_from ASC
+                    LIMIT 4) n
+         ) who ON true
         WHERE m.redacted_at IS NULL
           AND m.search_vector @@ websearch_to_tsquery('simple', $1)
         ORDER BY m.created_at DESC
@@ -471,6 +630,8 @@ export class AuditController {
         conversationType: row['conversation_type'] as string,
         title: row['title'] as string | null,
         senderPrincipalId: row['sender_principal_id'] as string | null,
+        senderDisplayName: (row['sender_name'] as string | null) ?? undefined,
+        participants: (row['names'] as string[] | null) ?? [],
         visibility: row['visibility'] as string,
         createdAt: (row['created_at'] as Date).toISOString(),
         body: row['body'] as string | null,
@@ -496,22 +657,39 @@ export class AuditController {
 
     const values: unknown[] = [];
     const where: string[] = [];
+    /* Qualified with the ledger's alias, because the query below joins the principal
+       table for a display name and a bare `action` would then be ambiguous to nobody and
+       fragile to everybody. */
     if (parsed.data.actorId !== undefined) {
       values.push(parsed.data.actorId);
-      where.push(`actor_id = $${values.length}`);
+      where.push(`l.actor_id = $${values.length}`);
     }
     if (parsed.data.action !== undefined) {
       values.push(parsed.data.action);
-      where.push(`action = $${values.length}`);
+      where.push(`l.action = $${values.length}`);
     }
     values.push(parsed.data.limit);
 
+    /**
+     * The actor's NAME, not only their id.
+     *
+     * The ledger deliberately stores no name — `actor_id` carries no foreign key, so the
+     * record survives the account and cannot be rewritten by renaming somebody. That is the
+     * right shape for the table and the wrong shape for a screen: a column of raw UUIDs
+     * cannot be read, and "who did this" is the first question anybody asks of an access log.
+     *
+     * Resolved at READ time and left NULL when the principal is gone, which is honest — a
+     * deleted account's trail keeps its id and loses its name, rather than acquiring
+     * somebody else's.
+     */
     const rows = await this.pool.query(
-      `SELECT event_id, occurred_at, actor_id, actor_kind, action, target_kind, target_id,
-              outcome, reason, correlation_id, detail
-         FROM audit.ledger
+      `SELECT l.event_id, l.occurred_at, l.actor_id, l.actor_kind, l.action, l.target_kind,
+              l.target_id, l.outcome, l.reason, l.correlation_id, l.detail,
+              p.display_name AS actor_name
+         FROM audit.ledger l
+         LEFT JOIN identity.principals p ON p.principal_id = l.actor_id
         ${where.length > 0 ? `WHERE ${where.join(' AND ')}` : ''}
-        ORDER BY occurred_at DESC
+        ORDER BY l.occurred_at DESC
         LIMIT $${values.length}`,
       values,
     );
@@ -521,6 +699,7 @@ export class AuditController {
         eventId: row['event_id'] as string,
         occurredAt: (row['occurred_at'] as Date).toISOString(),
         actorId: row['actor_id'] as string | null,
+        actorName: (row['actor_name'] as string | null) ?? undefined,
         actorKind: row['actor_kind'] as string,
         action: row['action'] as string,
         targetKind: row['target_kind'] as string,

@@ -488,7 +488,41 @@ export function decide(request: DecisionRequest): Decision {
      the grant that permitted it, and the auditor's own reads are in the same ledger they
      can query — which is the property that makes a company-wide read acceptable at all.
   */
-  if (AUDIT_READ_ACTIONS.has(action)) {
+  /**
+   * And it yields to the reader's OWN conversations.
+   *
+   * ## The defect this condition exists for
+   *
+   * This rung sits above ownership and participation, which is the whole point — those two
+   * rungs are what an audit has to reach past. The cost, unnoticed until an administrator
+   * opened their own group chat, is that it also reached past them for a conversation the
+   * administrator was genuinely IN. Every read they made came back with basis
+   * COMMUNICATION_AUDIT, so the client was told `viewerIsParticipant: false`, and the one
+   * account that holds this capability lost its composer in its own conversations. The
+   * requirement is explicit that existing ADMIN access is preserved; it was not.
+   *
+   * A basis is not decoration. It is what the ledger records, what the read-only surface
+   * keys off, and what `markRead` refuses on — so an administrator writing in a thread they
+   * belong to was being recorded as a privileged company-wide read of it, which is both a
+   * worse audit trail and a broken product.
+   *
+   * ## Why it is expressed here and not by moving the rung
+   *
+   * Moving it below participation would put it below the channel rung too, and 4a returns
+   * DENY rather than falling through — an audit could then not reach a private channel,
+   * which is the case it exists for. So the rung stays where it is and declines the two
+   * situations in which the ordinary ladder has a better answer.
+   *
+   * Conservative in the right direction: if participation cannot be established the audit
+   * rung still answers, so an administrator never loses the capability because a
+   * participation row was not loaded.
+   */
+  const readerBelongsHere =
+    (resource.currentOwnerId !== undefined && resource.currentOwnerId === actor.principalId) ||
+    (resource.participant !== undefined &&
+      isWithinPeriod(now, resource.participant.effectiveFrom, resource.participant.effectiveTo));
+
+  if (AUDIT_READ_ACTIONS.has(action) && !readerBelongsHere) {
     for (const grant of actor.grants) {
       if (
         grant.actions.includes('privileged.conversation.read') &&
