@@ -87,6 +87,35 @@ export function storedTheme(): Theme {
   }
 }
 
+/**
+ * Force the front door dark, and give back a way to undo it.
+ *
+ * ## Why the boot script is not enough
+ *
+ * `themeBootScript` stamps dark on `/sign-in` before the first paint, and that covers
+ * somebody opening the address or reloading. It does NOT cover arriving here from inside
+ * the application: signing out is `router.replace('/sign-in')`, a client-side navigation,
+ * so no document loads and no script runs. The page then keeps whatever the workspace was
+ * showing — light, for anybody who chose light — and a hard refresh "fixed" it, which is
+ * exactly the shape of a bug that gets reported as intermittent.
+ *
+ * This is the same failure the workspace had in the other direction, where the door's dark
+ * leaked inward until `conversations/layout.tsx` re-applied the stored choice on mount. Both
+ * halves of one rule: a route that cares about the theme has to assert it on mount, because
+ * a client-side navigation changes the page without reloading the document.
+ *
+ * ## `data-theme-choice` is deliberately untouched
+ *
+ * The person's preference is not being changed, and must not appear to have been: they are
+ * looking at a screen that has one palette. Settings still reads their real choice, and
+ * `restore()` puts the resolved attribute back when this page goes away.
+ */
+export function forceSignInTheme(): () => void {
+  const root = document.documentElement;
+  root.setAttribute('data-theme', 'dark');
+  return () => applyTheme(storedTheme());
+}
+
 /** Resolves a choice to the attribute the design system reads. */
 export function applyTheme(choice: Theme): void {
   const root = document.documentElement;

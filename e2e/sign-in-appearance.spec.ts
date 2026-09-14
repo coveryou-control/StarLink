@@ -184,3 +184,52 @@ test.describe('after signing in', () => {
     expect(luminance(ground), `the workspace is not light: ${ground}`).toBeGreaterThan(0.5);
   });
 });
+
+/**
+ * Coming BACK to the door, without a reload.
+ *
+ * The mirror of the test above, and the half that was missing. Signing out is
+ * `router.replace('/sign-in')` — a client-side navigation, so `themeBootScript` does not run
+ * — and the sign-in page kept whatever palette the workspace was showing. Anybody who had
+ * chosen Light saw a light sign-in screen, and a hard refresh corrected it, which is what
+ * made it look intermittent rather than like a rule with a hole in it.
+ *
+ * The stored choice here is LIGHT on purpose. With dark stored, or on a dark OS, the page
+ * would look right whether or not anything forced it — so the test would pass on the broken
+ * build, which is the failure mode of every theme test.
+ */
+test.describe('coming back to sign-in', () => {
+  /* A LIGHT OS as well, so nothing about this passing can be attributed to the machine. */
+  test.use({ colorScheme: 'light' });
+
+  test('the door is dark again, without a reload, for somebody who chose Light', async ({ page }) => {
+    await page.goto(`${ORIGINS.employeeWeb}/sign-in`);
+    await page.evaluate(() => window.localStorage.setItem('starlink.theme', 'light'));
+    await page.reload();
+
+    await signIn(page, 'agent');
+    await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+
+    /* Sign out through the API and let the shell notice, which is the path the product
+       takes: the session provider sees SIGNED_OUT and the layout replaces the route. No
+       document load happens anywhere in that sequence. */
+    await page.evaluate(async (api) => {
+      await fetch(`${api}/v1/employee/auth/sign-out`, { method: 'POST', credentials: 'include' });
+    }, ORIGINS.api);
+    await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+    await page.waitForURL(/sign-in/, { timeout: 45_000 });
+
+    await expect(
+      page.locator('html'),
+      'the sign-in screen kept the workspace palette — it must be dark whatever the person chose',
+    ).toHaveAttribute('data-theme', 'dark');
+
+    const ground = await page
+      .locator('.signin')
+      .evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(luminance(ground), `the sign-in ground is not dark: ${ground}`).toBeLessThan(0.1);
+
+    /* And their preference was not quietly rewritten on the way through. */
+    await expect(page.locator('html')).toHaveAttribute('data-theme-choice', 'light');
+  });
+});
