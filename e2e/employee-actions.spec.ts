@@ -90,8 +90,26 @@ test('an owner covers, escalates, resolves, reopens and transfers one conversati
     await test.step('the first reply moves it to ACTIVE so the lifecycle opens up', async () => {
       await employee.getByLabel('Reply to customer body').fill('Looking at your renewal now.');
       await employee.getByRole('button', { name: 'Send to customer' }).click();
+      /*
+         Scoped to the THREAD, not the page.
+
+         This was `employee.getByRole('listitem')` with no container, which matches the
+         sidebar's conversation rows as well as the message rows — and the sidebar shows the
+         last message as its preview, so the moment that row catches up the same text exists
+         in two places and the locator resolves to two elements. Strict mode then fails an
+         assertion whose subject is plainly correct.
+
+         It failed roughly three runs in four, timed by how quickly the conversation list
+         re-read. That is not a flake to retry: the locator was asking "is this text anywhere
+         on the page", and what this step means is "the reply is on the thread, and no longer
+         pending".
+      */
       await expect(
-        employee.getByRole('listitem').filter({ hasText: 'Looking at your renewal now.' }).filter({ hasNotText: 'Sending' }),
+        employee
+          .getByRole('list', { name: 'Messages' })
+          .getByRole('listitem')
+          .filter({ hasText: 'Looking at your renewal now.' })
+          .filter({ hasNotText: 'Sending' }),
       ).toBeVisible({ timeout: 20_000 });
       await expect(
         employee.getByRole('region', { name: 'Conversation actions' }).getByRole('button', { name: 'Resolve' }),

@@ -78,8 +78,15 @@ test('an unsent draft survives a reload, and never crosses into the other mode',
 
     await test.step('sending clears only the draft that was sent', async () => {
       await employee.getByRole('button', { name: 'Send to customer' }).click();
+      /* Scoped to the thread: page-wide this also matches the sidebar row's preview, which
+         shows the last message — so the same text lives in two places and strict mode fails
+         an assertion that is satisfied. See the note in `employee-actions.spec.ts`. */
       await expect(
-        employee.getByRole('listitem').filter({ hasText: REPLY_DRAFT }).filter({ hasNotText: 'Sending' }),
+        employee
+          .getByRole('list', { name: 'Messages' })
+          .getByRole('listitem')
+          .filter({ hasText: REPLY_DRAFT })
+          .filter({ hasNotText: 'Sending' }),
       ).toBeVisible({ timeout: 20_000 });
       await expect(employee.getByLabel('Reply to customer body')).toHaveValue('');
 
@@ -219,7 +226,13 @@ test('a dropped connection recovers by re-reading the thread, not by replaying (
        * delay starts at 500ms and grows, with full jitter, precisely so a fleet of clients
        * does not return in lockstep.
        */
-      await expect(employee.getByText(WHILE_OFFLINE)).toBeVisible({ timeout: 60_000 });
+      /* The THREAD re-read, not the sidebar. Page-wide, the conversation list's preview
+         would satisfy this — and that arrives by a different path, so the assertion would
+         pass on a build where the open thread never re-read at all, which is the one thing
+         this step exists to prove. */
+      await expect(
+        employee.getByRole('list', { name: 'Messages' }).getByText(WHILE_OFFLINE),
+      ).toBeVisible({ timeout: 60_000 });
     });
 
     await test.step('live delivery RESUMES — the socket rejoined the room, not just reconnected', async () => {
@@ -247,8 +260,18 @@ test('a dropped connection recovers by re-reading the thread, not by replaying (
       await customer.getByLabel('Your message').fill(AFTER_RECONNECT);
       await customer.getByRole('button', { name: 'Send' }).click();
 
+      /*
+         Scoped to the THREAD. Page-wide, this also matched the sidebar row's preview — the
+         list shows the last message, so a delivered message exists in two places and strict
+         mode fails on an assertion that was plainly satisfied.
+
+         The distinction matters more here than it looks: what is under test is whether the
+         reconnected SOCKET rejoined the room, and the sidebar's preview can arrive by a
+         re-fetch that proves nothing about the socket. Matching either one would have let
+         this pass on a build where the thread received nothing at all.
+      */
       await expect(
-        employee.getByText(AFTER_RECONNECT),
+        employee.getByRole('list', { name: 'Messages' }).getByText(AFTER_RECONNECT),
         'the reconnected socket never rejoined the conversation room, so the thread is ' +
           'silently receiving nothing while showing LIVE',
       ).toBeVisible({ timeout: 30_000 });
