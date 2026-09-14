@@ -53,7 +53,7 @@ import {
 } from 'react';
 import { createPortal } from 'react-dom';
 import { api } from '../lib/api-client';
-import { uploadAttachment, type StagedAttachment } from '../lib/upload-attachment';
+import type { StagedAttachment } from '../lib/upload-attachment';
 
 /*
    Defined in `upload-attachment.ts` and re-exported here.
@@ -213,12 +213,10 @@ const ATTACH_KINDS = [
 ] as const;
 
 export function AttachmentPicker({
-  conversationId,
   staged,
   onStagedChange,
-  onPicked,
+  onFilesChosen,
 }: {
-  readonly conversationId: string;
   readonly staged: readonly StagedAttachment[];
   /**
    * Accepts an updater, and the calls below always use one.
@@ -231,14 +229,18 @@ export function AttachmentPicker({
    */
   readonly onStagedChange: Dispatch<SetStateAction<readonly StagedAttachment[]>>;
   /**
-   * Told about the file the moment it is chosen, before a single byte has moved.
+   * The chosen batch, handed to the composer to triage, preview and upload.
    *
-   * Only the composer acts on this, and only for a picture or a video: those get shown
-   * before they are sent, because a filename does not describe one. It is deliberately not
-   * "onImagePicked" — this component has no business deciding which kinds are worth
-   * previewing, and the composer is where that list already lives.
+   * This control does not upload any more. It used to, and the cost was two copies of every
+   * rule about attaching: the paperclip applied the size and count limits and decided what
+   * to preview, and so did the drop handler, and the two were free to disagree. Dropping
+   * three files and choosing three files are the same act reached by different gestures, so
+   * they are now the same code — see `attachFiles` in `composer.tsx`.
+   *
+   * Resolves when the batch has been dealt with, which is what lets the paperclip show
+   * itself as busy for exactly as long as it is.
    */
-  readonly onPicked?: (file: File) => void;
+  readonly onFilesChosen: (files: readonly File[]) => Promise<void>;
 }): React.JSX.Element {
   const inputRef = useRef<HTMLInputElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -345,13 +347,20 @@ export function AttachmentPicker({
      the same four steps. This keeps the chips, the poll and the button; it no longer keeps
      its own copy of the pipeline.
   */
-  const attach = async (file: File): Promise<void> => {
-    /* Before the upload, not after: the preview's whole point is that it is on screen
-       while the bytes are moving, rather than being one more thing to wait for. */
-    onPicked?.(file);
+  /*
+     One batch, handed straight to the composer's own attach path.
+
+     The paperclip used to run its own upload, which meant the count limit, the size limit
+     and the preview all had to be applied here AND in the drop handler - two copies of a
+     rule that exists once on the server. `onFilesChosen` is that path: the same triage, the
+     same uploads, the same decision about which single file gets a preview. What is left
+     here is the part that is genuinely the control's: knowing whether it is busy, and
+     clearing the input so choosing the same file twice fires a change event both times.
+  */
+  const attach = async (files: readonly File[]): Promise<void> => {
     setBusy(true);
     try {
-      await uploadAttachment(conversationId, file, onStagedChange);
+      await onFilesChosen(files);
     } finally {
       setBusy(false);
       if (inputRef.current !== null) inputRef.current.value = '';
@@ -536,15 +545,24 @@ export function AttachmentPicker({
             )
           : null}
 
+        {/*
+          `multiple`, because picking six photographs is one errand.
+
+          It was single-file, so attaching a set meant six trips through the operating
+          system's file dialog and six separate messages if anybody lost patience. The
+          ceiling on how many is the SERVER's and is applied in `attachFiles` — this
+          attribute only decides whether the dialog lets somebody select more than one.
+        */}
         <input
           ref={inputRef}
           type="file"
           aria-label="Attach a file"
+          multiple
           hidden
           disabled={busy}
           onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file !== undefined) void attach(file);
+            const chosen = [...(e.target.files ?? [])];
+            if (chosen.length > 0) void attach(chosen);
           }}
         />
       </span>

@@ -28,6 +28,12 @@
  * the stored choice from a component effect means the first paint is the default theme and
  * the second is the real one, which is a white flash on every load for anybody on dark.
  * `themeBootScript` is that read, inlined, running before the body renders.
+ *
+ * It also forces dark on the sign-in route, which is why the override lives in the script
+ * rather than in the sign-in component: a component can only set the attribute in an
+ * effect, which is one paint too late and is a white flash on the one screen whose whole
+ * point is that it is dark. `data-theme-choice` still carries the person's real choice, so
+ * nothing downstream mistakes the front door for a preference.
  */
 
 /**
@@ -40,6 +46,75 @@
 export const THEME_KEY = 'starlink.theme';
 
 export type Theme = 'system' | 'light' | 'dark';
+
+/**
+ * What the workspace looks like to somebody who has never opened Settings.
+ *
+ * It was "match system", which is the defensible default in the abstract and was not what
+ * this product wanted: the workspace is a light interface, and a colleague on a dark laptop
+ * met a dark one on their first visit without having asked for it. "Match system" is still
+ * one of the three choices and still live — see `watchSystemTheme` — it is simply no longer
+ * the one nobody picked.
+ *
+ * The trade this makes is real and is worth naming: a machine set to dark for a reason —
+ * including an accessibility reason — no longer carries that into this application until
+ * its owner says so in Settings.
+ */
+export const DEFAULT_THEME: Theme = 'light';
+
+/**
+ * The route that ignores all of this.
+ *
+ * Sign-in is a designed screen with one palette, the way most products' front doors are: it
+ * is dark, in either OS theme and whatever the stored choice says, because it is a
+ * composition rather than a surface somebody works in all day. The workspace behind it is
+ * the opposite and takes the choice.
+ */
+export const SIGN_IN_PATH = '/sign-in';
+
+/**
+ * The remembered choice, or the default.
+ *
+ * Reads defensively for the same reason the boot script does: a browser with site data
+ * blocked throws on `localStorage`, and an appearance preference is not worth a blank page.
+ */
+export function storedTheme(): Theme {
+  try {
+    const raw = window.localStorage.getItem(THEME_KEY);
+    return raw === 'light' || raw === 'dark' || raw === 'system' ? raw : DEFAULT_THEME;
+  } catch {
+    return DEFAULT_THEME;
+  }
+}
+
+/**
+ * Force the front door dark, and give back a way to undo it.
+ *
+ * ## Why the boot script is not enough
+ *
+ * `themeBootScript` stamps dark on `/sign-in` before the first paint, and that covers
+ * somebody opening the address or reloading. It does NOT cover arriving here from inside
+ * the application: signing out is `router.replace('/sign-in')`, a client-side navigation,
+ * so no document loads and no script runs. The page then keeps whatever the workspace was
+ * showing — light, for anybody who chose light — and a hard refresh "fixed" it, which is
+ * exactly the shape of a bug that gets reported as intermittent.
+ *
+ * This is the same failure the workspace had in the other direction, where the door's dark
+ * leaked inward until `conversations/layout.tsx` re-applied the stored choice on mount. Both
+ * halves of one rule: a route that cares about the theme has to assert it on mount, because
+ * a client-side navigation changes the page without reloading the document.
+ *
+ * ## `data-theme-choice` is deliberately untouched
+ *
+ * The person's preference is not being changed, and must not appear to have been: they are
+ * looking at a screen that has one palette. Settings still reads their real choice, and
+ * `restore()` puts the resolved attribute back when this page goes away.
+ */
+export function forceSignInTheme(): () => void {
+  const root = document.documentElement;
+  root.setAttribute('data-theme', 'dark');
+  return () => applyTheme(storedTheme());
+}
 
 /** Resolves a choice to the attribute the design system reads. */
 export function applyTheme(choice: Theme): void {
@@ -81,9 +156,10 @@ export function watchSystemTheme(): () => void {
  * the system preference, which is the right default and not an error.
  */
 export const themeBootScript = `(function(){try{
-var c=localStorage.getItem('${THEME_KEY}')||'system';
-var d=c==='dark'||(c==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);
+var c=localStorage.getItem('${THEME_KEY}')||'${DEFAULT_THEME}';
 var e=document.documentElement;
+var s=location.pathname.indexOf('${SIGN_IN_PATH}')===0;
+var d=s||c==='dark'||(c==='system'&&matchMedia('(prefers-color-scheme: dark)').matches);
 e.setAttribute('data-theme',d?'dark':'light');
 e.setAttribute('data-theme-choice',c);
 }catch(_){}})();`;

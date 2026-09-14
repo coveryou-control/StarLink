@@ -32,9 +32,10 @@
  * Removes the staged file. It does NOT clear the caption: somebody who picked the wrong
  * photograph has not changed their mind about the sentence they typed under it.
  */
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { documentFamily, extensionOf } from './attachment-picker';
+import { ImageEditor } from './image-editor';
 
 export interface MediaPreview {
   /**
@@ -47,6 +48,14 @@ export interface MediaPreview {
   readonly kind: 'image' | 'video' | 'file';
   readonly filename: string;
   readonly bytes: number;
+  /**
+   * What the browser said this file is.
+   *
+   * Carried because the editor re-encodes and has to decide what to re-encode AS — a
+   * screenshot stays PNG, a photograph becomes JPEG — and `kind` is too coarse to answer
+   * that. See `renderEdited`.
+   */
+  readonly contentType: string;
   /** Known once the grant comes back; until then the file cannot be cancelled by id. */
   readonly attachmentId?: string;
   /** `true` once the server will bind it — see §28.1. */
@@ -60,6 +69,7 @@ export function MediaPreviewOverlay({
   onCaptionChange,
   onSend,
   onCancel,
+  onReplace,
   sending,
   humanBytes,
 }: {
@@ -68,9 +78,21 @@ export function MediaPreviewOverlay({
   readonly onCaptionChange: (next: string) => void;
   readonly onSend: () => void;
   readonly onCancel: () => void;
+  /**
+   * An edited version of this picture, to be uploaded in place of the one staged.
+   *
+   * Absent where editing makes no sense — a document, a video — which is also what decides
+   * whether the Edit control is drawn at all. A control that opened an editor for a PDF
+   * would be a promise this cannot keep.
+   */
+  readonly onReplace?: ((file: File) => void) | undefined;
   readonly sending: boolean;
   readonly humanBytes: (bytes: number) => string;
 }): React.JSX.Element {
+  /* One level in, and back out again. The editor replaces the panel's body rather than
+     opening over it: two stacked modals over a conversation is one more layer than anybody
+     needs to reason about, and the acts are sequential, not simultaneous. */
+  const [editing, setEditing] = useState(false);
   const fieldRef = useRef<HTMLInputElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
@@ -121,10 +143,26 @@ export function MediaPreviewOverlay({
   }, []);
 
   const blocked = preview.problem !== undefined;
+  /* Only a picture, and only when the caller can do something with the result. A video
+     needs a timeline rather than a crop box, and a document has nothing to crop. */
+  const editable = preview.kind === 'image' && onReplace !== undefined && preview.url !== '';
 
   return (
     <div className="media-preview" role="dialog" aria-modal="true" aria-label="Send this file">
       <div className="media-preview-panel" ref={panelRef}>
+        {editing && editable ? (
+          <ImageEditor
+            url={preview.url}
+            filename={preview.filename}
+            type={preview.contentType}
+            onApply={(file) => {
+              setEditing(false);
+              onReplace(file);
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        ) : (
+          <>
         <header className="media-preview-head">
           <div className="media-preview-what">
             <strong>{preview.filename}</strong>
@@ -235,6 +273,27 @@ export function MediaPreviewOverlay({
               if (!sending && !blocked) onSend();
             }}
           />
+          {editable ? (
+            <button
+              type="button"
+              className="media-preview-edit"
+              onClick={() => setEditing(true)}
+              disabled={sending}
+              aria-label="Edit picture"
+              title="Crop, rotate or filter"
+            >
+              <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
+                <path
+                  d="M7 3v12.4A1.6 1.6 0 0 0 8.6 17H21M17 21V8.6A1.6 1.6 0 0 0 15.4 7H3"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </button>
+          ) : null}
           <button
             type="button"
             className="media-preview-send"
@@ -271,6 +330,8 @@ export function MediaPreviewOverlay({
             </svg>
           </button>
         </footer>
+          </>
+        )}
       </div>
     </div>
   );

@@ -13,7 +13,8 @@
     "./testing": "./dist/testing/index.js",
     "./http/employee": "./dist/http/employee-routes.js",
     "./http/customer": "./dist/http/customer-routes.js",
-    "./realtime": "./dist/realtime/index.js"
+    "./realtime": "./dist/realtime/index.js",
+    "./http/audit": "./dist/http/audit-routes.js"
   },
   "scripts": {
     "build": "tsc -b",

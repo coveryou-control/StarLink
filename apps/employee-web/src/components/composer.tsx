@@ -17,6 +17,8 @@ import {
   uploadAttachment,
   type StagedAttachment,
 } from '../lib/upload-attachment';
+import { attachmentLimits, triage } from '../lib/attachment-limits';
+import { BOLD_MARKER, ITALIC_MARKER, toggleMarker } from '../lib/rich-text';
 import { EmojiPicker } from './emoji-picker';
 import { MentionPicker, useClampedIndex, type MentionCandidate } from './mention-picker';
 import { useActiveConversation } from './active-conversation';
@@ -120,6 +122,15 @@ export function Composer({
    * pruning, what happens to an attachment the server declines to bind.
    */
   const [preview, setPreview] = useState<MediaPreview | undefined>(undefined);
+  /**
+   * Why some of the files just chosen are not going.
+   *
+   * Sentences rather than codes, and a list rather than one string: picking ten files can
+   * fail two different ways at once — one over its size ceiling, three over the count — and
+   * "some files were not attached" leaves somebody to work out which and why. Cleared when
+   * the person dismisses it or attaches again, because it describes one gesture.
+   */
+  const [attachmentRefusals, setAttachmentRefusals] = useState<readonly string[]>([]);
 
   /**
    * A chosen file becomes a preview, but only if looking at it would tell you anything.
@@ -163,6 +174,7 @@ export function Composer({
         kind,
         filename: file.name,
         bytes: file.size,
+        contentType: file.type,
         ready: false,
       };
     });
@@ -188,22 +200,54 @@ export function Composer({
    * imposed by the control rather than by the product.
    */
   const attachFiles = useCallback(
-    (files: readonly File[]): void => {
-      for (const file of files) {
-        /* A pasted image is a `File` called `image.png` on every platform, so several in
-           one message would be indistinguishable. `nameForPastedImage` gives it the only
-           distinguishing fact available at paste time. */
-        const named =
-          file.type.startsWith('image/') && (file.name === '' || file.name === 'image.png')
-            ? new File([file], nameForPastedImage(file), { type: file.type })
-            : file;
-        /* One dropped picture gets the same look-before-you-send as one chosen from the
-           paperclip: it is the same act reached by a different gesture, and the preview
-           is modal so only the first of a batch could have one. Several at once stay
-           chips, which is the honest answer - a preview can show one file. */
-        if (files.length === 1) previewFile(named);
-        void uploadAttachment(conversationId, named, setStaged);
+    async (files: readonly File[]): Promise<void> => {
+      /* A pasted image is a `File` called `image.png` on every platform, so several in one
+         message would be indistinguishable. `nameForPastedImage` gives it the only
+         distinguishing fact available at paste time. Done before triage so the refusal
+         sentences name the file the way the chip will. */
+      const named = files.map((file) =>
+        file.type.startsWith('image/') && (file.name === '' || file.name === 'image.png')
+          ? new File([file], nameForPastedImage(file), { type: file.type })
+          : file,
+      );
+
+      /*
+         The server's limits, asked for rather than assumed.
+
+         If this fetch fails the batch still goes: the grant is refused server-side anyway
+         (§28.2 calls a browser-side size check "a courtesy"), so the cost of a dropped
+         request is a less specific refusal, not a file slipping through. Blocking the
+         attach on it would be the wrong trade — it would make attaching a file depend on a
+         second round trip that exists only to phrase an error.
+      */
+      let toUpload = named;
+      setAttachmentRefusals([]);
+      try {
+        const limits = await attachmentLimits();
+        /* `staged.length` read through the setter rather than from the closure: an upload
+           that settled while the file dialog was open has already changed it, and the count
+           limit is about what the MESSAGE will carry, not what this render saw. */
+        let held = 0;
+        setStaged((current) => {
+          held = current.length;
+          return current;
+        });
+        const sorted = triage(named, held, limits);
+        toUpload = [...sorted.accepted];
+        if (sorted.refusals.length > 0) setAttachmentRefusals(sorted.refusals);
+      } catch {
+        /* Deliberately silent. The person asked to attach a file; a toast about a limits
+           endpoint is noise about plumbing they did not invoke. */
       }
+
+      /* One picture gets the same look-before-you-send whether it was dropped, pasted or
+         chosen: the same act by different gestures. The preview is modal, so only the first
+         of a batch could have one — several at once stay chips, which is the honest answer,
+         a preview can show one file. */
+      if (toUpload.length === 1 && toUpload[0] !== undefined) previewFile(toUpload[0]);
+      await Promise.all(
+        toUpload.map((file) => uploadAttachment(conversationId, file, setStaged)),
+      );
     },
     [conversationId, previewFile],
   );
@@ -821,6 +865,45 @@ export function Composer({
         }
       }
 
+      /**
+       * Ctrl/Cmd+B and Ctrl/Cmd+I, the two chords every writing surface has.
+       *
+       * Placed after the mention picker — which owns its keys while it is open — and before
+       * Enter, because neither collides with the other and the order that matters is the
+       * picker's.
+       *
+       * The markers go INTO the text rather than into a parallel structure. A rich-text
+       * model would mean a second representation of a message alongside the string the
+       * server stores, and every draft, mention offset, edit and quote would need to
+       * understand both. What people type is `**like this**`, what is stored is
+       * `**like this**`, and `message-list.tsx` renders it — one representation, and the
+       * shortcut is a shorthand for typing the markers rather than a different mode.
+       *
+       * `Alt` is excluded: on Windows, AltGr arrives as Ctrl+Alt, so a German keyboard's
+       * `@` would otherwise toggle bold instead of starting a mention.
+       */
+      const formatting = (event.ctrlKey || event.metaKey) && !event.altKey;
+      const marker =
+        formatting && (event.key === 'b' || event.key === 'B')
+          ? BOLD_MARKER
+          : formatting && (event.key === 'i' || event.key === 'I')
+            ? ITALIC_MARKER
+            : undefined;
+      if (marker !== undefined) {
+        const field = event.currentTarget;
+        event.preventDefault();
+        const next = toggleMarker(field.value, field.selectionStart, field.selectionEnd, marker);
+        handleChange(next.value);
+        /* The selection is restored on the NEXT frame, after React has written the new
+           value: setting it now puts the caret where the old string had room for it, and
+           the re-render moves it to the end. That is the difference between a shortcut
+           people use and one they try twice. */
+        requestAnimationFrame(() => {
+          field.setSelectionRange(next.selectionStart, next.selectionEnd);
+        });
+        return;
+      }
+
       if (event.key !== 'Enter') return;
 
       /**
@@ -847,7 +930,17 @@ export function Composer({
         void send();
       }
     },
-    [send, canReplyToCustomer, enterToSend, query, candidates, activeIndex, setActiveIndex, pick],
+    [
+      send,
+      canReplyToCustomer,
+      enterToSend,
+      query,
+      candidates,
+      activeIndex,
+      setActiveIndex,
+      pick,
+      handleChange,
+    ],
   );
 
   /**
@@ -929,7 +1022,7 @@ export function Composer({
         if (files.length === 0) return;
         event.preventDefault();
         setDragging(false);
-        attachFiles(files);
+        void attachFiles(files);
       }}
     >
       {dragging ? (
@@ -1055,6 +1148,27 @@ export function Composer({
                 }
                 closePreview();
               }}
+              /*
+                 An edited picture REPLACES the one being uploaded.
+
+                 The original's bytes went up the moment the file was chosen, which is what
+                 makes the ordinary case feel instant, and cropping invalidates them. So the
+                 staged original is dropped and the result is uploaded in its place —
+                 throwing away an upload nobody is going to use, rather than making everybody
+                 who does not edit wait for a decision they were never going to make.
+
+                 `previewFile` is what swaps the panel over: it revokes the old object URL,
+                 creates one for the new file, and resets `ready` — so the send arms again
+                 only when the SERVER has cleared the new bytes, not the old ones.
+              */
+              onReplace={(file) => {
+                const id = preview.attachmentId;
+                if (id !== undefined) {
+                  setStaged((current) => current.filter((staged_) => staged_.attachmentId !== id));
+                }
+                previewFile(file);
+                void uploadAttachment(conversationId, file, setStaged);
+              }}
               sending={sending}
               humanBytes={formatBytes}
             />,
@@ -1092,10 +1206,9 @@ export function Composer({
         */}
         {recordingVoice ? null : (
           <AttachmentPicker
-            conversationId={conversationId}
             staged={staged}
             onStagedChange={setStaged}
-            onPicked={previewFile}
+            onFilesChosen={attachFiles}
           />
         )}
 
@@ -1151,7 +1264,7 @@ export function Composer({
               .filter((file): file is File => file !== null);
             if (files.length === 0) return;
             event.preventDefault();
-            attachFiles(files);
+            void attachFiles(files);
           }}
           rows={1}
           className="composer-input"
@@ -1290,6 +1403,38 @@ export function Composer({
         <p role="alert" className="composer-error">
           {error}
         </p>
+      ) : null}
+
+      {/*
+        Files that were not attached, and what to do about each.
+
+        A LIST rather than the single `composer-error` line above, because these arrive
+        together and are genuinely separate facts: one file over its size ceiling and three
+        over the count limit are two different things to do something about, and running
+        them into one sentence makes the reader do the unpicking. The `error` line above is
+        about the SEND; this is about the choosing, and they can both be true at once.
+
+        Dismissible, because unlike a failed send there is nothing here to retry — the
+        person has read it, decided about Drive or a second message, and the notice has no
+        further job. It also clears itself on the next attach, since it describes one
+        gesture.
+      */}
+      {attachmentRefusals.length > 0 ? (
+        <div role="alert" className="composer-refusals">
+          <ul>
+            {attachmentRefusals.map((sentence) => (
+              <li key={sentence}>{sentence}</li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            onClick={() => setAttachmentRefusals([])}
+            aria-label="Dismiss"
+            className="composer-refusals-close"
+          >
+            ×
+          </button>
+        </div>
       ) : null}
     </div>
   );

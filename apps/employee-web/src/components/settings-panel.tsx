@@ -12,7 +12,10 @@ import { runtimeOrigins } from '../lib/runtime-origins';
 import { announceAvatarChange } from '../lib/use-avatar-stamps';
 import { useColleague } from './conversation-info';
 import { useSession } from './session-provider';
-import { applyTheme, type Theme } from '../lib/theme';
+/* THEME_KEY from `theme.ts`, not a second copy of the literal. There WAS a second copy,
+   in this file, directly under a comment in `theme.ts` explaining that a fourth copy is
+   how two of them end up writing to different keys. */
+import { applyTheme, storedTheme, DEFAULT_THEME, THEME_KEY, type Theme } from '../lib/theme';
 import {
   CHAT_BACKGROUNDS,
   CHAT_BACKGROUND_LABELS,
@@ -28,7 +31,7 @@ import {
   muteDurationLabel,
 } from '@starlink/shared-contracts';
 
-const THEME_KEY = 'starlink.theme';
+
 
 /**
  * Settings — and only settings that do something.
@@ -122,7 +125,7 @@ export function SettingsPanel({
    */
   readonly compact?: boolean;
 }): ReactNode {
-  const [theme, setTheme] = useState<Theme>('system');
+  const [theme, setTheme] = useState<Theme>(DEFAULT_THEME);
   const [chatBackground, setChatBackground] = useState<ChatBackground>('constellation');
   const [section, setSection] = useState<SectionId>('profile');
   /**
@@ -154,12 +157,10 @@ export function SettingsPanel({
   const principalId = session.status === 'SIGNED_IN' ? session.me.principalId : undefined;
 
   useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(THEME_KEY);
-      if (stored === 'light' || stored === 'dark' || stored === 'system') setTheme(stored);
-    } catch {
-      // A browser with site data blocked is not an error state; the default is correct.
-    }
+    /* `storedTheme` rather than a second hand-rolled read of the same key. The validation
+       and the fallback both live in `theme.ts`, so the panel and the pre-paint script
+       cannot disagree about what an unrecognised value means. */
+    setTheme(storedTheme());
     setChatBackground(readChatBackground());
   }, []);
 

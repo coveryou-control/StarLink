@@ -24,6 +24,7 @@
  */
 import { Body, Controller, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import { z } from 'zod';
+import { DEFAULT_POLICY } from '@starlink/attachments';
 import {
   toCustomerConversationView,
   toCustomerMessagePage,
@@ -62,8 +63,14 @@ const pageSchema = z.object({ limit: z.coerce.number().int().min(1).max(50).defa
 const sendSchema = z.object({
   message: z.string().min(1).max(10_000),
   clientMessageId: z.string().min(1).max(200).optional(),
-  /** Claims only, by D-07 — enforced when the grant was issued, not here. */
-  attachmentIds: z.array(uuid).max(10).optional(),
+  /**
+   * Claims only, by D-07 — enforced when the grant was issued, not here.
+   *
+   * The COUNT comes from the customer's own policy, which is a separate number from the
+   * employee's and has to stay separate: §28.5 makes the customer side narrower on every
+   * other axis, and a shared constant is how it would stop being.
+   */
+  attachmentIds: z.array(uuid).max(DEFAULT_POLICY.customer.maxPerMessage).optional(),
 });
 
 @Controller('v1/customer')

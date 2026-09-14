@@ -22,7 +22,14 @@ import type { PrincipalClaims } from '@starlink/shared-contracts';
  * Note that TEAM_LEAD does NOT include `conversation.read`: a lead does not read team
  * conversations by default, and oversight is a scoped, audited grant (BR-30, D-11).
  */
-const ROLE_ACTIONS: Readonly<Record<string, readonly Action[]>> = Object.freeze({
+/**
+ * Exported so the read-only guarantee can be ASSERTED rather than described.
+ *
+ * `admin-audit.test.ts` sweeps the whole action catalogue against what ADMIN
+ * actually holds; that sweep needs the list, and deriving it from the role assignment path
+ * instead would test the derivation rather than the role.
+ */
+export const ROLE_ACTIONS: Readonly<Record<string, readonly Action[]>> = Object.freeze({
   AGENT: [
     'conversation.read',
     /**
@@ -128,8 +135,59 @@ const ROLE_ACTIONS: Readonly<Record<string, readonly Action[]>> = Object.freeze(
     // `GET /admin/accounts` and `GET /admin/roles/:principalId` refused even a full ADMIN.
     'admin.principal.read',
     'admin.role.read',
+
+    /*
+       ## The communication audit, as a capability of THIS role
+
+       An insurer has to be able to answer "what was said" — to a regulator, to a grievance,
+       to a court. That answer now belongs to the organisation's administrator rather than
+       to an account of its own: one ADMIN, holding its existing administrative authority
+       and this in addition.
+
+       ## What this does to FR-AUTHZ-7, exactly
+
+       FR-AUTHZ-7 says administration confers no read, and the letter of it is intact: none
+       of the `admin.*` actions above imply reading a conversation, `decide()`'s property 5
+       still holds, and `channel.manage` still falls through for administration and never
+       for content. What has changed is that this role ADDITIONALLY holds an explicit,
+       separately-named, always-audited read action. The distinction matters and is worth
+       being precise about: the read is granted by `privileged.conversation.read`, not
+       inherited from managing accounts, so an operator who wants an administrator WITHOUT
+       the audit removes this one line and the administration is untouched.
+
+       The spirit of FR-AUTHZ-7 — that the two authorities be separable — is therefore
+       preserved in the mechanism while the product has decided to combine them in the
+       default role. That is a business decision and is recorded as one.
+
+       ## Read-only is a property of the SURFACE, not of this role
+
+       An administrator can obviously write; it is an administrator. So "the audit is
+       read-only" cannot be enforced by the shape of this list the way it could for a
+       dedicated role. It is enforced where it now has to be: `/v1/audit` has no handler
+       that is not a `@Get`, and `audit-surface-is-read-only.test.ts` fails the build if one
+       appears.
+    */
+    'privileged.conversation.read',
+    'privileged.customer.history.read',
+    /* Attachments, images and voice notes are messages by another name — a file shared in a
+       thread is part of what was said, and an audit that stops at the text is not one. */
+    'conversation.attachment.download',
+    /* The ledger, including the administrator's own audit reads. */
+    'audit.query',
+    /* Finding the conversation to read. Search is the one the brief names — company-wide
+       message search — and it is what makes the capability usable rather than merely
+       present: without it an audit is a list of conversations to open one at a time. */
+    'search.execute',
+    /* The directory: departments, teams and who is in them. The audit has to be able to
+       browse the organisation to get from "this team, last month" to a conversation, and
+       a directory read discloses no message content on its own. */
+    'directory.read',
+    'queue.read',
+    'load.read',
+    'case.read',
   ],
 });
+
 
 export function toActorContext(claims: PrincipalClaims): ActorContext {
   const grants: ScopeGrant[] = claims.roles.map((assignment) => ({

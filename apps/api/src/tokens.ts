@@ -43,6 +43,9 @@ export const CUSTOMER_STORE = Symbol('SL_CUSTOMER_STORE');
 export const CATEGORY_READER = Symbol('SL_CATEGORY_READER');
 export const SEARCH_PROVIDER = Symbol('SL_SEARCH_PROVIDER');
 export const SEARCH_RATE_LIMITER = Symbol('SL_SEARCH_RATE_LIMITER');
+/** The audit surface's own bucket. Separate from search's, so one cannot exhaust the
+    other and so the two can be tuned for very different traffic. */
+export const AUDIT_RATE_LIMITER = Symbol('SL_AUDIT_RATE_LIMITER');
 export const SIGN_IN_THROTTLE = Symbol('SL_SIGN_IN_THROTTLE');
 export const ROUTING_STORE = Symbol('SL_ROUTING_STORE');
 /** SL-083: one grouped read of a team's waiting work, ownership, SLA and capacity. */

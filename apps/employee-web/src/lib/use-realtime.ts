@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import {
   conversationChannel,
@@ -34,6 +34,11 @@ import { runtimeOrigins } from './runtime-origins';
 export type { ConversationEvent };
 
 export type RealtimeStatus = 'CONNECTING' | 'LIVE' | 'RECONNECTING' | 'OFFLINE';
+
+/** How many times a refused or unanswered room join is retried before it is reported. */
+const JOIN_ATTEMPTS = 4;
+/** How long to wait for the gateway's acknowledgement of one join. */
+const JOIN_ACK_MS = 8_000;
 
 interface UseRealtimeOptions {
   readonly conversationId: string | undefined;
@@ -103,6 +108,79 @@ export function useRealtime({
   const handlers = useRef({ onRefetch, onEvent, onSessionRevoked, onTyping, onRead });
   handlers.current = { onRefetch, onEvent, onSessionRevoked, onTyping, onRead };
 
+  /**
+   * Join the room, and only say LIVE once the gateway has confirmed it.
+   *
+   * ## Why the status cannot come from the transport
+   *
+   * The subscribe used to be emitted from an effect keyed on `[conversationId]`. Socket.IO
+   * reuses the same `Socket` object across reconnects, so that effect never re-ran — while
+   * the reconnected socket had a new id and empty room membership on the gateway. That was
+   * fixed by moving the emit into `connect`, and the fix was half of one: the emit was
+   * fire-and-forget. A join the gateway REFUSES, or one lost between the two, leaves the
+   * thread in exactly the same place — receiving nothing, and saying "Live" about it,
+   * because the status was set from the socket being open rather than from the room being
+   * joined. A browser test caught it once in four runs, with `text: Live` in the snapshot
+   * and no message on the thread.
+   *
+   * `authorizeJoin` can genuinely say no: it re-reads the session version on every join
+   * precisely because a reconnect after a revocation must not resume (§20.9). A refusal is
+   * a real answer that this has to hear.
+   *
+   * The conversation page is also the one surface with no polling fallback — the queue, the
+   * bell and the load panel all poll — so nothing else recovers it. An agent's next customer
+   * message simply never appears.
+   *
+   * ## Both ways into a room come through here
+   *
+   * Reconnecting with a thread open, and opening a thread on a live socket. They were two
+   * emits with two different amounts of care; the second is the commoner one by far, and it
+   * had none.
+   *
+   * ## Why it retries
+   *
+   * The common failure is transient: a session-version read that lost a race, or an ack
+   * that did not arrive inside the timeout. Retrying a few times with a widening gap covers
+   * it. What must NOT happen is retrying silently while the indicator claims Live, so the
+   * status is RECONNECTING throughout and becomes LIVE only on a confirmed join.
+   */
+  const joinRoom = useCallback((attempt: number): void => {
+    const socket = socketRef.current;
+    if (socket === null) return;
+
+    const joined = joinedRef.current;
+    if (joined === undefined) {
+      /* No thread open. There is no room to be in, so the connection is the whole claim. */
+      setStatus('LIVE');
+      return;
+    }
+
+    socket
+      .timeout(JOIN_ACK_MS)
+      .emit(
+        SOCKET_EVENTS.subscribe,
+        conversationChannel(joined as never),
+        (error: unknown, response: unknown) => {
+          /* A late ack for a room this hook has since left, or for a different thread,
+             must not resurrect the status. */
+          if (joinedRef.current !== joined) return;
+
+          if (error === null && (response as { ok?: boolean } | undefined)?.ok === true) {
+            setStatus('LIVE');
+            return;
+          }
+          setStatus('RECONNECTING');
+          if (attempt + 1 < JOIN_ATTEMPTS) {
+            window.setTimeout(() => joinRoom(attempt + 1), 400 * 2 ** attempt);
+          }
+        },
+      );
+  }, []);
+
+  /* Held in a ref so the socket effect, which runs once, always calls the current one. */
+  const joinRoomRef = useRef(joinRoom);
+  joinRoomRef.current = joinRoom;
+
   useEffect(() => {
     const socket = io(runtimeOrigins().realtime, {
       withCredentials: true,
@@ -118,28 +196,10 @@ export function useRealtime({
     socketRef.current = socket;
 
     socket.on('connect', () => {
-      setStatus('LIVE');
-
-      /**
-       * Re-join the room, on EVERY connect.
-       *
-       * This is the fix for a silent failure: the subscribe used to be emitted from an
-       * effect keyed on `[conversationId]`. Socket.IO reuses the same `Socket` object
-       * across reconnects, so that effect never re-ran — while the reconnected socket
-       * had a new id and empty room membership on the gateway. After any blip the thread
-       * received NO further events and went on displaying LIVE, because `connect` had
-       * fired and the status is set from the transport rather than from the join.
-       *
-       * The conversation page is also the one surface with no polling fallback — the
-       * queue, the bell and the load panel all poll — so nothing else recovered it. An
-       * agent's next customer message simply never appeared.
-       *
-       * `use-room.ts` had always done this correctly, inside its own connect handler.
-       */
-      const joined = joinedRef.current;
-      if (joined !== undefined) {
-        socket.emit(SOCKET_EVENTS.subscribe, conversationChannel(joined as never));
-      }
+      /* Not LIVE yet — see `joinRoom`. The connection is up; the room is a separate claim
+         and this is the moment that distinction was being lost. */
+      setStatus('RECONNECTING');
+      joinRoomRef.current(0);
 
       // A fresh connection has missed an unknown number of events. Realtime is
       // additive (FR-RT-1), so the correct move on every connect is to re-read rather
@@ -327,7 +387,10 @@ export function useRealtime({
     // The gateway parses a RealtimeChannel — the `kind` is required, and omitting it was
     // the second half of why this never worked.
     const channel = conversationChannel(conversationId as never);
-    if (socket.connected) socket.emit(SOCKET_EVENTS.subscribe, channel);
+    /* The same confirmed join the reconnect path uses. This was a bare `emit`, which is the
+       commoner half of the silent-dead-thread defect: opening a conversation on a socket
+       that is already up is what happens every time somebody clicks a row. */
+    if (socket.connected) joinRoom(0);
 
     return () => {
       joinedRef.current = undefined;

@@ -16,6 +16,7 @@ import type { UUID } from '@starlink/shared-contracts';
 
 import { advance, isExpirable, isReachable, type AttachmentState } from './pipeline.js';
 import {
+  ceilingFor,
   checkReceived,
   checkUploadIntent,
   sanitiseFilename,
@@ -196,7 +197,83 @@ describe('policy — §28.2 and §28.5', () => {
     expect(DEFAULT_POLICY.customer.allowedMimeTypes.length).toBeLessThan(
       DEFAULT_POLICY.employee.allowedMimeTypes.length,
     );
-    expect(DEFAULT_POLICY.customer.maxBytes).toBeLessThan(DEFAULT_POLICY.employee.maxBytes);
+
+    /**
+     * Compared on the MOST either side may send, not on the general figure.
+     *
+     * This used to read `customer.maxBytes < employee.maxBytes`, and it stopped being the
+     * right question when the employee ceiling became per-family: the general employee
+     * figure came down to 10MB — the same as the customer's — while a video may still be
+     * 25MB. Keeping the old assertion green would have meant dropping the customer figure
+     * below 10MB, which is inventing a business value to satisfy a test (rule 10).
+     *
+     * "Lower" is a claim about the policy, and this is what makes it true: the most a
+     * customer can put into the system is strictly less than the most an employee can.
+     */
+    const most = (rules: typeof DEFAULT_POLICY.employee): number =>
+      Math.max(rules.maxBytes, ...Object.values(rules.maxBytesByFamily ?? {}));
+    expect(most(DEFAULT_POLICY.customer)).toBeLessThan(most(DEFAULT_POLICY.employee));
+
+    // And no type a customer may send is capped more generously for them than for an
+    // employee — the per-family ceilings must not have opened a gap the other way.
+    for (const mime of DEFAULT_POLICY.customer.allowedMimeTypes) {
+      expect(ceilingFor(DEFAULT_POLICY.customer, mime)).toBeLessThanOrEqual(
+        ceilingFor(DEFAULT_POLICY.employee, mime),
+      );
+    }
+  });
+
+  it('caps a video higher than a document, and a document at the document figure', () => {
+    // The numbers the business set on 2026-09-13. Asserted as behaviour rather than as
+    // constants: what matters is that a 25MB video is accepted and a 25MB PDF is not.
+    const video = { ...employee, declaredMime: 'video/mp4' };
+    expect(checkUploadIntent(DEFAULT_POLICY, { ...video, declaredBytes: 25 * 1024 * 1024 }).ok).toBe(
+      true,
+    );
+    const overVideo = checkUploadIntent(DEFAULT_POLICY, {
+      ...video,
+      declaredBytes: 25 * 1024 * 1024 + 1,
+    });
+    expect(!overVideo.ok && overVideo.refusal).toBe('TOO_LARGE');
+
+    const document = { ...employee, declaredMime: 'application/pdf' };
+    expect(
+      checkUploadIntent(DEFAULT_POLICY, { ...document, declaredBytes: 10 * 1024 * 1024 }).ok,
+    ).toBe(true);
+    const overDocument = checkUploadIntent(DEFAULT_POLICY, {
+      ...document,
+      declaredBytes: 10 * 1024 * 1024 + 1,
+    });
+    expect(!overDocument.ok && overDocument.refusal).toBe('TOO_LARGE');
+  });
+
+  it('measures against the SNIFFED family, so a PDF cannot borrow the video ceiling', () => {
+    /**
+     * The attack this closes: declare `video/mp4`, send 20MB of PDF. The mismatch check
+     * catches it first today — but it catches it by TYPE, and if these checks were ever
+     * reordered, taking the ceiling from the claim rather than the measurement would let a
+     * document through at two and a half times its limit.
+     */
+    const twentyMB = 20 * 1024 * 1024;
+    const result = checkReceived(
+      DEFAULT_POLICY,
+      'EMPLOYEE',
+      { declaredMime: 'video/mp4', declaredBytes: twentyMB },
+      { sniffedMime: 'application/pdf', actualBytes: twentyMB },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it('bounds how many files one message may carry', () => {
+    /**
+     * A per-file ceiling alone bounds nothing — twenty files of 10MB is a 200MB message
+     * and legitimate by every other rule in this module. Both send routes derive their
+     * `z.array(...).max(...)` from these, so this is the number the API enforces.
+     */
+    expect(DEFAULT_POLICY.employee.maxPerMessage).toBe(10);
+    expect(DEFAULT_POLICY.customer.maxPerMessage).toBeLessThanOrEqual(
+      DEFAULT_POLICY.employee.maxPerMessage,
+    );
   });
 
   it('requires scanning for BOTH kinds now that customer uploads are permitted', () => {

@@ -486,6 +486,16 @@ export const employeeRoutes = {
   },
   attachments: {
     /**
+     * How many files a message may carry and how large each may be, by MIME family.
+     *
+     * The composer asks rather than holding its own copy: a browser that knows the limits
+     * independently is a browser that will one day offer a limit the server has since
+     * changed, and somebody will act on that offer. Declared before the id-shaped routes
+     * for the same reason the controller declares its handler first — `limits` would
+     * otherwise be read as an attachment id.
+     */
+    limits: `${EMPLOYEE_API_BASE}/attachments/limits`,
+    /**
      * A short-lived, single-object download grant, issued ONLY after §28.4's full ladder
      * and with the issuance audited (ADR-012, FR-ATT-5).
      */

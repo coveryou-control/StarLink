@@ -43,7 +43,14 @@ const booleanFlag = (fallback: boolean) =>
       return z.NEVER;
     });
 
-const schema = z.object({
+/**
+ * The shape, exported so a test can read a DEFAULT without starting the API.
+ *
+ * `loadConfig` is the way to get configuration at runtime and applies the startup
+ * rules on top of this; it needs a database URL and real secrets, which a test asking
+ * "what does this setting default to?" has no business supplying.
+ */
+export const apiConfigSchema = z.object({
   SL_ENV: z.enum(['dev', 'test', 'staging', 'production']).default('dev'),
   SL_LOG_LEVEL: z.enum(['error', 'warn', 'info', 'debug']).default('info'),
   SL_API_PORT: z.coerce.number().int().positive().default(3000),
@@ -294,10 +301,10 @@ const schema = z.object({
     .default(14 * 24 * 60 * 60),
 });
 
-export type ApiConfig = z.infer<typeof schema> & { readonly tls: boolean };
+export type ApiConfig = z.infer<typeof apiConfigSchema> & { readonly tls: boolean };
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
-  const parsed = schema.safeParse(env);
+  const parsed = apiConfigSchema.safeParse(env);
   if (!parsed.success) {
     const problems = parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`);
     throw new Error(`StarLink API refused to start:\n  - ${problems.join('\n  - ')}`);

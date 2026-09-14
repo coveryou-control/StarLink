@@ -1,13 +1,14 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import { BrandMark } from '../../components/brand';
 import { ConnectionField } from './connection-field';
 import { useSession } from '../../components/session-provider';
 import { ApiError } from '../../lib/api-client';
+import { forceSignInTheme } from '../../lib/theme';
 
 /**
  * Sign in.
@@ -38,6 +39,28 @@ import { ApiError } from '../../lib/api-client';
  * a bad password from an unknown account.
  */
 export default function SignInPage(): ReactNode {
+  /**
+   * This screen is dark, whatever the person has chosen for the workspace.
+   *
+   * `themeBootScript` already stamps dark before the first paint, which covers opening the
+   * address or reloading. It does not cover ARRIVING here from inside the application:
+   * signing out is `router.replace('/sign-in')`, a client-side navigation, so no document
+   * loads and no script runs — and the page kept whatever the workspace was showing. Anybody
+   * who had chosen Light saw a light sign-in screen until they hard-refreshed, which is why
+   * it looked intermittent.
+   *
+   * A LAYOUT effect, not an ordinary one: `useEffect` runs after paint, so the light screen
+   * would be visible for a frame before correcting itself — a flash is what the pre-paint
+   * script exists to avoid, and reintroducing it here would fix the bug and keep the
+   * symptom. Guarded for the server, where `useLayoutEffect` is meaningless and React says
+   * so loudly; the boot script is what covers that path anyway.
+   *
+   * The cleanup restores the person's real choice, so walking back into the workspace does
+   * not carry the door's palette with it.
+   */
+  const useOnMount = typeof window === 'undefined' ? useEffect : useLayoutEffect;
+  useOnMount(() => forceSignInTheme(), []);
+
   const { state, signIn } = useSession();
   const router = useRouter();
   const [username, setUsername] = useState('');
@@ -84,16 +107,12 @@ export default function SignInPage(): ReactNode {
     <main className="signin">
       <ConnectionField />
 
-      {/* The wordmark, top left, as the reference places it. The mark appears again inside
-          the card — also as the reference places it, and the two are doing different jobs:
-          this one says whose product this is, the one on the card says what you are signing
-          in to. */}
-      <header className="signin-brandbar">
-        <span className="signin-wordmark">
-          <BrandMark size={30} />
-          StarLink
-        </span>
-      </header>
+      {/* No wordmark up here any more.
+
+          It named the product in the top-left while the star names it in the middle and the
+          mark above the form names it a third time — three statements of the same fact on a
+          screen with one job. The star is the identity; this was the caption nobody needed,
+          and removing it also gives the composition back the top of the page. */}
 
       <div className="signin-stage">
         {/*

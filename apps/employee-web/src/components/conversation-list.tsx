@@ -275,28 +275,60 @@ export function ConversationList({
       ) : null}
 
       {conversations.length === 0 && !loading ? (
-        <p className="state-note">
-          <strong>No conversations yet</strong>
-          Tap the compose button to message a colleague, or find someone in People.
-        </p>
+        <EmptyState
+          mark="compose"
+          heading="No conversations yet"
+          detail="Start one with the compose button, or find a colleague in People."
+        />
       ) : null}
 
       {/*
         An empty FILTER is not an empty inbox, and must not read as one.
+
+        Nor are the five filters the same KIND of empty, which is what the single "Nothing
+        here" over one interchangeable sentence got wrong. An empty Unread is the one state
+        in this product somebody is actively working towards — it is a finish line, and it
+        was being reported in the same grey voice as a feature nobody has used yet. An empty
+        Archive is neither good nor bad and simply needs to say what the drawer is for.
+        Favourites and the two type filters are invitations, and each says what would put a
+        row in it, because "no groups yet" leaves somebody wondering whether groups are a
+        thing they have or a thing they make.
       */}
       {!loading && shown.length === 0 && conversations.length > 0 ? (
-        <p className="state-note">
-          <strong>Nothing here</strong>
-          {view === 'unread'
-            ? 'You have read everything.'
-            : view === 'groups'
-              ? 'No group conversations yet.'
-              : view === 'direct'
-                ? 'No one-to-one conversations yet.'
-                : view === 'archive'
-                  ? 'Nothing archived.'
-                  : 'No conversations yet.'}
-        </p>
+        view === 'unread' ? (
+          <EmptyState
+            mark="done"
+            tone="good"
+            heading="You're all caught up"
+            detail="Every conversation has been read. New messages will appear here."
+          />
+        ) : view === 'favourites' ? (
+          <EmptyState
+            mark="star"
+            heading="No favourites yet"
+            detail="Star a conversation and it stays at the top of this list."
+          />
+        ) : view === 'groups' ? (
+          <EmptyState
+            mark="group"
+            heading="No groups yet"
+            detail="Groups you start or are added to will appear here."
+          />
+        ) : view === 'direct' ? (
+          <EmptyState
+            mark="person"
+            heading="No one-to-one chats yet"
+            detail="Message a colleague from People, or start a new chat."
+          />
+        ) : view === 'archive' ? (
+          <EmptyState
+            mark="archive"
+            heading="Nothing archived"
+            detail="Conversations you archive are kept here, out of your main list."
+          />
+        ) : (
+          <EmptyState mark="compose" heading="Nothing here" detail="No conversations to show." />
+        )
       ) : null}
 
       <ul className="conversation-items">
@@ -611,5 +643,82 @@ export function ConversationList({
         </button>
       ) : null}
     </nav>
+  );
+}
+
+/**
+ * An empty list, saying which kind of empty it is.
+ *
+ * ## Why a mark per state rather than one mark
+ *
+ * `.state-note` draws a small circle before whatever it contains — deliberately neutral,
+ * because it also renders "Loading…" and a mark that looked like a spinner would have made
+ * the two indistinguishable. Neutral is the right answer for a shared class and the wrong
+ * one here: these six states are not variations on absence. Reaching the end of your unread
+ * list is an ACHIEVEMENT and looked exactly like never having joined a group.
+ *
+ * So the mark is part of the message. A tick for the state somebody was working towards, a
+ * star for the list they populate by starring, an archive box for the drawer things are put
+ * into. Each one is the same object the filter is named after, which is what makes it
+ * readable without the heading underneath it.
+ *
+ * ## `tone`
+ *
+ * Only "all caught up" uses it, and only for the mark. Colouring the whole block green
+ * would turn a quiet moment into a banner; colouring the tick is enough to say this is the
+ * good kind of nothing.
+ */
+function EmptyState({
+  mark,
+  heading,
+  detail,
+  tone,
+}: {
+  readonly mark: 'done' | 'star' | 'group' | 'person' | 'archive' | 'compose';
+  readonly heading: string;
+  readonly detail: string;
+  readonly tone?: 'good';
+}): React.JSX.Element {
+  return (
+    /* `has-mark` suppresses the shared dot: this block brings its own, and two marks
+       stacked above one heading is what happens if the class is used without it. */
+    <p className={`state-note has-mark${tone === 'good' ? ' is-good' : ''}`}>
+      <span className="state-note-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" focusable="false">
+          {mark === 'done' ? (
+            <>
+              <circle cx="12" cy="12" r="9" />
+              <path d="m8.2 12.4 2.6 2.6 5-5.4" />
+            </>
+          ) : mark === 'star' ? (
+            <path d="m12 4.8 2.2 4.5 5 .7-3.6 3.5.85 4.95L12 16.1l-4.45 2.35.85-4.95L4.8 10l5-.7Z" />
+          ) : mark === 'group' ? (
+            <>
+              <circle cx="9.2" cy="9.4" r="3" />
+              <path d="M3.8 19.2a5.4 5.4 0 0 1 10.8 0" />
+              <path d="M15.6 7.2a3 3 0 0 1 0 5.9M17 14.4a5.4 5.4 0 0 1 3.2 4.8" />
+            </>
+          ) : mark === 'person' ? (
+            <>
+              <circle cx="12" cy="8.6" r="3.4" />
+              <path d="M5.6 19.4a6.4 6.4 0 0 1 12.8 0" />
+            </>
+          ) : mark === 'archive' ? (
+            <>
+              <rect x="3.6" y="5" width="16.8" height="4" rx="1.2" />
+              <path d="M5.2 9v8.8a1.6 1.6 0 0 0 1.6 1.6h10.4a1.6 1.6 0 0 0 1.6-1.6V9" />
+              <path d="M10 12.6h4" />
+            </>
+          ) : (
+            <>
+              <path d="M20 12.6V18a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5.4" />
+              <path d="M16.5 3.9a1.9 1.9 0 0 1 2.7 2.7L13 12.8l-3.3.6.6-3.3Z" />
+            </>
+          )}
+        </svg>
+      </span>
+      <strong>{heading}</strong>
+      {detail}
+    </p>
   );
 }

@@ -41,6 +41,7 @@ import {
   RequireSurface,
   type AuthenticatedRequest,
 } from '../edge/session.guard.js';
+import { ceilingFor, policyFor, DEFAULT_POLICY } from '@starlink/attachments';
 import { AttachmentService } from './attachment-service.js';
 import type { AccessPorts } from './attachment-access.js';
 
@@ -171,6 +172,44 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
     super(attachments, authz, identity, pool);
   }
 
+  /**
+   * What the server will accept, so the composer can stop guessing.
+   *
+   * ## Why the browser is TOLD rather than given the numbers
+   *
+   * The limits are the API's, and a frontend holding its own copy is a frontend that will
+   * one day promise a limit the server does not have — a composer offering "up to 25 MB"
+   * against a policy tightened to 10 is worse than no guidance at all, because somebody
+   * acts on it. The boundary law says the same thing in general terms: a web app shares
+   * TYPES with the workspace and gets VALUES over HTTP.
+   *
+   * So this is the one place these figures exist for a browser, derived from the same
+   * `DEFAULT_POLICY` that refuses the upload. The composer cannot drift from the server
+   * because it is not holding anything to drift with.
+   *
+   * ## Declared before `attachments/:attachmentId`
+   *
+   * Route order is significant: the id-shaped GET below would otherwise match `limits` as
+   * an id and answer 404 for a path that exists. The same care `first-run` takes.
+   *
+   * ## No authorization beyond the session
+   *
+   * The answer is identical for every employee and describes the product's configuration,
+   * not anybody's data. It discloses nothing that picking a file and being refused would
+   * not.
+   */
+  @Get('attachments/limits')
+  limits(): unknown {
+    const rules = policyFor(DEFAULT_POLICY, 'EMPLOYEE');
+    return {
+      maxPerMessage: rules.maxPerMessage,
+      maxBytes: rules.maxBytes,
+      /* Copied rather than passed through: the policy's object is frozen, and handing a
+         frozen object to a serialiser is a dependency on how the serialiser behaves. */
+      maxBytesByFamily: { ...(rules.maxBytesByFamily ?? {}) },
+    };
+  }
+
   @Post('conversations/:conversationId/attachments')
   async requestUpload(
     @Param('conversationId') conversationIdRaw: string,
@@ -215,6 +254,31 @@ export class EmployeeAttachmentsController extends AttachmentPlumbing {
      * so it discloses nothing the 404 was protecting (see `storageUnavailable`).
      */
     if (!grant.ok && grant.refusal === 'STORAGE_UNAVAILABLE') storageUnavailable();
+    /**
+     * Too large says so, and says what "too" was.
+     *
+     * The same reasoning as the voice-note ceiling directly above: §27.3 makes an
+     * AUTHORIZATION refusal indistinguishable from a missing object so probing cannot map
+     * what exists, and this is not one. The caller has already passed the conversation
+     * check; what they proposed is simply larger than the policy allows, and they can
+     * already see the conversation, so there is nothing here to leak.
+     *
+     * Collapsing it into the uniform 404 is what this did before, and it produced the worst
+     * version of the moment: a 40MB video vanished into "that file cannot be attached here",
+     * with no number to act on and no hint that the answer is to put it on Drive and paste
+     * the link. The ceiling comes back so the composer can name the limit that was met —
+     * the per-family one, so a video is told about 25 and a PDF about 10.
+     *
+     * The customer route below is deliberately unchanged: its surface is Stage 2 and has
+     * nothing to act on this with yet, and a refusal shape nobody reads is the kind of
+     * half-built path that gets mistaken for a finished one.
+     */
+    if (!grant.ok && grant.refusal === 'TOO_LARGE') {
+      throw new PayloadTooLargeException({
+        error: 'attachment_too_large',
+        maxBytes: ceilingFor(policyFor(DEFAULT_POLICY, 'EMPLOYEE'), parsed.data.declaredMime),
+      });
+    }
     if (!grant.ok) return refuse();
     return {
       attachmentId: grant.attachmentId,

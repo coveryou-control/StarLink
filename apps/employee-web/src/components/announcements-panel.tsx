@@ -281,9 +281,13 @@ export function AnnouncementsPanel({
             {mayPost ? ' You can open the first one.' : ''}
           </p>
         ) : shown.length === 0 ? (
+          /* The same voice as the conversation list's caught-up state, without the mark:
+             this is a narrow side panel and a 26px glyph in it would be a third of the
+             column. What carries over is that reaching the end reads as reaching the end
+             rather than as an absence — see `EmptyState` in `conversation-list.tsx`. */
           <p className="panel-note">
             {board === 'unread'
-              ? 'You have read everything on the board.'
+              ? "You're all caught up on the board."
               : 'Nothing is pinned right now.'}
           </p>
         ) : (
