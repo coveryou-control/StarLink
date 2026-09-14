@@ -32,6 +32,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import {
+  ApiError,
   auditApi,
   type AuditConversation,
   type AuditEmployee,
@@ -65,18 +66,89 @@ const KINDS = [
 const when = (iso: string): string =>
   new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
+/**
+ * What went wrong, in words, for a person who is auditing rather than debugging.
+ *
+ * ## Why this exists at all
+ *
+ * Every load on this screen used to end in `catch { setRows([]) }`. That turns a stopped
+ * API, a 500, a rate limit and a genuine absence of data into the same picture: an empty
+ * panel. It was reported exactly as it would have to be — "I cannot see any conversations,
+ * the view appears empty" — and there was nothing on the screen to say otherwise, because
+ * the screen could not tell the difference either.
+ *
+ * A read-only audit surface is the worst place for that ambiguity. "There are no
+ * conversations" and "I could not ask" are opposite answers to a compliance question, and a
+ * view that renders them identically will eventually be believed.
+ */
+function describe(error: unknown): string {
+  if (error instanceof ApiError) {
+    /* `api-client` wraps a network failure as an ApiError with status 0, so "could not
+       reach" arrives here looking like a refusal. Reporting it as "refused" would be the
+       same confident-and-wrong answer this whole change exists to stop. */
+    if (error.status === 0) {
+      return 'Could not reach the API. It may be restarting, or this page may be pointed at a different one.';
+    }
+    if (error.status === 404) {
+      return 'The server declined that request. This account may no longer hold the audit permission.';
+    }
+    if (error.status === 429) return 'Too many requests at once. Wait a moment and try again.';
+    if (error.status >= 500) return `The server failed to answer (${error.status}).`;
+    return `The request was refused (${error.status}).`;
+  }
+  /* A TypeError from `fetch` is the API being unreachable — stopped, restarting, or a
+     different origin than this page was built against. The commonest cause by far, and the
+     one an empty panel hid completely. */
+  return 'Could not reach the API. It may be restarting, or this page may be pointed at a different one.';
+}
+
+/** A failure, said plainly, with a way to try again. */
+function Problem({
+  error,
+  onRetry,
+}: {
+  readonly error: string;
+  readonly onRetry?: (() => void) | undefined;
+}): React.JSX.Element {
+  return (
+    <p className="audit-problem" role="alert">
+      {error}
+      {onRetry !== undefined ? (
+        <button type="button" onClick={onRetry} className="audit-retry">
+          Try again
+        </button>
+      ) : null}
+    </p>
+  );
+}
+
 export default function AuditConsole(): React.JSX.Element {
-  const [allowed, setAllowed] = useState<boolean | undefined>(undefined);
+  /**
+   * Three answers, not two.
+   *
+   * This was a boolean, and a failed permission call set it to `false` — so an
+   * administrator whose request did not arrive was told "Not available to this account".
+   * Telling somebody they lack a permission they hold is worse than telling them nothing:
+   * it is a confident answer, and it is wrong.
+   */
+  const [allowed, setAllowed] = useState<'CHECKING' | 'YES' | 'NO' | 'FAILED'>('CHECKING');
+  const [problem, setProblem] = useState<string | undefined>(undefined);
   const [tab, setTab] = useState<Tab>('conversations');
 
-  useEffect(() => {
+  const check = useCallback((): void => {
+    setAllowed('CHECKING');
     void auditApi
       .permission()
-      .then((answer) => setAllowed(answer.mayAudit))
-      .catch(() => setAllowed(false));
+      .then((answer) => setAllowed(answer.mayAudit ? 'YES' : 'NO'))
+      .catch((error: unknown) => {
+        setProblem(describe(error));
+        setAllowed('FAILED');
+      });
   }, []);
 
-  if (allowed === undefined) {
+  useEffect(check, [check]);
+
+  if (allowed === 'CHECKING') {
     return (
       <main className="audit">
         <p className="audit-note">Checking…</p>
@@ -84,7 +156,18 @@ export default function AuditConsole(): React.JSX.Element {
     );
   }
 
-  if (!allowed) {
+  if (allowed === 'FAILED') {
+    return (
+      <main className="audit">
+        <div className="audit-refused">
+          <h1>Could not check your access</h1>
+          <Problem error={problem ?? 'Something went wrong.'} onRetry={check} />
+        </div>
+      </main>
+    );
+  }
+
+  if (allowed === 'NO') {
     /* The ordinary employee who followed a link. Said plainly rather than with a 404 screen:
        they have not done anything wrong, and the surface exists. */
     return (
@@ -145,6 +228,8 @@ function Conversations(): React.JSX.Element {
   const [rows, setRows] = useState<readonly AuditConversation[]>([]);
   const [open, setOpen] = useState<string | undefined>(undefined);
   const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | undefined>(undefined);
+  const [sideProblem, setSideProblem] = useState<string | undefined>(undefined);
   const [filter, setFilter] = useState<{
     employeeId: string;
     teamId: string;
@@ -154,12 +239,22 @@ function Conversations(): React.JSX.Element {
   }>({ employeeId: '', teamId: '', type: '', from: '', to: '' });
 
   useEffect(() => {
-    void auditApi.employees().then((answer) => setEmployees(answer.employees)).catch(() => undefined);
-    void auditApi.teams().then((answer) => setTeams(answer.teams)).catch(() => undefined);
+    /* The filter dropdowns. A failure here does not empty the screen — the conversation
+       list below is the point — but it must not be silent either, or the filters simply
+       appear to have no options in them. */
+    void auditApi
+      .employees()
+      .then((answer) => setEmployees(answer.employees))
+      .catch((error: unknown) => setSideProblem(describe(error)));
+    void auditApi
+      .teams()
+      .then((answer) => setTeams(answer.teams))
+      .catch((error: unknown) => setSideProblem(describe(error)));
   }, []);
 
   const load = useCallback(async (): Promise<void> => {
     setBusy(true);
+    setProblem(undefined);
     try {
       /* Only the filters that were set. An empty string is "no filter", not a filter
          matching the empty value — the server's schema would reject the second and the
@@ -173,8 +268,11 @@ function Conversations(): React.JSX.Element {
         limit: 50,
       });
       setRows(answer.conversations);
-    } catch {
+    } catch (error: unknown) {
+      /* The list is emptied AND the reason is shown. Emptying alone is what made a stopped
+         API look like a company with no conversations in it. */
       setRows([]);
+      setProblem(describe(error));
     } finally {
       setBusy(false);
     }
@@ -251,9 +349,20 @@ function Conversations(): React.JSX.Element {
           </label>
         </div>
 
+        {sideProblem !== undefined ? <Problem error={sideProblem} /> : null}
+
         <p className="audit-count">
           {busy ? 'Loading…' : `${rows.length} conversation${rows.length === 1 ? '' : 's'}`}
         </p>
+
+        {problem !== undefined ? <Problem error={problem} onRetry={() => void load()} /> : null}
+        {problem === undefined && !busy && rows.length === 0 ? (
+          /* A genuine absence, said as one. Distinguishable from the failure above it,
+             which is the whole point of this screen knowing the difference. */
+          <p className="audit-note">
+            No conversations match these filters. Widen the date range or clear a filter.
+          </p>
+        ) : null}
 
         <ul className="audit-list">
           {rows.map((row) => (
@@ -295,22 +404,31 @@ function Transcript({ conversationId }: { readonly conversationId: string }): Re
   const [messages, setMessages] = useState<readonly AuditMessage[]>([]);
   const [people, setPeople] = useState<readonly AuditParticipant[]>([]);
   const [kind, setKind] = useState('ALL');
-  const [state, setState] = useState<'LOADING' | 'READY' | 'REFUSED'>('LOADING');
+  const [state, setState] = useState<'LOADING' | 'READY' | 'FAILED'>('LOADING');
+  const [problem, setProblem] = useState<string | undefined>(undefined);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     setState('LOADING');
+    setProblem(undefined);
     void auditApi
       .messages(conversationId, { kind, limit: 200 })
       .then((answer) => {
         setMessages(answer.messages);
         setState('READY');
       })
-      .catch(() => setState('REFUSED'));
+      .catch((error: unknown) => {
+        /* Was `setState('REFUSED')` for every failure, which told the reader the server had
+           declined when it may simply not have answered. On an audit surface those are very
+           different facts. */
+        setProblem(describe(error));
+        setState('FAILED');
+      });
     void auditApi
       .participants(conversationId)
       .then((answer) => setPeople(answer.participants))
-      .catch(() => undefined);
-  }, [conversationId, kind]);
+      .catch(() => setPeople([]));
+  }, [conversationId, kind, attempt]);
 
   return (
     <div className="audit-transcript">
@@ -338,7 +456,16 @@ function Transcript({ conversationId }: { readonly conversationId: string }): Re
       </header>
 
       {state === 'LOADING' ? <p className="audit-note">Loading…</p> : null}
-      {state === 'REFUSED' ? <p className="audit-note">That conversation is not available.</p> : null}
+      {state === 'FAILED' ? (
+        <Problem error={problem ?? 'Could not load.'} onRetry={() => setAttempt((n) => n + 1)} />
+      ) : null}
+      {state === 'READY' && messages.length === 0 ? (
+        /* A conversation that genuinely holds nothing — several do, having been created and
+           never written in. Said as an absence rather than drawn as a blank panel. */
+        <p className="audit-note">
+          This conversation has no messages{kind === 'ALL' ? '' : ' of that kind'}.
+        </p>
+      ) : null}
 
       {state === 'READY' ? (
         <ol className="audit-messages">
@@ -395,11 +522,24 @@ function Transcript({ conversationId }: { readonly conversationId: string }): Re
 function People(): React.JSX.Element {
   const [employees, setEmployees] = useState<readonly AuditEmployee[]>([]);
   const [teams, setTeams] = useState<readonly AuditTeam[]>([]);
+  const [problem, setProblem] = useState<string | undefined>(undefined);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
-    void auditApi.employees().then((answer) => setEmployees(answer.employees)).catch(() => undefined);
-    void auditApi.teams().then((answer) => setTeams(answer.teams)).catch(() => undefined);
-  }, []);
+    setProblem(undefined);
+    void auditApi
+      .employees()
+      .then((answer) => setEmployees(answer.employees))
+      .catch((error: unknown) => setProblem(describe(error)));
+    void auditApi
+      .teams()
+      .then((answer) => setTeams(answer.teams))
+      .catch((error: unknown) => setProblem(describe(error)));
+  }, [attempt]);
+
+  if (problem !== undefined) {
+    return <Problem error={problem} onRetry={() => setAttempt((n) => n + 1)} />;
+  }
 
   return (
     <div className="audit-columns">
@@ -465,14 +605,20 @@ function Search(): React.JSX.Element {
   const [term, setTerm] = useState('');
   const [hits, setHits] = useState<readonly AuditSearchHit[]>([]);
   const [searched, setSearched] = useState(false);
+  const [problem, setProblem] = useState<string | undefined>(undefined);
 
   const run = async (): Promise<void> => {
     if (term.trim().length < 2) return;
+    setProblem(undefined);
     try {
       const answer = await auditApi.search(term.trim(), 50);
       setHits(answer.results);
-    } catch {
+    } catch (error: unknown) {
+      /* "No results" and "the search did not run" are opposite answers to a compliance
+         question. Reporting the second as the first is how an audit concludes that nothing
+         was said. */
       setHits([]);
+      setProblem(describe(error));
     } finally {
       setSearched(true);
     }
@@ -498,7 +644,9 @@ function Search(): React.JSX.Element {
         <button type="submit">Search</button>
       </form>
 
-      {searched ? (
+      {problem !== undefined ? <Problem error={problem} onRetry={() => void run()} /> : null}
+
+      {searched && problem === undefined ? (
         <p className="audit-count">
           {hits.length} result{hits.length === 1 ? '' : 's'}
         </p>
@@ -531,13 +679,19 @@ function Search(): React.JSX.Element {
 function Ledger(): React.JSX.Element {
   const [events, setEvents] = useState<readonly AuditLedgerEvent[]>([]);
   const [action, setAction] = useState('');
+  const [problem, setProblem] = useState<string | undefined>(undefined);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    setProblem(undefined);
     void auditApi
       .log({ ...(action !== '' ? { action } : {}), limit: 150 })
       .then((answer) => setEvents(answer.events))
-      .catch(() => setEvents([]));
-  }, [action]);
+      .catch((error: unknown) => {
+        setEvents([]);
+        setProblem(describe(error));
+      });
+  }, [action, attempt]);
 
   return (
     <div className="audit-ledger">
@@ -550,6 +704,10 @@ function Ledger(): React.JSX.Element {
           placeholder="e.g. privileged.conversation.read"
         />
       </label>
+
+      {problem !== undefined ? (
+        <Problem error={problem} onRetry={() => setAttempt((n) => n + 1)} />
+      ) : null}
 
       <table className="audit-table">
         <thead>

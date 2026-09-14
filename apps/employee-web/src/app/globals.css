@@ -15314,6 +15314,38 @@ input.signin-control {
   padding: 8px 12px;
 }
 
+/* A failure, distinguishable at a glance from an empty result.
+
+   The two used to look identical on this screen — both were a blank panel — and that is the
+   defect this style exists to make impossible to repeat. Warning tokens rather than danger:
+   nothing is broken for the person reading, something did not load and can be retried. */
+.audit-problem {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  background: var(--warn-bg);
+  padding: var(--space-2) var(--space-3);
+  color: var(--warn-text);
+  font-size: var(--text-sm);
+  line-height: var(--lh);
+}
+
+.audit-retry {
+  flex: none;
+  border: 1px solid var(--warn-border);
+  border-radius: var(--radius-sm);
+  background: none;
+  padding: 3px 10px;
+  color: inherit;
+  font-size: var(--text-sm);
+  font-weight: 550;
+  cursor: pointer;
+}
+
 .audit-refused {
   max-width: 52ch;
   margin: 12vh auto 0;
