@@ -25,7 +25,7 @@ import type { PrincipalClaims } from '@starlink/shared-contracts';
 /**
  * Exported so the read-only guarantee can be ASSERTED rather than described.
  *
- * `audit-read-only.test.ts` sweeps the whole action catalogue against what SUPERADMIN
+ * `admin-audit.test.ts` sweeps the whole action catalogue against what ADMIN
  * actually holds; that sweep needs the list, and deriving it from the role assignment path
  * instead would test the derivation rather than the role.
  */
@@ -135,93 +135,59 @@ export const ROLE_ACTIONS: Readonly<Record<string, readonly Action[]>> = Object.
     // `GET /admin/accounts` and `GET /admin/roles/:principalId` refused even a full ADMIN.
     'admin.principal.read',
     'admin.role.read',
-  ],
-  /**
-   * The communication auditor. ONE account, read-only, company-wide.
-   *
-   * ## Why this role exists at all
-   *
-   * An insurer has to be able to answer "what was said" — to a regulator, to a grievance,
-   * to a court. Until now that question had no answer inside StarLink: `COMPLIANCE` and
-   * `LEGAL` hold `audit.query` and `privileged.customer.history.read`, which reach the
-   * LEDGER and a customer's own history, and neither reaches an internal thread between
-   * two colleagues.
-   *
-   * ## Why it is not an administrator
-   *
-   * FR-AUTHZ-7 — administration confers no read — is untouched, and this role is the reason
-   * to be exact about what it says. It says that managing accounts, roles and channels does
-   * not imply reading their content; it does not say content can never be read by anyone
-   * but a participant. `privileged.conversation.read` has been in the action list since it
-   * was written, is in `PRIVILEGED_ACTIONS`, and is audited on success AND on refusal
-   * precisely so that a read of this kind is answerable for.
-   *
-   * So the auditor holds NO admin action. It cannot create an account, assign a role,
-   * deactivate anybody or change a configuration value. It reads, and that is the whole of
-   * it — which is also what keeps the two authorities separate: whoever runs the directory
-   * cannot read the traffic, and whoever reads the traffic cannot change who is in it.
-   *
-   * ## Read-only is enforced by absence, not by a flag
-   *
-   * There is no `conversation.message.send` here, no reaction, no edit, no delete, no
-   * forward, no participant change. `decide()` denies an unknown or ungranted action by
-   * construction (property 1), so the read-only guarantee is the SHAPE of this list rather
-   * than a check somebody could forget. `audit-read-only.test.ts` asserts it action by
-   * action against the full catalogue, so a write added to this array fails the build.
-   *
-   * ## One account, and not self-service
-   *
-   * Nothing in the product grants this role. `admin.role.assign` explicitly refuses it —
-   * see `admin.controller.ts` — so an ADMIN cannot make a second auditor, and an auditor
-   * cannot make one either because it holds no admin action at all. It is issued out of
-   * band by `seed-superadmin.mjs`, which refuses to create a second one.
-   */
-  SUPERADMIN: [
-    /* The content read. This is the action that reaches an internal thread, and it is the
-       only reason this role differs from COMPLIANCE. */
+
+    /*
+       ## The communication audit, as a capability of THIS role
+
+       An insurer has to be able to answer "what was said" — to a regulator, to a grievance,
+       to a court. That answer now belongs to the organisation's administrator rather than
+       to an account of its own: one ADMIN, holding its existing administrative authority
+       and this in addition.
+
+       ## What this does to FR-AUTHZ-7, exactly
+
+       FR-AUTHZ-7 says administration confers no read, and the letter of it is intact: none
+       of the `admin.*` actions above imply reading a conversation, `decide()`'s property 5
+       still holds, and `channel.manage` still falls through for administration and never
+       for content. What has changed is that this role ADDITIONALLY holds an explicit,
+       separately-named, always-audited read action. The distinction matters and is worth
+       being precise about: the read is granted by `privileged.conversation.read`, not
+       inherited from managing accounts, so an operator who wants an administrator WITHOUT
+       the audit removes this one line and the administration is untouched.
+
+       The spirit of FR-AUTHZ-7 — that the two authorities be separable — is therefore
+       preserved in the mechanism while the product has decided to combine them in the
+       default role. That is a business decision and is recorded as one.
+
+       ## Read-only is a property of the SURFACE, not of this role
+
+       An administrator can obviously write; it is an administrator. So "the audit is
+       read-only" cannot be enforced by the shape of this list the way it could for a
+       dedicated role. It is enforced where it now has to be: `/v1/audit` has no handler
+       that is not a `@Get`, and `audit-surface-is-read-only.test.ts` fails the build if one
+       appears.
+    */
     'privileged.conversation.read',
     'privileged.customer.history.read',
-    /* Attachments and voice notes are messages by another name — a file shared in a thread
-       is part of what was said, and an audit that stops at the text is not an audit. */
+    /* Attachments, images and voice notes are messages by another name — a file shared in a
+       thread is part of what was said, and an audit that stops at the text is not one. */
     'conversation.attachment.download',
-    /* The ledger itself: who accessed what, including this account's own reads. */
+    /* The ledger, including the administrator's own audit reads. */
     'audit.query',
-    /* Finding the conversation to read. Directory, search and queue are how an auditor
-       gets from "this employee, this week" to a thread. Search is the one the brief asks
-       for by name — company-wide message search — and it is the reason this role is useful
-       rather than merely permitted: without it an audit is a list of conversations to open
-       one at a time. None of the three discloses content on its own; what each result
-       resolves to is decided per conversation by `decide()`. */
-    'directory.read',
+    /* Finding the conversation to read. Search is the one the brief names — company-wide
+       message search — and it is what makes the capability usable rather than merely
+       present: without it an audit is a list of conversations to open one at a time. */
     'search.execute',
+    /* The directory: departments, teams and who is in them. The audit has to be able to
+       browse the organisation to get from "this team, last month" to a conversation, and
+       a directory read discloses no message content on its own. */
+    'directory.read',
     'queue.read',
     'load.read',
     'case.read',
-    /* The employee and role LISTS, which an audit has to be able to show — the same two
-       reads `admin.controller.ts` already separates from their write counterparts, and the
-       reason it separates them. */
-    'admin.principal.read',
-    'admin.role.read',
   ],
 });
 
-/**
- * Roles no API may grant, however privileged the caller.
- *
- * `SUPERADMIN` reads every conversation in the company. If `POST /admin/roles` could issue
- * it, then whoever holds `admin.role.assign` holds company-wide read as well — one request
- * away — and FR-AUTHZ-7 would be true of the action list and false of the system. The two
- * authorities have to be separable in practice, not only on paper.
- *
- * So it is issued out of band, by `seed-superadmin.mjs`, which runs against the database
- * with operator credentials and refuses to create a second one. That is deliberately
- * inconvenient: there is meant to be exactly one, and making another meant to require
- * somebody with production access rather than somebody with an admin session.
- *
- * A set rather than a single string because the next role of this kind — whatever it is —
- * should land here rather than beside a second bespoke check.
- */
-export const OUT_OF_BAND_ROLES: ReadonlySet<string> = new Set(['SUPERADMIN']);
 
 export function toActorContext(claims: PrincipalClaims): ActorContext {
   const grants: ScopeGrant[] = claims.roles.map((assignment) => ({

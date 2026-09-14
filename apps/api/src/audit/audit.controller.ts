@@ -3,13 +3,16 @@
  *
  * ## Why this is a separate controller rather than a flag on the employee one
  *
- * Because read-only should be a property of the SHAPE, not a rule somebody has to keep
- * remembering. Every handler here is a `@Get`; there is no `@Post`, `@Patch` or `@Delete` in
- * the file, and adding one would be visible in a diff in a way that adding a branch inside
- * an existing write handler is not. The employee API would have refused these writes anyway
- * — `SUPERADMIN` holds no write action and `decide()` denies what it was not granted — but
- * "the role cannot" and "the surface has no such door" are different guarantees and this
- * feature deserves both.
+ * Because read-only has to be a property of the SHAPE here, and cannot be a property of the
+ * role. The auditor IS the organisation's administrator: it can create accounts, assign
+ * roles and manage channels, so "this account holds no write action" is not available as a
+ * guarantee the way it would be for a dedicated audit account.
+ *
+ * So the guarantee is structural. Every handler in this file is a `@Get`; there is no
+ * `@Post`, `@Patch` or `@Delete`, and `audit-surface-is-read-only.test.ts` reads this source
+ * and fails the build if one appears. An administrator who wants to send a message uses the
+ * ordinary workspace, as themselves, with their name on it — which is the distinction the
+ * whole feature turns on.
  *
  * ## What it deliberately does NOT do
  *
@@ -44,7 +47,7 @@ import {
 } from '../tokens.js';
 import { refuse, RequireSurface, type AuthenticatedRequest } from '../edge/session.guard.js';
 import type { AuditWriter } from './audit-writer.js';
-import { permitAuditRead } from './audit-access.js';
+import { holdsAuditCapability, permitAuditRead } from './audit-access.js';
 
 const uuid = z.string().uuid();
 
@@ -159,17 +162,18 @@ export class AuditController {
    * Whether this session may use the audit surface at all.
    *
    * The frontend asks so it can show the audit navigation or not. It is NOT what protects
-   * anything — every handler below decides for itself, and hiding a screen is not
-   * authorization. This exists so the ordinary employee's workspace does not show a door
+   * anything — every handler below decides for itself, server-side, and hiding a screen is
+   * not authorization. This exists so an ordinary employee's workspace does not show a door
    * that would refuse them.
+   *
+   * Answered by `decide()` rather than by reading a role name off the claims. A check that
+   * said `role === 'ADMIN'` would be a second authorization system beside the real one, and
+   * the two would disagree the first time the capability moved.
    */
   @Get('permission')
   async permission(@Req() request: AuthenticatedRequest): Promise<unknown> {
     const session = request.session!;
-    const claims = await this.identity.resolvePrincipal(session.principalId);
-    if (!claims.ok) return { mayAudit: false };
-    const actor = toActor(claims.value);
-    return { mayAudit: actor };
+    return { mayAudit: await holdsAuditCapability(this.identity, session.principalId) };
   }
 
   /** Every employee account in the company, with the teams and department each sits in. */
@@ -530,7 +534,4 @@ export class AuditController {
   }
 }
 
-/** Does this principal hold the audit grant? Used only to decide whether to offer the door. */
-function toActor(claims: { roles: readonly { role: string }[] }): boolean {
-  return claims.roles.some((assignment) => assignment.role === 'SUPERADMIN');
-}
+

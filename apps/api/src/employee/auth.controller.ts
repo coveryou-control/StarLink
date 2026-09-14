@@ -101,25 +101,8 @@ export class EmployeeAuthController {
      * out everywhere" ends a fourteen-day session on its next request exactly as it ends a
      * twelve-hour one (FR-AUTH-2).
      */
-    /**
-     * The communication auditor gets a short session, and cannot opt out of it.
-     *
-     * This is the one credential that reads every conversation in the company, so the
-     * ordinary reasoning about session length runs backwards for it: signing in again costs
-     * seconds, and a forgotten session on an unlocked laptop costs the whole company's
-     * messages. "Keep me signed in" is ignored rather than merely discouraged — a
-     * fourteen-day session on this account is exactly what the short TTL exists to prevent,
-     * and a tick-box that defeats it is a protection that lasts until somebody finds it
-     * inconvenient.
-     *
-     * Decided from the CLAIMS just resolved, not from a second lookup: the roles are
-     * already in hand at this point, and asking twice is how the two answers drift.
-     */
-    const isAuditor = claims.value.roles.some((assignment) => assignment.role === 'SUPERADMIN');
-
-    const ttlSeconds = isAuditor
-      ? this.config.SL_AUDIT_SESSION_TTL_SECONDS
-      : parsed.data.rememberMe === true
+    const ttlSeconds =
+      parsed.data.rememberMe === true
         ? this.config.SL_SESSION_REMEMBER_TTL_SECONDS
         : this.config.SL_SESSION_TTL_SECONDS;
 

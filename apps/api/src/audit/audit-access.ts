@@ -12,12 +12,16 @@
  *
  * ## Why the ledger entry is not optional
  *
- * This is the only role in StarLink that can read a conversation it is not in. The thing
- * that makes that acceptable is not the narrowness of the grant — it is that every exercise
- * of it is answerable for, in a ledger the auditor can query but cannot alter (rule 8, and
- * the role grants of `0002_roles_and_audit_immutability.sql`). A read that happened without
- * a row is the one failure this feature cannot have, so the row is written first and a
- * failure to write it fails the request.
+ * This is the only capability in StarLink that reads a conversation its holder is not in.
+ * What makes that acceptable is not the narrowness of the grant — it is that every exercise
+ * of it is answerable for, in a ledger the administrator can query but cannot alter (rule 8,
+ * and the role grants of `0002_roles_and_audit_immutability.sql`). A read that happened
+ * without a row is the one failure this feature cannot have, so the row is written first and
+ * a failure to write it fails the request.
+ *
+ * It matters more now that the capability sits on the ADMIN role: the same principal also
+ * reads its own conversations as an ordinary participant, and the ledger is the only thing
+ * that distinguishes "the administrator working" from "the administrator auditing".
  */
 import { decide, toActorContext, type Action } from '@starlink/conversation-domain';
 import type { ConversationType, IdentityAuthorizationClient, UUID } from '@starlink/shared-contracts';
@@ -41,6 +45,39 @@ export interface AuditAccessRequest {
     readonly id: string;
     readonly conversationType?: ConversationType;
   };
+}
+
+/**
+ * Does this principal hold the company-wide audit read?
+ *
+ * The one question the whole surface turns on, asked through `decide()` so there is no
+ * second authorization system living beside the real one. Exported because the permission
+ * endpoint needs the same answer to decide whether to offer the door, and two
+ * implementations of "may this person audit" would disagree the first time the capability
+ * moved — which it just did, from a dedicated role onto ADMIN.
+ *
+ * The BASIS is checked, not only the allow. `privileged.conversation.read` could in
+ * principle be granted by another rung — a temporary grant naming one conversation, say —
+ * and that is a lawful way to reach one thread and emphatically not a licence for the whole
+ * surface. Only rung 3a's company-wide grant opens this door.
+ */
+export async function holdsAuditCapability(
+  identity: IdentityAuthorizationClient,
+  principalId: UUID,
+): Promise<boolean> {
+  const claims = await identity.resolvePrincipal(principalId);
+  if (!claims.ok) return false;
+  const decision = decide({
+    actor: toActorContext(claims.value),
+    action: 'privileged.conversation.read',
+    resource: {
+      conversationId: WHOLE_COMPANY,
+      conversationType: 'SYSTEM_INTERACTION',
+      sensitivity: 'ORDINARY',
+    },
+    now: new Date().toISOString(),
+  });
+  return decision.allow && decision.basis === 'COMMUNICATION_AUDIT';
 }
 
 /**
@@ -110,7 +147,7 @@ export async function permitAuditRead(
     now: new Date().toISOString(),
   });
 
-  const isAuditor = audit.allow && audit.basis === 'COMMUNICATION_AUDIT';
+  const holdsAudit = audit.allow && audit.basis === 'COMMUNICATION_AUDIT';
 
   /**
    * And then the handler's own action, against the thing actually being read.
@@ -131,7 +168,7 @@ export async function permitAuditRead(
     now: new Date().toISOString(),
   });
 
-  if (!isAuditor || !decision.allow) {
+  if (!holdsAudit || !decision.allow) {
 
     /**
      * A refused audit read is as interesting as a successful one — more so.
@@ -151,7 +188,11 @@ export async function permitAuditRead(
       /* Which half refused. "Not the auditor" and "the auditor may not do this" are
          different incidents, and a single uniform reason would lose the distinction in
          the one log that exists to preserve it. The CALLER still learns nothing. */
-      reason: isAuditor ? (decision.allow ? 'UNKNOWN' : decision.reason) : 'NOT_THE_AUDITOR',
+      reason: holdsAudit
+        ? decision.allow
+          ? 'UNKNOWN'
+          : decision.reason
+        : 'NO_AUDIT_CAPABILITY',
       correlationId: request.correlationId,
     });
     return false;

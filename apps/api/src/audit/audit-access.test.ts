@@ -23,8 +23,14 @@ import { permitAuditRead } from './audit-access.js';
  * with a real action, which is what the rule asks for. What it did not do was ask the
  * question this surface actually turns on.
  *
- * So the gate is the CAPABILITY — is this principal the auditor — and the handler's action
- * is the second question and the thing the ledger records. These tests hold that shape.
+ * So the gate is the CAPABILITY — does this principal hold the company-wide audit read —
+ * and the handler's action is the second question and the thing the ledger records. These
+ * tests hold that shape.
+ *
+ * The capability now belongs to the organisation's ADMIN role rather than to an account of
+ * its own, which makes the distinction sharper rather than softer: ADMIN legitimately holds
+ * plenty of actions, so "it called decide() with a real action" says even less about whether
+ * the audit surface should have opened.
  */
 
 const PAST = '2020-01-01T00:00:00.000Z';
@@ -76,9 +82,9 @@ const read = (
     target: { kind: 'audit_surface', id: '00000000-0000-0000-0000-000000000000' },
   });
 
-describe('the auditor gets in', () => {
+describe('the administrator gets in', () => {
   it('is permitted every action the surface uses', async () => {
-    const { deps } = harness('SUPERADMIN');
+    const { deps } = harness('ADMIN');
     for (const action of [
       'privileged.conversation.read',
       'conversation.read',
@@ -92,7 +98,7 @@ describe('the auditor gets in', () => {
   });
 
   it('writes a ledger row for each read, before the content is returned', async () => {
-    const { deps, rows } = harness('SUPERADMIN');
+    const { deps, rows } = harness('ADMIN');
     await read(deps, AUDITOR, 'privileged.conversation.read');
     expect(rows).toHaveLength(1);
     expect(rows[0]?.outcome).toBe('SUCCEEDED');
@@ -134,20 +140,46 @@ describe('an ordinary employee does not', () => {
     await read(deps, AGENT, 'search.execute');
     expect(rows).toHaveLength(1);
     expect(rows[0]?.outcome).toBe('REFUSED');
-    expect(rows[0]?.reason).toBe('NOT_THE_AUDITOR');
+    expect(rows[0]?.reason).toBe('NO_AUDIT_CAPABILITY');
   });
 
-  it('is refused even when it holds a full ADMIN role', async () => {
+  it('is refused when it holds only the administrative ACTIONS', async () => {
     /**
-     * FR-AUTHZ-7 at the door. An administrator manages accounts, roles and channels and
-     * still cannot read the traffic — including through this surface, which is the one
-     * place somebody might expect administration to imply readership.
+     * FR-AUTHZ-7 at the door, in the form it now takes. A principal with the administrative
+     * actions and NOT the audit action reads nothing — which is what keeps the capability
+     * removable by deleting one line from `ROLE_ACTIONS` rather than by unpicking a role.
      */
-    const { deps } = harness('ADMIN');
-    for (const action of ['privileged.conversation.read', 'admin.principal.read', 'audit.query'] as const) {
-      expect(await read(deps, AGENT, action), `ADMIN reached the audit surface via ${action}`).toBe(
-        false,
-      );
+    const rows: { action: string; outcome: string; reason?: string }[] = [];
+    const identity = {
+      resolvePrincipal: vi.fn(async (principalId: UUID) => ({
+        ok: true as const,
+        value: {
+          principalId,
+          status: 'ACTIVE',
+          displayName: 'administrator without the audit',
+          department: 'Ops',
+          teams: [],
+          roles: [{ role: 'ADMIN_NO_AUDIT', scope: { kind: 'GLOBAL' }, effectiveFrom: PAST }],
+          delegations: [],
+          temporaryGrants: [],
+        } as unknown as PrincipalClaims,
+      })),
+    } as unknown as IdentityAuthorizationClient;
+    const audit = {
+      record: vi.fn(async (event: { action: string; outcome: string; reason?: string }) => {
+        rows.push({
+          action: event.action,
+          outcome: event.outcome,
+          ...(event.reason !== undefined ? { reason: event.reason } : {}),
+        });
+      }),
+    } as unknown as AuditWriter;
+
+    for (const action of ['privileged.conversation.read', 'audit.query'] as const) {
+      expect(
+        await read({ identity, audit }, AGENT, action),
+        `an unknown role reached the audit surface via ${action}`,
+      ).toBe(false);
     }
   });
 

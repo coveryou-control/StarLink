@@ -92,9 +92,9 @@ export default function AuditConsole(): React.JSX.Element {
         <div className="audit-refused">
           <h1>Not available to this account</h1>
           <p>
-            The communication audit is restricted to the organisation&rsquo;s auditor. Every
-            request it makes is decided by the server, so this is what you would see whether
-            or not this page were here.
+            The Admin Audit View is restricted to the organisation&rsquo;s administrator.
+            Every request it makes is decided by the server, so this is what you would see
+            whether or not this page were here.
           </p>
         </div>
       </main>
@@ -105,7 +105,7 @@ export default function AuditConsole(): React.JSX.Element {
     <main className="audit">
       <header className="audit-head">
         <div>
-          <h1>Communication audit</h1>
+          <h1>Admin Audit View</h1>
           <p>Read-only. Every view is recorded in the audit ledger.</p>
         </div>
         <nav className="audit-tabs" aria-label="Audit sections">

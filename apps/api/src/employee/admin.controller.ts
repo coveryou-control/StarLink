@@ -13,7 +13,7 @@
  */
 import { Body, Controller, Delete, Get, Inject, Param, Post, Query, Req } from '@nestjs/common';
 import { z } from 'zod';
-import { decide, toActorContext, OUT_OF_BAND_ROLES } from '@starlink/conversation-domain';
+import { decide, toActorContext } from '@starlink/conversation-domain';
 import { recordDecision } from '../edge/authorization-metrics.js';
 import type { IdentityAuthorizationClient, UUID } from '@starlink/shared-contracts';
 import type { Logger } from '@starlink/observability';
@@ -199,34 +199,6 @@ export class EmployeeAdminController {
         targetId: parsed.data.principalId,
         outcome: 'REFUSED',
         correlationId: request.correlationId,
-      });
-      return refuse();
-    }
-
-    /**
-     * Some roles are not this endpoint's to give.
-     *
-     * `SUPERADMIN` reads every conversation in the company. If this handler could issue it,
-     * whoever holds `admin.role.assign` would hold company-wide read as well — one request
-     * away, to themselves — and FR-AUTHZ-7 would be true of the action list and false of the
-     * system. It is issued out of band instead; see `OUT_OF_BAND_ROLES`.
-     *
-     * Refused AFTER the permission check, deliberately, so the ledger can tell "somebody who
-     * may not assign roles tried" from "an administrator tried to mint an auditor". The
-     * second is the more interesting line in an incident, and one uniform refusal would lose
-     * it. The CALLER still gets the uniform answer (§27.3); only the ledger knows.
-     */
-    if (OUT_OF_BAND_ROLES.has(parsed.data.role)) {
-      await this.audit.record({
-        actorId: session.principalId,
-        actorKind: 'EMPLOYEE',
-        action: 'admin.role.assign',
-        targetKind: 'principal',
-        targetId: parsed.data.principalId,
-        outcome: 'REFUSED',
-        reason: 'ROLE_NOT_SELF_SERVICE',
-        correlationId: request.correlationId,
-        detail: { role: parsed.data.role },
       });
       return refuse();
     }
