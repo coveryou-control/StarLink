@@ -204,7 +204,24 @@ export function useNotifications(
     const elsewhere = audible.filter(
       (item) => hidden || item.targetRef === undefined || item.targetRef !== openConversation,
     );
-    if (elsewhere.length > 0) playNotificationTone();
+    /*
+       The Sound switch, which until now nothing read.
+
+       `DeviceNotifications.sound` has existed since these settings did, the panel has
+       offered it as "Play a short tone as well as showing the notification", and
+       `shouldNotify` answers only the two ARRIVAL questions - direct, and groups. So
+       turning Sound off changed nothing at all, and the one way to stop the noise was to
+       stop the notifications with it.
+
+       Checked here rather than inside `shouldNotify`, because that function decides
+       whether an event is worth raising and this decides how it is announced. Folding the
+       two together would silence the system notification for anybody who only wanted the
+       sound off.
+
+       Once per batch, as before: six messages arriving together are one arrival to be told
+       about, and six overlapping tones is the sound of something being wrong.
+    */
+    if (elsewhere.length > 0 && settings.sound) playNotificationTone();
 
     /*
        The system notification is for when the application is NOT what you are looking at —

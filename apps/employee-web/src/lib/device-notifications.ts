@@ -216,31 +216,217 @@ export function raiseDeviceNotification(title: string, target?: string): void {
 }
 
 /**
- * A short tone, synthesised rather than fetched.
+ * The StarLink arrival sound: a blade drawn, and a star.
  *
- * No audio file: one would be a network request, a cache entry and a 404 the first time
- * somebody moved the public directory. Two notes on an oscillator is the same amount of
- * "something happened" and cannot fail to load.
+ * ## Synthesised, not fetched — and that is the older decision, kept
+ *
+ * There is no audio file. One would be a network request, a cache entry, a service-worker
+ * precache question and a 404 the first time somebody moved the public directory — for a
+ * sound that has to be ready the instant a message lands. It is also what makes this asset
+ * unambiguously ours: every sample below is computed here from oscillators and noise, so
+ * there is nothing licensed, nothing sampled, and nothing to attribute.
+ *
+ * ## What it is made of
+ *
+ * Three layers, about 1.2 seconds end to end:
+ *
+ *   1. **The draw.** Bandpass-filtered white noise whose centre frequency sweeps upward
+ *      fast — that sweep IS the shing. A blade leaving a scabbard is broadband friction
+ *      rising in pitch as the contact point runs along the edge, and a filter sweep over
+ *      noise is that, exactly.
+ *   2. **The steel.** Three partials at INHARMONIC ratios (1 : 1.47 : 2.11). Harmonic
+ *      ratios sound like a bell or a chime and would read as cheerful; metal's partials
+ *      are not whole-number multiples, and that is the whole difference between a blade
+ *      and a triangle. They glide up about six per cent over the draw, which is the
+ *      movement.
+ *   3. **The star.** Four very quiet high sines, staggered a little under a tenth of a
+ *      second apart, each shorter than the one before. Staggered rather than stacked so
+ *      they read as a sparkle rather than a chord, and quiet enough to be a signature
+ *      rather than a second event.
+ *
+ * ## What it is deliberately not
+ *
+ * No impact, no transient click, no reverb tail. An impact is a hit and this is a
+ * movement; a tail is what makes a sound cinematic, and this plays dozens of times a day
+ * beside somebody trying to work. The master lowpass at 9kHz is there for the same reason:
+ * unshaped filtered noise is bright to the point of harsh on laptop speakers, and harsh is
+ * the fastest way to make a person switch a sound off.
+ *
+ * Peak gain is 0.085, a little under a tenth of full scale. It is meant to be noticed in a
+ * quiet room and inaudible under a conversation, which is the right behaviour for
+ * something this frequent.
  */
+
+/**
+ * One context, reused.
+ *
+ * A context per notification was the previous shape, and it closed each one afterwards —
+ * correct, but browsers cap concurrent contexts (six, commonly) and three messages
+ * arriving together could open three before any closed. A single suspended context costs
+ * nothing and cannot reach that ceiling.
+ */
+let shared: AudioContext | undefined;
+
+function audio(): AudioContext | undefined {
+  if (shared !== undefined && shared.state !== 'closed') return shared;
+  const Ctor =
+    window.AudioContext ??
+    (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (Ctor === undefined) return undefined;
+  shared = new Ctor();
+  return shared;
+}
+
+/** White noise, built once and replayed. It is the friction of the draw. */
+let noise: AudioBuffer | undefined;
+
+function noiseBuffer(context: BaseAudioContext): AudioBuffer {
+  if (noise !== undefined && noise.sampleRate === context.sampleRate) return noise;
+  const frames = Math.floor(context.sampleRate * 0.7);
+  const buffer = context.createBuffer(1, frames, context.sampleRate);
+  const channel = buffer.getChannelData(0);
+  for (let i = 0; i < frames; i += 1) channel[i] = Math.random() * 2 - 1;
+  noise = buffer;
+  return buffer;
+}
+
+/** How long the sound runs, end to end. */
+export const NOTIFICATION_TONE_MS = 1_200;
+
+/**
+ * Builds the sound onto any context, at any time.
+ *
+ * Separate from {@link playNotificationTone} so it can be rendered into an
+ * `OfflineAudioContext` — or a recording stand-in — and CHECKED. A notification sound is
+ * the one piece of interface nobody reviews: it is written once, it is plausible on the
+ * machine it was written on, and a gain typed as 0.85 instead of 0.085 ships and is a
+ * physical unpleasantness for everybody. `notification-tone.test.ts` asserts the peak, the
+ * attack, the sweep direction and the length against the design this file describes.
+ */
+export function buildNotificationTone(
+  context: BaseAudioContext,
+  destination: AudioNode,
+  t: number,
+): void {
+
+    /* The master chain: a lowpass to take the edge off, then one gain for the whole sound,
+       so every layer below is mixed against a single level. */
+    const out = context.createGain();
+    out.gain.setValueAtTime(1, t);
+    const tame = context.createBiquadFilter();
+    tame.type = 'lowpass';
+    tame.frequency.setValueAtTime(9000, t);
+    tame.Q.setValueAtTime(0.7, t);
+    out.connect(tame);
+    tame.connect(destination);
+
+    // 1. The draw: noise through a fast upward filter sweep.
+    const source = context.createBufferSource();
+    source.buffer = noiseBuffer(context);
+
+    const sweep = context.createBiquadFilter();
+    sweep.type = 'bandpass';
+    /* Q sets how narrow the sweep reads. Low is a wash; very high whistles. Six is the
+       band where it sounds like an edge rather than either. */
+    sweep.Q.setValueAtTime(6, t);
+    sweep.frequency.setValueAtTime(1200, t);
+    sweep.frequency.exponentialRampToValueAtTime(5200, t + 0.24);
+    /* And down a little. A sweep that stops at the top sounds cut off; easing down is the
+       blade clearing and the friction ending. */
+    sweep.frequency.exponentialRampToValueAtTime(3800, t + 0.5);
+
+    /* Below 700Hz is rumble that costs headroom and adds nothing. */
+    const body = context.createBiquadFilter();
+    body.type = 'highpass';
+    body.frequency.setValueAtTime(700, t);
+
+    const drawGain = context.createGain();
+    drawGain.gain.setValueAtTime(0.0001, t);
+    /* 18ms, not instant: an instant attack is a click, and a click is an impact. */
+    drawGain.gain.exponentialRampToValueAtTime(0.085, t + 0.018);
+    drawGain.gain.exponentialRampToValueAtTime(0.03, t + 0.2);
+    drawGain.gain.exponentialRampToValueAtTime(0.0001, t + 0.52);
+
+    source.connect(sweep);
+    sweep.connect(body);
+    body.connect(drawGain);
+    drawGain.connect(out);
+    source.start(t);
+    source.stop(t + 0.6);
+
+    // 2. The steel: three inharmonic partials, gliding up.
+    const BASE = 1860;
+    const partials: readonly {
+      readonly ratio: number;
+      readonly gain: number;
+      readonly until: number;
+    }[] = [
+      { ratio: 1, gain: 0.022, until: 0.46 },
+      { ratio: 1.47, gain: 0.014, until: 0.38 },
+      { ratio: 2.11, gain: 0.009, until: 0.3 },
+    ];
+    for (const partial of partials) {
+      const osc = context.createOscillator();
+      osc.type = 'triangle';
+      const from = BASE * partial.ratio;
+      osc.frequency.setValueAtTime(from, t);
+      /* The movement. Six per cent is small on purpose — more is a slide whistle. */
+      osc.frequency.exponentialRampToValueAtTime(from * 1.06, t + 0.3);
+
+      const gain = context.createGain();
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(partial.gain, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + partial.until);
+
+      osc.connect(gain);
+      gain.connect(out);
+      osc.start(t);
+      osc.stop(t + partial.until + 0.05);
+    }
+
+    // 3. The star: four quiet sparks, after the blade has cleared.
+    const STARS: readonly {
+      readonly at: number;
+      readonly hz: number;
+      readonly life: number;
+    }[] = [
+      { at: 0.5, hz: 4200, life: 0.16 },
+      { at: 0.6, hz: 5600, life: 0.14 },
+      { at: 0.71, hz: 3500, life: 0.13 },
+      { at: 0.83, hz: 6800, life: 0.11 },
+    ];
+    for (const star of STARS) {
+      const osc = context.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(star.hz, t + star.at);
+
+      const gain = context.createGain();
+      gain.gain.setValueAtTime(0.0001, t + star.at);
+      gain.gain.exponentialRampToValueAtTime(0.02, t + star.at + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + star.at + star.life);
+
+      osc.connect(gain);
+      gain.connect(out);
+      osc.start(t + star.at);
+      osc.stop(t + star.at + star.life + 0.02);
+    }
+
+}
+
 export function playNotificationTone(): void {
   try {
-    const Ctor = window.AudioContext ?? (window as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (Ctor === undefined) return;
-    const context = new Ctor();
-    const gain = context.createGain();
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.06, context.currentTime + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.28);
-    gain.connect(context.destination);
+    const context = audio();
+    if (context === undefined) return;
 
-    const tone = context.createOscillator();
-    tone.type = 'sine';
-    tone.frequency.setValueAtTime(880, context.currentTime);
-    tone.frequency.setValueAtTime(1174, context.currentTime + 0.09);
-    tone.connect(gain);
-    tone.start();
-    tone.stop(context.currentTime + 0.3);
-    tone.onended = () => void context.close().catch(() => undefined);
+    /* A context created before any gesture starts suspended. Resuming is a no-op when it is
+       already running, and the failure — a browser that refuses without a gesture — is
+       exactly the case that should stay silent rather than throw. */
+    if (context.state === 'suspended') void context.resume().catch(() => undefined);
+
+    buildNotificationTone(context, context.destination, context.currentTime);
+
+    /* The context is NOT closed. It is reused — see `audio()` — and closing it after every
+       notification is what would make three arrivals in a second open three contexts. */
   } catch {
     // Autoplay policy, a missing device, a browser without WebAudio. None is worth an error.
   }
