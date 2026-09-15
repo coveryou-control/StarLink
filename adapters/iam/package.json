@@ -17,7 +17,7 @@
   "dependencies": {
     "@starlink/database": "workspace:*",
     "@starlink/shared-contracts": "workspace:*",
-    "drizzle-orm": "^0.38.2"
+    "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
     "@types/pg": "^8.11.10",
